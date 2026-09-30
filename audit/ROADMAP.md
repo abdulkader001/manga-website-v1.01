@@ -68,7 +68,7 @@ pages. Details: [project-verdict-2026-09-30.md](project-verdict-2026-09-30.md),
 | --- | --- | --- | --- | --- |
 | 8 | Buttons on the admin series page: re-compress pictures, and change layout (group size, spread mode, reading direction). The API endpoints exist already. | done | 2026-09-30 | Two row buttons and a layout dialog in `SeriesManagement.jsx`. Group size is not offered: the layout endpoint ignores it (grouping is fixed at import). The compress button only handles chapters still pointing at the source site. Build and `tsc` pass; not clicked through in a browser. |
 | 9 | Log which legacy API aliases are still called, then remove the two old mounts (each route is registered three times today). | doing | 2026-09-30 | Logging done: `legacy_api_alias_used` log line plus a `legacy_api_alias_requests_total{alias,route}` metric on `/metrics`; test in `test_legacy_api_aliases.py`. Removal of the two mounts still waits until production shows no use. The UI itself calls `/api/v1`. |
-| 10 | Drop the unused `custom_tabs` table with a migration. | todo | | Ask the owner first: it is data loss. |
+| 10 | Drop the unused `custom_tabs` table with a migration. | done | 2026-09-30 | Owner approved the drop. Migration `20261002_drop_custom_tabs` (downgrade recreates the empty table); model, relationship and export removed. Run on SQLite only; not run on Postgres. Rows in the table are lost. |
 
 ## PR D — Keep it running without attention
 
