@@ -82,6 +82,11 @@ export default function ReaderOverlay({
             h: r.coordinates.height / size.h,
             original: r.source_text || "",
             translated: r.text,
+            // Bubble's own fill, sampled just outside the original lettering,
+            // so the translation replaces the text instead of sitting in a
+            // white patch. Only used when the surrounding art is plain.
+            bg: r.background_clean ? r.background : null,
+            fg: r.background_clean ? r.text_color : null,
           }));
         setBoxes(found);
       } catch {
@@ -117,6 +122,9 @@ export default function ReaderOverlay({
             minHeight: `${box.h * 100}%`,
             fontSize: `${fontScale}px`,
             lineHeight: 1.25,
+            ...(overlayStyle === "white_box" && box.bg
+              ? { backgroundColor: box.bg, color: box.fg }
+              : {}),
           }}
           title={`Original: ${box.original}`}
         >

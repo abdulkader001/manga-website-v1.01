@@ -85,11 +85,25 @@ def _referer_for(chapter: Chapter) -> Optional[str]:
 
 
 def reader_page_urls(db: Session, chapter: Chapter) -> List[str]:
-    """Page image URLs as the browser should load them."""
+    """Page image URLs as the browser should load them.
+
+    Our own compressed copies are served as-is (optionally through the image
+    CDN); source URLs go through the signed proxy when the source blocks
+    hotlinking.
+    """
+
+    from ..utils.cdn import build_cdn_url
+    from . import page_image_service
 
     raw = chapter.pages or []
     pages = [p for p in (raw if isinstance(raw, list) else [raw]) if isinstance(p, str) and p]
-    referer = _referer_for(chapter)
-    if not referer:
-        return pages
-    return [proxied_url(page, referer) for page in pages]
+    referer = _referer_for(chapter) if any(not page_image_service.is_local_url(p) for p in pages) else None
+    urls: List[str] = []
+    for page in pages:
+        if page_image_service.is_local_url(page):
+            urls.append(build_cdn_url(page) or page)
+        elif referer:
+            urls.append(proxied_url(page, referer))
+        else:
+            urls.append(page)
+    return urls

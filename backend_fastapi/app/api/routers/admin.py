@@ -2573,6 +2573,9 @@ def delete_series(
     deleted_chapters = db.query(Chapter).filter(Chapter.manga_id == manga.id).delete()
     db.delete(manga)
     db.commit()
+    from ...services import page_image_service
+
+    page_image_service.delete_series_files(manga_id)
 
     log_admin_action(
         db,

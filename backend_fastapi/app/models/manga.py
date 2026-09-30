@@ -278,6 +278,11 @@ class Chapter(Base):
     chapter_url = Column(String, unique=True, nullable=False)
     scraped_at = Column(DateTime, nullable=True)
     pages = Column(JSON, nullable=True)
+    # The source site's image URLs, kept when ``pages`` holds our own
+    # compressed WebP copies (used to re-mirror, remap and roll back).
+    source_pages = Column(JSON, nullable=True)
+    # Bytes stored for this chapter's mirrored pages (storage accounting).
+    pages_bytes = Column(Integer, nullable=True)
     # queued | scraping | complete | failed (SRS 1G.1.3). Chapters ingest one
     # by one (1G.2.3); this makes partial ingestion resumable and visible.
     ingestion_status = Column(

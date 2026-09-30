@@ -392,6 +392,17 @@ class ScraperWorkflowService:
             )
         self.db.commit()
 
+    def _queue_page_mirroring(self, chapter_id: int) -> None:
+        """Compress and self-host the chapter's pictures (own task, own
+        retries). Never lets a broker hiccup fail the scrape itself."""
+
+        try:
+            from ..tasks.scraper_tasks import mirror_chapter_pages
+
+            mirror_chapter_pages.delay(chapter_id)
+        except Exception:  # pragma: no cover - broker unavailable
+            logger.warning("page_mirroring_not_queued", chapter_id=chapter_id)
+
     def process_chapter_scrape(
         self, chapter_id: int, *, is_final_attempt: bool = True
     ) -> Dict[str, Any]:
@@ -422,11 +433,14 @@ class ScraperWorkflowService:
                 self.chapter_repo.update(
                     chapter,
                     pages=chapter_data.get("pages", []),
+                    source_pages=None,
+                    pages_bytes=None,
                     scraped_at=datetime.utcnow(),
                     ingestion_status="complete",
                 )
                 self.db.commit()
                 self._maybe_complete(chapter.manga_id)
+                self._queue_page_mirroring(chapter.id)
 
                 logger.info(f"Successfully scraped chapter data for {url}")
                 self._record_health(domain, success=True)

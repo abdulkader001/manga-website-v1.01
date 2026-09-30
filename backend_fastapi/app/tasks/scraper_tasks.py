@@ -178,6 +178,42 @@ def process_chapter_scrape(self, chapter_id: int):
 
 @celery_app.task(
     bind=True,
+    time_limit=900,
+    soft_time_limit=840,
+    name="backend_fastapi.app.tasks.scraper_tasks.mirror_chapter_pages",
+    max_retries=2,
+    default_retry_delay=120,
+    autoretry_for=(Exception,),
+    retry_backoff=True,
+)
+def mirror_chapter_pages(self, chapter_id: int):
+    """Download a chapter's pictures, compress them to WebP and self-host them."""
+
+    from ..services import page_mirror_service
+
+    with _session_scope() as session:
+        return page_mirror_service.mirror_chapter_by_id(session, chapter_id)
+
+
+@celery_app.task(
+    name="backend_fastapi.app.tasks.scraper_tasks.mirror_series_pages",
+    time_limit=300,
+)
+def mirror_series_pages(manga_id: int):
+    """Queue page mirroring for every chapter of a series that still points at
+    its source site (used for existing series and after a rescrape)."""
+
+    from ..services import page_mirror_service
+
+    with _session_scope() as session:
+        chapter_ids = page_mirror_service.chapters_needing_mirror(session, manga_id)
+    for chapter_id in chapter_ids:
+        mirror_chapter_pages.delay(chapter_id)
+    return {"series_id": manga_id, "queued": len(chapter_ids)}
+
+
+@celery_app.task(
+    bind=True,
     time_limit=300,
     soft_time_limit=240,
     name="backend_fastapi.app.tasks.scraper_tasks.scrape_series_by_url",

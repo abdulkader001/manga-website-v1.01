@@ -93,6 +93,13 @@ def _build_translation_service(
 
 
 def _fetch_image_bytes_sync(url: str) -> bytes:
+    # Our own compressed copies live on disk: read them directly (no network,
+    # no SSRF surface, no dependence on the source site being up).
+    from ...services import page_image_service
+
+    local = page_image_service.path_from_url(url)
+    if local is not None:
+        return local.read_bytes()
     # Synchronous call: process_page's callables are plain sync functions so
     # the orchestrator stays trivially testable.
     #
@@ -195,14 +202,22 @@ async def process_chapter_page(
         plan, primary=primary_translation, fallback=fallback_translation
     )
 
-    image_url = build_cdn_url(pages[page_index])
-    if not image_url:
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY, detail="missing_page_image"
-        )
-    guard_error = validate_remote_image_url(image_url)
-    if guard_error:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=guard_error)
+    from ...services import page_image_service
+
+    if page_image_service.is_local_url(pages[page_index]):
+        if page_image_service.path_from_url(pages[page_index]) is None:
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY, detail="missing_page_image"
+            )
+    else:
+        image_url = build_cdn_url(pages[page_index])
+        if not image_url:
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY, detail="missing_page_image"
+            )
+        guard_error = validate_remote_image_url(image_url)
+        if guard_error:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=guard_error)
 
     def ocr_runner(image_bytes: bytes, language_hint: Optional[str]) -> Dict[str, Any]:
         from .ocr import ocr_service as shared_ocr_service

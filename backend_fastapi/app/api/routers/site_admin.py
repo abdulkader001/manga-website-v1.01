@@ -479,6 +479,9 @@ async def delete_all_manga(
     for manga in db.query(Manga).all():
         db.delete(manga)
     db.commit()
+    from ...services import page_image_service
+
+    page_image_service.delete_all_files()
     await ainvalidate_manga_caches(getattr(request.app.state, "redis", None))
     log_admin_action(
         db, request, current_user, "CATALOG_PURGE", "manga", "*", "success", previous_value=str(count)
@@ -1081,13 +1084,63 @@ async def delete_chapter_page(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Page not found")
     removed = pages.pop(page_index)
     chapter.pages = pages
+    # The stored list is now the truth; a later re-mirror must not bring the
+    # deleted page back from the source list.
+    chapter.source_pages = None
     db.commit()
+    from ...services import page_image_service
+
+    page_image_service.delete_page_file(str(removed))
     await ainvalidate_manga_caches(getattr(request.app.state, "redis", None), chapter.manga_id)
     log_admin_action(
         db, request, current_user, "CHAPTER_PAGE_DELETE", "chapter", str(chapter_id), "success",
         previous_value=str(removed)[:500],
     )
     return {"success": True, "pages": len(pages)}
+
+
+@router.post("/admin/series/{series_id}/mirror-images")
+async def mirror_series_images(
+    series_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission("edit_series")),
+) -> Dict[str, Any]:
+    """Compress and self-host the pictures of a series that still point at the
+    source site (existing series, or after a failed first attempt)."""
+
+    from ...services import page_mirror_service
+    from ...tasks.scraper_tasks import mirror_chapter_pages
+
+    if db.get(Manga, series_id) is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Series not found")
+    chapter_ids = page_mirror_service.chapters_needing_mirror(db, series_id)
+    for chapter_id in chapter_ids:
+        mirror_chapter_pages.delay(chapter_id)
+    return {
+        "success": True,
+        "queued": len(chapter_ids),
+        "message": (
+            f"Compressing {len(chapter_ids)} chapters in the background."
+            if chapter_ids
+            else "Every chapter of this series is already stored on this site."
+        ),
+    }
+
+
+@router.post("/admin/maintenance/mirror-all-images")
+async def mirror_all_images(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_main_admin_user),
+) -> Dict[str, Any]:
+    from ...services import page_mirror_service
+    from ...tasks.scraper_tasks import mirror_chapter_pages
+
+    queued = 0
+    for (series_id,) in db.query(Manga.id).all():
+        for chapter_id in page_mirror_service.chapters_needing_mirror(db, series_id):
+            mirror_chapter_pages.delay(chapter_id)
+            queued += 1
+    return {"success": True, "queued": queued, "message": f"Compressing {queued} chapters in the background."}
 
 
 __all__ = ["router", "site_settings_payload", "health_extras", "apply_schedule", "SchedulePayload"]
