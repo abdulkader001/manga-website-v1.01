@@ -155,6 +155,66 @@ sudo REDIS_DATA_DIR=/var/lib/redis \
 A copy of the existing dump is preserved alongside the target file with a
 `.bak` suffix and timestamp in case you need to roll back.
 
+## Pictures volume
+
+The stored chapter pictures and covers (`/app/storage`, the `app-storage`
+volume) are not in the database dump. They can be re-downloaded from the source
+sites only while those sites still have them, so they are backed up too.
+
+| Script | What it does |
+|---|---|
+| `backup_storage.sh` | Writes a timestamped `storage-<time>.tar` (plain tar: WebP does not compress further). Encrypted to `.tar.gpg` when `STORAGE_BACKUP_ENCRYPTION_PASSPHRASE` (or the Postgres passphrase) is set. |
+| `restore_storage.sh <archive> [dir]` | Extracts into a directory. Refuses a non-empty target unless `STORAGE_RESTORE_FORCE=1`. Stop the API and workers before restoring onto the live volume. |
+| `verify_storage_restore.sh` | The restore test: backs up, restores into a scratch directory and compares every file by SHA-256. Non-zero exit on any difference. Read-only on the live volume. |
+
+Variables: `STORAGE_DIR` (default `/app/storage`), `STORAGE_BACKUP_DIR`,
+`STORAGE_BACKUP_PREFIX`, `STORAGE_BACKUP_RETENTION_DAYS` (default 7).
+
+## Scheduled backups (systemd)
+
+`manga-backup.timer` runs `run_backups.sh` (Postgres, Redis, pictures) every
+night at 03:00; `manga-backup-verify.timer` runs `run_backup_verification.sh`
+(database restore test plus pictures restore test) every Sunday at 04:00. Both
+read `/etc/manga/backup.env` (mode 600) for the database credentials, paths and
+the encryption passphrase. Every step runs even when an earlier one fails, and
+the unit ends failed if any did, so alert on failed `manga-backup*.service`
+units.
+
+```
+sudo install -m 600 /dev/null /etc/manga/backup.env   # then fill it in
+sudo cp backend_fastapi/deployment/manga-backup*.{service,timer} /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now manga-backup.timer manga-backup-verify.timer
+systemctl list-timers 'manga-backup*'
+```
+
+`run_backup_verification.sh` restores the database into a scratch database, so
+point `POSTGRES_HOST` at a staging replica in `backup.env` for that timer, never
+the production primary (see the warning above).
+
+## Restore drill (written procedure)
+
+Do this once before relying on the backups, then once a quarter, on a spare
+machine or a staging stack. Record the date, who ran it and the outcome (for
+example in the incident runbook). Times are what to write down.
+
+1. **Pick the newest backups**: `ls -lt $POSTGRES_BACKUP_DIR $STORAGE_BACKUP_DIR`.
+   Check each is from the last night and not suspiciously small.
+2. **Database**: create an empty database, then
+   `restore_postgres.sh <dump>` (or the automated `verify_backup_restore.sh`).
+   Expect the table list and row counts to match production at backup time.
+3. **Pictures**: `restore_storage.sh <archive> /srv/restore-test/storage`.
+   Expect the same number of files as `find /app/storage -type f | wc -l`
+   (`verify_storage_restore.sh` does the file-by-file comparison).
+4. **Application check** (manual, staging only): start the stack against the
+   restored database and volume, sign in, open a series, open a chapter and
+   confirm the pictures load from the site (not the source).
+5. **Write down**: backup file names, how long steps 2 and 3 took (this is the
+   real RTO), anything that failed and what was changed.
+
+If any step fails, treat the backups as unusable until fixed and re-run the
+drill.
+
 ## Sample cron entry
 
 Schedule nightly backups at 03:00 with a single cron entry that runs both

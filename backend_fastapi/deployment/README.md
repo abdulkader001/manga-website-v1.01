@@ -7,7 +7,7 @@
 | `k8s/` | Kubernetes manifests: API, Celery worker/beat, migrate job |
 | `manga-api.service`, `manga-worker.service`, `manga-beat.service`, `manga-compose.service` | systemd units |
 | `setup-server.sh`, `migrate.sh`, `check_env_placeholders.sh` | Server bootstrap and migrations |
-| `backup_*.sh`, `restore_*.sh`, `verify_backup_restore.sh`, `backups.md` | Postgres/Redis backups and restore drills |
+| `backup_*.sh`, `restore_*.sh`, `verify_*_restore.sh`, `run_backups.sh`, `run_backup_verification.sh`, `manga-backup*.service/.timer`, `backups.md` | Postgres, Redis and pictures backups, scheduled runs, restore tests and the written restore drill |
 | `monitoring.sh` | Endpoint uptime polling |
 
 Web/nginx deployment: [../../deployment/](../../deployment/README.md).

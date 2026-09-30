@@ -44,13 +44,16 @@ def init_sentry(settings) -> None:
 
     try:
         import sentry_sdk
+        from sentry_sdk.integrations.celery import CeleryIntegration
         from sentry_sdk.integrations.fastapi import FastApiIntegration
 
         sentry_sdk.init(
             dsn=dsn,
             environment=settings.sentry_environment,
             release=settings.release,
-            integrations=[FastApiIntegration()],
+            # CeleryIntegration reports a task's final failure (after retries),
+            # so failed background jobs reach Sentry from the worker processes.
+            integrations=[FastApiIntegration(), CeleryIntegration()],
         )
         logger.info(
             "Sentry SDK initialized (environment=%s)", settings.sentry_environment

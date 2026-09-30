@@ -159,6 +159,8 @@ requests==2.33.1
     #   deep-translator
 rsa==4.9.1
     # via python-jose
+sentry-sdk==2.71.0
+    # via -r requirements.txt
 six==1.17.0
     # via
     #   ecdsa

@@ -1,0 +1,16 @@
+[Unit]
+Description=Manga Website nightly backups (Postgres, Redis, pictures)
+After=network.target postgresql.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/var/www/manga
+# Backup settings and database credentials; keep the encryption passphrase
+# here (mode 600) and never in this unit or the crontab.
+EnvironmentFile=/etc/manga/backup.env
+ExecStart=/usr/bin/env bash /var/www/manga/backend_fastapi/deployment/run_backups.sh
+User=manga
+Group=manga
+SyslogIdentifier=manga-backup
+# A non-zero exit marks the unit failed; alert on that (for example with
+# OnFailure= or your monitoring of failed systemd units).

@@ -128,11 +128,15 @@ def test_blocking_scraper_confined_to_worker_layer() -> None:
     #   - rescrape_service: staged full-series rescrape (1G.12.4)
     #   - scheduled_checks_service: periodic new-chapter checks (1G.12A),
     #     driven only by the run_scheduled_chapter_checks beat task
+    #   - source_health_service: daily per-site parser check (roadmap item 11),
+    #     driven only by the check_source_health beat task; the admin API only
+    #     reads its stored results
     scrape_pkg_prefix = "scrapers/"
     worker_driver_modules = {
         "services/scraper_workflow_service.py",
         "services/rescrape_service.py",
         "services/scheduled_checks_service.py",
+        "services/source_health_service.py",
     }
 
     base_scraper_sites: set[str] = set()

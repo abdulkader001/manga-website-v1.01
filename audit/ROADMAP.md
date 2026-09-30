@@ -74,10 +74,10 @@ pages. Details: [project-verdict-2026-09-30.md](project-verdict-2026-09-30.md),
 
 | # | Item | Status | Done (date, PR) | Notes |
 | --- | --- | --- | --- | --- |
-| 11 | Daily health check per source site: alert when a parser finds 0 chapters or 0 pictures, then try AI re-detection. Sites change layout over time; this is the main long-term breakage. | todo | | |
-| 12 | Storage usage report (admin page or metric) and an alert threshold. `chapters.pages_bytes` already stores sizes. | todo | | |
-| 13 | Error monitoring (Sentry or similar) and alerts for failed Celery tasks. | todo | | Needs the owner's DSN. |
-| 14 | Scheduled backups for Postgres and the pictures volume, plus a written restore test. | todo | | `backend_fastapi/deployment/` has backup scripts to build on. |
+| 11 | Daily health check per source site: alert when a parser finds 0 chapters or 0 pictures, then try AI re-detection. Sites change layout over time; this is the main long-term breakage. | done | 2026-09-30 | `source_health_service.py`, daily task `check_source_health`. One sample series per host; zero chapters / zero pictures / unreachable -> admin notification; the first two also try re-detection and save a *candidate* parser only (activation stays with an admin). Latest results: `GET /admin/sources/health`. Tested with mocked sites; never run against a real source site (needs the real sites). |
+| 12 | Storage usage report (admin page or metric) and an alert threshold. `chapters.pages_bytes` already stores sizes. | done | 2026-09-30 | `storage_report_service.py`: `GET /admin/storage` (totals from `pages_bytes`, top series, volume usage), Prometheus gauges, daily alert task; limits `STORAGE_ALERT_PERCENT` (80) and `STORAGE_ALERT_BYTES`. No admin screen yet. |
+| 13 | Error monitoring (Sentry or similar) and alerts for failed Celery tasks. | blocked | 2026-09-30 | Code done: `sentry-sdk` added to requirements (it was missing, so Sentry never started), Celery integration, and workers now initialise it. Needs the owner's DSN (U4) in `SENTRY_DSN`; until then it stays off. `requirements.lock` edited by hand, regenerate with pip-compile when convenient. |
+| 14 | Scheduled backups for Postgres and the pictures volume, plus a written restore test. | done | 2026-09-30 | Added pictures backup, restore and restore-test scripts, `run_backups.sh`, `run_backup_verification.sh`, systemd timers (nightly backup, weekly restore test) and a written restore drill in `backups.md`. Scripts tested on a local directory (plain and encrypted); Postgres and Redis steps and the systemd units were not run here. |
 
 ## PR E — Deeper security
 
