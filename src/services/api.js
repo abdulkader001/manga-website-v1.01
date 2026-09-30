@@ -508,13 +508,6 @@ const api = {
     removeApprovedDomain: (id) => api.del(`/admin/approved-domains/${id}`),
   },
 
-  // ---- Custom Tabs ----
-  tabs: {
-    list: () => api.get("/custom-tabs"),
-    add: (payload) => api.post("/custom-tabs", payload),
-    remove: (id) => api.del(`/custom-tabs/${id}`),
-  },
-
   // ---- Native comments (SRS Part 3 / 3A) ----
   comments: {
     config: () => api.get("/comments/config"),
