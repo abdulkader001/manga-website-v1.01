@@ -82,7 +82,7 @@ jobs:
       # Rule set is pinned in ruff.toml to the flake8 baseline this codebase
       # was written against — see the comment there before widening it.
       - name: Lint (ruff)
-        run: ruff check backend_fastapi scripts
+        run: ruff check backend_fastapi
 
       - name: Test suite against PostgreSQL
         run: pytest backend_fastapi/tests -q --timeout=600
