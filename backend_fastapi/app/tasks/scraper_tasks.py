@@ -623,3 +623,40 @@ def run_source_task(task_id: str) -> Dict[str, Any]:
         row.result = result
         session.commit()
         return {"status": row.status}
+
+
+@celery_app.task(
+    name="backend_fastapi.app.tasks.scraper_tasks.check_source_health",
+    time_limit=1800,
+    soft_time_limit=1700,
+)
+def check_source_health() -> Dict[str, Any]:
+    """Daily: run each source site's parser against a sample series, alert on
+    zero chapters / zero pictures and try to write a replacement parser."""
+
+    from ..services import source_health_service
+
+    with _session_scope() as session:
+        return source_health_service.run_health_checks(session)
+
+
+@celery_app.task(name="backend_fastapi.app.tasks.scraper_tasks.check_storage_usage")
+def check_storage_usage() -> Dict[str, Any]:
+    """Daily: alert the admins when the pictures volume passes its threshold."""
+
+    from datetime import date
+
+    from ..services import storage_report_service
+    from ..services.notification_service import notify_async
+
+    with _session_scope() as session:
+        report = storage_report_service.build_report(session)
+    if report["alert"]["active"]:
+        notify_async(
+            type="system.storage_high",
+            title="Picture storage is getting full",
+            body="; ".join(report["alert"]["reasons"]).capitalize() + ".",
+            data={"picture_bytes": report["picture_bytes"], **report["volume"]},
+            dedup_key=f"storage_high:{date.today().isoformat()}",
+        )
+    return {"picture_bytes": report["picture_bytes"], "alert": report["alert"]["active"]}

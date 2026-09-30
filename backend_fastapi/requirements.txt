@@ -46,3 +46,4 @@ structlog==26.1.0
 bleach==6.4.0
 cachetools==7.1.4
 prometheus-client==0.21.1
+sentry-sdk==2.71.0

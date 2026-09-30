@@ -57,6 +57,7 @@ TYPE_CATEGORY: Dict[str, str] = {
     "series.ingested": CATEGORY_ADMINISTRATIVE,
     "ingestion.failed": CATEGORY_ADMINISTRATIVE,
     "report.queue": CATEGORY_ADMINISTRATIVE,
+    "system.storage_high": CATEGORY_ADMINISTRATIVE,
     "disposable_email.banned": CATEGORY_ADMINISTRATIVE,
     "quota.ceiling_reached": CATEGORY_ADMINISTRATIVE,
     # Security (1I.3.2) — never suppressible.

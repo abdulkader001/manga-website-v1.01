@@ -1178,6 +1178,30 @@ async def mirror_series_images(
     }
 
 
+@router.get("/admin/sources/health")
+async def source_health(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission("edit_series")),
+) -> Dict[str, Any]:
+    """Latest daily parser health result for every source website."""
+
+    from ...services import source_health_service
+
+    return {"sources": source_health_service.all_statuses(db)}
+
+
+@router.get("/admin/storage")
+async def storage_usage(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission("edit_series")),
+) -> Dict[str, Any]:
+    """How much the stored chapter pictures take and how full the volume is."""
+
+    from ...services import storage_report_service
+
+    return storage_report_service.build_report(db)
+
+
 @router.post("/admin/maintenance/mirror-all-images")
 async def mirror_all_images(
     db: Session = Depends(get_db),

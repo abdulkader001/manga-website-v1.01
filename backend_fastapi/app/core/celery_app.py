@@ -254,6 +254,12 @@ def _prepare_database_in_child(**_kwargs) -> None:  # pragma: no cover - exercis
       killed mid-task.
     """
 
+    # Roadmap item 13: workers report failed tasks to Sentry too (the API
+    # initialises it in main.py; workers never import that path).
+    from ..bootstrap.observability import init_sentry
+
+    init_sentry(settings)
+
     from sqlalchemy import event
 
     from .db import engine
@@ -380,6 +386,17 @@ celery_app.conf.beat_schedule = {
     # old name implied a consistency/repair pass that never existed.
     "nightly-manga-count-metric": {
         "task": "backend_fastapi.app.tasks.scraper_tasks.report_manga_count_metric",
+        "schedule": 60.0 * 60.0 * 24.0,
+    },
+    # Roadmap item 11: per-source-site parser health check (zero chapters or
+    # zero pictures -> admin alert + parser re-detection).
+    "source-health-daily": {
+        "task": "backend_fastapi.app.tasks.scraper_tasks.check_source_health",
+        "schedule": 60.0 * 60.0 * 24.0,
+    },
+    # Roadmap item 12: alert when the pictures volume passes its threshold.
+    "storage-usage-daily": {
+        "task": "backend_fastapi.app.tasks.scraper_tasks.check_storage_usage",
         "schedule": 60.0 * 60.0 * 24.0,
     },
     # Daily PDF integrity scan (single canonical entry; was pdf-integrity +
