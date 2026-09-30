@@ -1,5 +1,6 @@
 import structlog
 from datetime import datetime
+from types import SimpleNamespace
 from typing import Dict, Any
 from sqlalchemy.orm import Session
 
@@ -128,27 +129,23 @@ class ScraperWorkflowService:
                     chapters_data = sorted(
                         chapters_data, key=lambda c: c.get("number", 0.0)
                     )[-cap:]
-                new_chapters = []
-
                 existing_urls = (
                     self.chapter_repo.get_urls_for_manga(manga.id) if manga else set()
                 )
 
-                for c_data in chapters_data:
-                    c_url = c_data.get("url")
-                    if not c_url:
-                        continue
+                from .chapter_grouping import build_chapter_rows, effective_layout
 
-                    if c_url not in existing_urls:
-                        new_chapters.append(
-                            {
-                                "manga_id": manga.id,
-                                "chapter_number": c_data.get("number", 0.0),
-                                "chapter_title": c_data.get("title", ""),
-                                "chapter_url": c_url,
-                                "ingestion_status": "queued",
-                            }
-                        )
+                layout = effective_layout(manga)
+                status_value = getattr(manga.status, "value", manga.status)
+                new_chapters = build_chapter_rows(
+                    manga.id,
+                    chapters_data,
+                    group_size=layout["group_size"],
+                    consumed_urls=existing_urls,
+                    # A finished series has nothing more coming: publish the
+                    # last, shorter group instead of holding it.
+                    flush=str(status_value or "") == "completed",
+                )
 
                 if new_chapters:
                     self.chapter_repo.bulk_insert(new_chapters)
@@ -253,9 +250,14 @@ class ScraperWorkflowService:
             for row in self.db.query(Chapter.chapter_url).filter(Chapter.manga_id == manga.id)
         }
         remapped = 0
+        from .chapter_grouping import remap_members
+
         for chapter in self.db.query(Chapter).filter(Chapter.manga_id == manga.id):
+            # Grouped chapters carry several source URLs; move them all.
+            members_moved = remap_members(chapter, by_number)
             new_url = by_number.get(float(chapter.chapter_number))
             if not new_url or new_url == chapter.chapter_url or new_url in taken:
+                remapped += 1 if members_moved else 0
                 continue
             taken.discard(chapter.chapter_url)
             taken.add(new_url)
@@ -318,6 +320,10 @@ class ScraperWorkflowService:
             fields["check_interval_hours"] = int(options["interval_hours"])
         if options.get("auto_scrape_enabled") is False:
             fields["auto_scrape_enabled"] = False
+        if options.get("layout"):
+            from .chapter_grouping import normalize_layout
+
+            fields["scrape_layout"] = normalize_layout(options["layout"]) or None
         return fields
 
     def _notify_fix_subscribers(self, chapter, *, success: bool, error=None) -> None:
@@ -392,6 +398,38 @@ class ScraperWorkflowService:
             )
         self.db.commit()
 
+    @staticmethod
+    def _scrape_chapter_pages(scraper, chapter) -> Dict[str, Any]:
+        """Pages of a chapter; for a grouped chapter, every member's pages
+        joined in reading order (each member follows its own pagination)."""
+
+        members = [
+            m["url"]
+            for m in (chapter.group_urls or [])
+            if isinstance(m, dict) and m.get("url")
+        ]
+        if len(members) < 2:
+            return scraper.scrape_chapter(chapter.chapter_url)
+        pages: list = []
+        seen: set = set()
+        for member_url in members:
+            for page in scraper.scrape_chapter(member_url).get("pages", []):
+                if page not in seen:
+                    seen.add(page)
+                    pages.append(page)
+        return {"pages": pages, "source_url": chapter.chapter_url}
+
+    def _queue_page_mirroring(self, chapter_id: int) -> None:
+        """Compress and self-host the chapter's pictures (own task, own
+        retries). Never lets a broker hiccup fail the scrape itself."""
+
+        try:
+            from ..tasks.scraper_tasks import mirror_chapter_pages
+
+            mirror_chapter_pages.delay(chapter_id)
+        except Exception:  # pragma: no cover - broker unavailable
+            logger.warning("page_mirroring_not_queued", chapter_id=chapter_id)
+
     def process_chapter_scrape(
         self, chapter_id: int, *, is_final_attempt: bool = True
     ) -> Dict[str, Any]:
@@ -418,15 +456,26 @@ class ScraperWorkflowService:
             scraper = BaseScraper(domain)
 
             try:
-                chapter_data = scraper.scrape_chapter(url)
+                # Fetching every page of a (possibly grouped or paginated)
+                # chapter is slow network work: don't sit in a transaction.
+                members = SimpleNamespace(
+                    chapter_url=chapter.chapter_url,
+                    group_urls=list(chapter.group_urls or []),
+                )
+                self.db.commit()
+                chapter_data = self._scrape_chapter_pages(scraper, members)
+                chapter = self.chapter_repo.get_by_id(chapter_id)
                 self.chapter_repo.update(
                     chapter,
                     pages=chapter_data.get("pages", []),
+                    source_pages=None,
+                    pages_bytes=None,
                     scraped_at=datetime.utcnow(),
                     ingestion_status="complete",
                 )
                 self.db.commit()
                 self._maybe_complete(chapter.manga_id)
+                self._queue_page_mirroring(chapter.id)
 
                 logger.info(f"Successfully scraped chapter data for {url}")
                 self._record_health(domain, success=True)

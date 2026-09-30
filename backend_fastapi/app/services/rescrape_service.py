@@ -267,6 +267,17 @@ def notify_fix_subscribers(
 # ---------------------------------------------------------------------------
 
 
+def _queue_mirroring(manga_id: int) -> None:
+    """Compress and self-host the (new) pictures of a series in the background."""
+
+    try:
+        from ..tasks.scraper_tasks import mirror_series_pages
+
+        mirror_series_pages.delay(manga_id)
+    except Exception:  # pragma: no cover - broker unavailable
+        pass
+
+
 def _snapshot_key(manga_id: int) -> str:
     return f"series_snapshot_{manga_id}"
 
@@ -288,6 +299,7 @@ def _store_snapshot(db: Session, manga: Manga) -> None:
                 "chapter_title": c.chapter_title,
                 "chapter_url": c.chapter_url,
                 "pages": c.pages or [],
+                "source_pages": c.source_pages or [],
             }
             for c in chapters
         ],
@@ -321,11 +333,17 @@ def rollback_series(db: Session, manga: Manga) -> Dict[str, Any]:
         chapter = by_number.get(str(entry["chapter_number"]))
         if chapter is None:
             continue
-        chapter.pages = entry.get("pages") or []
+        # Prefer the source URLs: our stored copies may have been replaced by
+        # the rescrape being rolled back. They are re-mirrored afterwards.
+        restored_pages = entry.get("source_pages") or entry.get("pages") or []
+        chapter.pages = restored_pages
+        chapter.source_pages = None
+        chapter.pages_bytes = None
         chapter.chapter_title = entry.get("chapter_title")
-        chapter.ingestion_status = "complete" if entry.get("pages") else "queued"
+        chapter.ingestion_status = "complete" if restored_pages else "queued"
         restored += 1
     db.commit()
+    _queue_mirroring(manga.id)
     return {"restored_chapters": restored, "taken_at": snapshot.get("taken_at")}
 
 
@@ -485,6 +503,8 @@ def run_staged_rescrape(
             # history and bookmarks that reference it are preserved.
             updated += 1
         chapter.pages = staged["pages"]
+        chapter.source_pages = None
+        chapter.pages_bytes = None
         chapter.chapter_title = staged["title"] or chapter.chapter_title
         chapter.scraped_at = datetime.utcnow()
         chapter.ingestion_status = "complete"
@@ -493,6 +513,7 @@ def run_staged_rescrape(
     manga.last_scraped = datetime.utcnow()
     manga.last_error = None
     db.commit()
+    _queue_mirroring(manga.id)
 
     from .notification_service import notify_async
     from .scraper_health_service import record_success

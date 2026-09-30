@@ -8,6 +8,7 @@ from typing import Any, Dict, List, Optional
 import requests
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
@@ -395,8 +396,28 @@ def serve_cover(filename: str) -> Response:
     target = cover_service.path_for(filename)
     if target is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="not_found")
-    return Response(
-        content=target.read_bytes(),
+    return FileResponse(
+        target,
+        media_type="image/webp",
+        headers={
+            "Cache-Control": "public, max-age=31536000, immutable",
+            "X-Content-Type-Options": "nosniff",
+        },
+    )
+
+
+@router.get("/manga/pages/{manga_id}/{chapter_id}/{filename}")
+def serve_page_image(manga_id: int, chapter_id: int, filename: str) -> Response:
+    """A chapter page stored as compressed WebP. Names are content-addressed,
+    so browsers and CDNs may cache them forever."""
+
+    from ...services import page_image_service
+
+    target = page_image_service.path_for(manga_id, chapter_id, filename)
+    if target is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="not_found")
+    return FileResponse(
+        target,
         media_type="image/webp",
         headers={
             "Cache-Control": "public, max-age=31536000, immutable",

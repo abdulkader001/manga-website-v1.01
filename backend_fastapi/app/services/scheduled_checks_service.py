@@ -272,36 +272,38 @@ def run_check(db: Session, manga: Manga) -> Dict[str, Any]:
 
     record_success(db, domain)
 
-    known_urls = {
-        row[0] for row in db.query(Chapter.chapter_url).filter_by(manga_id=manga.id).all()
-    }
-    new_chapters = [
+    from ..models import Chapter
+    from ..tasks.scraper_tasks import process_chapter_scrape
+    from .chapter_grouping import build_chapter_rows, effective_layout, known_source_urls
+
+    known_urls = known_source_urls(db.query(Chapter).filter_by(manga_id=manga.id).all())
+    layout = effective_layout(manga)
+    status_value = getattr(manga.status, "value", manga.status)
+    source_chapters = [
         c
         for c in (manga_data.get("chapters") or [])
         if c.get("number") is not None
-        and float(c["number"]) not in existing_numbers
+        and (layout["group_size"] > 1 or float(c["number"]) not in existing_numbers)
         and c.get("url") not in known_urls
     ]
+    rows = build_chapter_rows(
+        manga.id,
+        source_chapters,
+        group_size=layout["group_size"],
+        consumed_urls=known_urls,
+        flush=str(status_value or "") == "completed",
+    )
     manga.last_scraped = datetime.utcnow()
     schedule_next_check(db, manga)
 
-    if not new_chapters:
+    if not rows:
         _record_stat(db, "no_new_chapters")
         db.commit()
         return {"status": "no_new_chapters"}
 
-    from ..models import Chapter
-    from ..tasks.scraper_tasks import process_chapter_scrape
-
     created_ids = []
-    for c_data in new_chapters:
-        chapter = Chapter(
-            manga_id=manga.id,
-            chapter_number=c_data.get("number", 0.0),
-            chapter_title=c_data.get("title", ""),
-            chapter_url=c_data.get("url"),
-            ingestion_status="queued",
-        )
+    for row in rows:
+        chapter = Chapter(**row)
         db.add(chapter)
         db.flush()
         created_ids.append(chapter.id)
@@ -320,7 +322,7 @@ def run_check(db: Session, manga: Manga) -> Dict[str, Any]:
     followers = {
         row[0] for row in db.query(Bookmark.user_id).filter_by(manga_id=manga.id).all()
     }
-    latest = max(c.get("number", 0) for c in new_chapters)
+    latest = max(float(r["chapter_number"]) for r in rows)
     for user_id in followers:
         # dedup_key scopes batching to this series: several new-chapter
         # events for the same series within the batch window collapse into
@@ -337,4 +339,4 @@ def run_check(db: Session, manga: Manga) -> Dict[str, Any]:
         )
     _record_stat(db, "new_chapters_found")
     db.commit()
-    return {"status": "new_chapters_found", "count": len(new_chapters)}
+    return {"status": "new_chapters_found", "count": len(rows)}

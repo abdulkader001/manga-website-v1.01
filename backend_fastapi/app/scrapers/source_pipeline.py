@@ -424,6 +424,75 @@ def _chapter_rows(series: Dict[str, Any]) -> List[Dict[str, Any]]:
     ]
 
 
+def sample_layout(
+    series_url: str, chapters: List[Dict[str, Any]], total: int = 0
+) -> Optional[Dict[str, Any]]:
+    """Look at a few real chapters and say how the source lays its content out.
+
+    Samples the first, middle and last chapter: how many pages each has, and
+    whether the first picture is a wide two-page scan. Best effort -- any
+    failure just means no hint, never a failed preview.
+    """
+
+    from ..services import page_image_service
+    from .base_scraper import BaseScraper
+
+    rows = sorted(
+        (c for c in chapters if c.get("url")), key=lambda c: float(c.get("number") or 0.0)
+    )
+    if len(rows) < 2:
+        return None
+    picks = list({rows[0]["url"]: rows[0], rows[len(rows) // 2]["url"]: rows[len(rows) // 2],
+                  rows[-1]["url"]: rows[-1]}.values())
+    scraper = BaseScraper(host_of(series_url))
+    counts: List[int] = []
+    first_pages: List[str] = []
+    for row in picks:
+        try:
+            pages = scraper.scrape_chapter(row["url"]).get("pages") or []
+        except Exception as exc:
+            logger.info("layout_sample_chapter_failed", url=row["url"], error=str(exc)[:160])
+            continue
+        counts.append(len(pages))
+        if pages:
+            first_pages.append((row["url"], pages[0]))
+    if not counts:
+        return None
+
+    hint: Dict[str, Any] = {"sample_page_counts": counts, "suggested_group_size": None,
+                            "suggested_source_format": None, "message": ""}
+    total = max(total, len(rows))
+    if total >= 6 and max(counts) <= 1:
+        hint.update(
+            suggested_group_size=10,
+            suggested_source_format="single",
+            message="Each chapter has a single page. Group them (10 per chapter) so it reads as a long vertical chapter.",
+        )
+    elif total >= 6 and max(counts) <= 3 and sum(counts) / len(counts) <= 2.5:
+        hint.update(
+            suggested_group_size=5,
+            suggested_source_format="single",
+            message="Chapters have only a few pages each. Grouping 5 per chapter is recommended.",
+        )
+    if first_pages:
+        chapter_url, image_url = first_pages[0]
+        try:
+            from io import BytesIO
+
+            from PIL import Image
+
+            referer, headers = page_image_service.referer_for_chapter(chapter_url)
+            width, height = Image.open(BytesIO(page_image_service._download(image_url, referer, headers))).size
+            if height and width / height >= page_image_service.SPREAD_MIN_ASPECT:
+                hint["suggested_source_format"] = "double"
+                hint["message"] = (hint["message"] + " " if hint["message"] else "") + (
+                    "Pictures are wide two-page (book format) scans; they will be split into single vertical pages."
+                )
+        except Exception:
+            pass
+    return hint
+
+
 def run_preview(db: Session, payload: Dict[str, Any], actor: Optional[User]) -> Dict[str, Any]:
     """Series import preview: MangaUpdates metadata + the chapters the source
     site really has, exactly as an import would ingest them."""
@@ -483,6 +552,14 @@ def run_preview(db: Session, payload: Dict[str, Any], actor: Optional[User]) -> 
         "detectedChapterCount": total,
         "parser": (source or {}).get("parser"),
     }
+    if source and source.get("ok"):
+        try:
+            hint = sample_layout(series_url, series.get("chapters") or [], total)
+        except Exception as exc:
+            logger.info("layout_sample_failed", url=series_url, error=str(exc)[:160])
+            hint = None
+        if hint:
+            preview["layout_hint"] = hint
     return {"ok": True, "preview": preview, "warnings": warnings}
 
 

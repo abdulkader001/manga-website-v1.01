@@ -12,7 +12,7 @@ treat the result as a best guess, not ground truth.
 
 from __future__ import annotations
 
-from typing import Dict, Optional
+from typing import Any, Dict, Optional
 
 try:  # Pillow is already a hard dependency of ocr_service.
     from PIL import Image
@@ -116,7 +116,63 @@ def classify_region(
     return REGION_SPEECH_BUBBLE
 
 
+def sample_background(
+    image: Optional["Image.Image"], box: Dict[str, float], margin: int = 6, gap: int = 2
+) -> Optional[Dict[str, Any]]:
+    """Colour the page has just outside a text box, for erasing the original
+    lettering and drawing the translation on top of it.
+
+    ``background`` is the per-channel median of a thin ring around the box
+    (starting ``gap`` pixels off it, so anti-aliased lettering is not sampled) --
+    the bubble's own fill. ``text_color`` is a black/white pick that contrasts
+    with it. ``background_clean`` is False when a real share of the ring differs
+    a lot from that fill (busy artwork): painting a solid patch there would look
+    wrong, so the overlay falls back to its default style.
+    """
+
+    if image is None or Image is None:
+        return None
+    try:
+        rgb = image.convert("RGB")
+        width, height = rgb.size
+        x0, y0 = int(box["x"]) - gap, int(box["y"]) - gap
+        x1, y1 = int(box["x"] + box["width"]) + gap, int(box["y"] + box["height"]) + gap
+        ox0, oy0 = max(0, x0 - margin), max(0, y0 - margin)
+        ox1, oy1 = min(width, x1 + margin), min(height, y1 + margin)
+        ix0, iy0, ix1, iy1 = max(0, x0), max(0, y0), min(width, x1), min(height, y1)
+        if ox1 <= ox0 or oy1 <= oy0:
+            return None
+        strips = [
+            (ox0, oy0, ox1, iy0),  # above
+            (ox0, iy1, ox1, oy1),  # below
+            (ox0, iy0, ix0, iy1),  # left
+            (ix1, iy0, ox1, iy1),  # right
+        ]
+        samples = []
+        for sx0, sy0, sx1, sy1 in strips:
+            if sx1 > sx0 and sy1 > sy0:
+                strip = rgb.crop((sx0, sy0, sx1, sy1))
+                strip.thumbnail((64, 64))
+                samples.extend(strip.getdata())
+        if not samples:
+            return None
+        mid = len(samples) // 2
+        color = tuple(sorted(px[c] for px in samples)[mid] for c in range(3))
+        centre = 0.299 * color[0] + 0.587 * color[1] + 0.114 * color[2]
+        outliers = sum(
+            1 for px in samples if abs(0.299 * px[0] + 0.587 * px[1] + 0.114 * px[2] - centre) > 45
+        )
+        return {
+            "background": "#%02x%02x%02x" % color,
+            "text_color": "#111111" if centre >= 140 else "#f5f5f5",
+            "background_clean": outliers / len(samples) <= 0.12,
+        }
+    except Exception:  # pragma: no cover - never let styling break OCR
+        return None
+
+
 __all__ = [
+    "sample_background",
     "classify_region",
     "REGION_SPEECH_BUBBLE",
     "REGION_RECTANGLE",

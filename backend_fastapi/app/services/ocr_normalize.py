@@ -97,16 +97,18 @@ def build_normalized_output(
         region_type = raw.get("region_type") or region_classifier.classify_region(
             box, page=page, confidence=confidence, image=image
         )
-        regions.append(
-            {
-                "index": idx,
-                "text": str(raw.get("text") or ""),
-                "coordinates": box,
-                "confidence": confidence,
-                "region_type": region_type,
-                "reading_order": order_by_index[idx],
-            }
-        )
+        region = {
+            "index": idx,
+            "text": str(raw.get("text") or ""),
+            "coordinates": box,
+            "confidence": confidence,
+            "region_type": region_type,
+            "reading_order": order_by_index[idx],
+        }
+        styling = region_classifier.sample_background(image, box)
+        if styling:
+            region.update(styling)
+        regions.append(region)
 
     # Present regions in reading order -- the natural iteration order for
     # every downstream consumer (translation context, overlap resolution).

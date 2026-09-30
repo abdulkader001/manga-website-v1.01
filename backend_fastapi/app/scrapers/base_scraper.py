@@ -10,9 +10,11 @@ scraping ever needs to move onto an event loop, switch to ``asyncio.sleep`` and
 an async HTTP client at that time.
 """
 
+import re
 import structlog
 import time
 from typing import Dict, Any, List, Optional
+from urllib.parse import urlparse
 import requests
 from bs4 import BeautifulSoup
 from .config import ConfigManager
@@ -344,6 +346,18 @@ class BaseScraper:
             seen_images: set[str] = set()
             visited_urls: set[str] = {url}
             next_selector = (config_to_use.get("next_page") or "").strip()
+            template = (config_to_use.get("page_url_template") or "").strip()
+            # A chapter can be spread over several HTML pages in three ways:
+            # a "next page" link (``next_page``), a dropdown / list of every
+            # page (``page_list``), or numbered URLs (``page_url_template``,
+            # ``{url}`` = chapter URL, ``{base}`` = site root, ``{n}`` = page
+            # number starting at 2). All keep reading order and stop on a
+            # repeated URL, a page with nothing new, or the hard caps.
+            queued_urls = self._chapter_page_urls(
+                soup, url, (config_to_use.get("page_list") or "").strip()
+            )
+            page_list_urls = set(queued_urls)
+            template_number = 2
 
             current_url = url
             current_soup = soup
@@ -357,11 +371,13 @@ class BaseScraper:
                     current_url,
                     config_to_use,
                 )
+                new_on_page = 0
                 for src in page_images:
                     if src in seen_images:
                         continue  # de-dupe across paginated pages, keep order
                     seen_images.add(src)
                     pages.append(src)
+                    new_on_page += 1
                     if len(pages) >= MAX_IMAGES_PER_CHAPTER:
                         logger.warning(
                             "Chapter image cap reached (%s) for %s; stopping",
@@ -370,9 +386,7 @@ class BaseScraper:
                         )
                         break
 
-                # Stop unless a next-page selector is configured AND resolves to
-                # a not-yet-visited URL within the guardrail caps.
-                if not next_selector or len(pages) >= MAX_IMAGES_PER_CHAPTER:
+                if len(pages) >= MAX_IMAGES_PER_CHAPTER:
                     break
                 if fetched_pages >= MAX_PAGES_PER_CHAPTER:
                     logger.warning(
@@ -382,26 +396,54 @@ class BaseScraper:
                     )
                     break
 
-                next_tag = current_soup.select_one(next_selector)
-                next_href = next_tag.get("href") if next_tag else None
-                if not next_href:
-                    break
-                next_url = urljoin(current_url, next_href.strip())
-                if next_url in visited_urls:
-                    break  # pagination looped back on itself
+                next_url = None
+                if queued_urls:
+                    next_url = queued_urls.pop(0)
+                elif template:
+                    if fetched_pages > 1 and new_on_page == 0:
+                        break  # ran past the last numbered page
+                    root = url.rstrip("/")
+                    parsed_root = urlparse(url)
+                    next_url = (
+                        template.replace("{url}", root)
+                        .replace("{base}", f"{parsed_root.scheme}://{parsed_root.netloc}")
+                        .replace("{n}", str(template_number))
+                    )
+                    template_number += 1
+                elif next_selector:
+                    next_tag = current_soup.select_one(next_selector)
+                    next_href = next_tag.get("href") if next_tag else None
+                    if next_href:
+                        next_url = urljoin(current_url, next_href.strip())
+                if not next_url or next_url in visited_urls:
+                    break  # no more pages, or pagination looped back on itself
                 visited_urls.add(next_url)
 
                 current_soup = self._fetch_html(next_url)
                 if not current_soup:
-                    # A failed hop ends pagination but keeps what we have; the
-                    # empty-pages guard below still catches a total failure.
                     logger.warning(
                         "Failed to fetch paginated page %s for chapter %s",
                         next_url,
                         url,
                     )
+                    if page_list_urls and next_url in page_list_urls:
+                        # The site told us this page exists: storing the
+                        # chapter without it would silently drop pages.
+                        incomplete = ExtractionError(
+                            f"A page of this chapter could not be fetched ({next_url}).",
+                            url=url,
+                            missing_field="pages",
+                            scraper_module=self.module_id,
+                        )
+                        incomplete.no_ai = True
+                        raise incomplete
+                    # next-link / numbered-template pagination: a failed hop
+                    # ends it (the last numbered URL usually 404s); the
+                    # empty-pages guard below still catches a total failure.
                     break
                 current_url = next_url
+
+            pages = parsing.order_pages(pages)
 
             if used_ai:
                 if len(pages) > 0:
@@ -427,6 +469,8 @@ class BaseScraper:
             return ScrapedChapterSchema(**chapter_data).model_dump()
         except Exception as e:
             logger.error(f"Failed extracting pages with config: {e}")
+            if getattr(e, "no_ai", False):
+                raise  # a fetch problem, not a selector problem: don't spend AI on it
             if not is_retry and not used_ai:
                 new_ai_config = self._ai_fallback(url, soup, type="chapter")
                 if new_ai_config:
@@ -440,6 +484,28 @@ class BaseScraper:
                 url=url,
                 scraper_module=self.module_id,
             )
+
+    @staticmethod
+    def _chapter_page_urls(soup, base_url: str, selector: str) -> List[str]:
+        """URLs of a chapter's other HTML pages, from a dropdown's options or a
+        list of numbered links, in reading order (numeric labels decide the
+        order when every entry has one)."""
+
+        if not selector:
+            return []
+        entries = []
+        seen: set[str] = {base_url}
+        for tag in parsing.select(soup, selector):
+            href = tag.get("href") or tag.get("value") or tag.get("data-href") or tag.get("data-url")
+            absolute = parsing.absolute(base_url, href) if href else None
+            if not absolute or absolute in seen:
+                continue
+            seen.add(absolute)
+            entries.append((parsing.text_of(tag), absolute))
+        if len(entries) > 1 and all(re.fullmatch(r"\d+", label or "") for label, _ in entries):
+            if len({label for label, _ in entries}) == len(entries):
+                entries.sort(key=lambda item: int(item[0]))
+        return [absolute for _, absolute in entries]
 
     def _extract_page_images(
         self,

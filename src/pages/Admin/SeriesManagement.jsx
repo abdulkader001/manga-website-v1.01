@@ -126,6 +126,10 @@ export default function SeriesManagement() {
   const [customAuthor, setCustomAuthor] = useState("");
   const [customCover, setCustomCover] = useState("");
   const [type, setType] = useState("manhwa");
+  // How the source lays its chapters/pages out (see backend chapter_grouping).
+  const [groupSize, setGroupSize] = useState("");
+  const [sourceFormat, setSourceFormat] = useState("auto");
+  const [readingDir, setReadingDir] = useState("auto");
   const [selectedPreset, setSelectedPreset] = useState("weekly_7");
   const [customVal, setCustomVal] = useState(7);
   const [customUnit, setCustomUnit] = useState("days");
@@ -224,10 +228,23 @@ export default function SeriesManagement() {
         const source = preview.chapters || preview.detectedChapterCount
           ? ` + ${preview.detectedChapterCount ?? 0} chapters from the source site`
           : "";
+        const layoutHint = preview.layout_hint;
+        if (layoutHint) {
+          // What the scan of real chapters found: pre-fill the layout choices
+          // (still editable) instead of making the admin guess.
+          if (layoutHint.suggested_source_format && sourceFormat === "auto") {
+            setSourceFormat(layoutHint.suggested_source_format);
+          }
+          if (layoutHint.suggested_group_size && !groupSize) {
+            setGroupSize(String(layoutHint.suggested_group_size));
+          }
+        }
         const warn = (task.warnings || []).length ? ` (${task.warnings.join("; ")})` : "";
         setNotice({
           type: "success",
-          message: `Preview complete: "${preview.title}"${source}.${warn}`,
+          message: `Preview complete: "${preview.title}"${source}.${warn}${
+            layoutHint?.message ? " " + layoutHint.message : ""
+          }`,
         });
       }
     } catch (err) {
@@ -365,6 +382,9 @@ export default function SeriesManagement() {
         scrape_interval_value: val,
         scrape_interval_unit: unit,
         chapters_to_scrape: customChapterCount ? Number(customChapterCount) : undefined,
+        chapter_group_size: groupSize ? Number(groupSize) : undefined,
+        source_format: sourceFormat === "auto" ? undefined : sourceFormat,
+        reading_direction: readingDir === "auto" ? undefined : readingDir,
         custom_description: customDescription.trim() || undefined,
         custom_cover_image: customCover.trim() || undefined,
         author: customAuthor.trim() || undefined,
@@ -381,6 +401,9 @@ export default function SeriesManagement() {
       setCustomDescription("");
       setCustomAuthor("");
       setCustomCover("");
+      setGroupSize("");
+      setSourceFormat("auto");
+      setReadingDir("auto");
       setPreviewData(null);
       setImportModalOpen(false);
       queryClient.invalidateQueries({ queryKey: ["mangaCatalogAdmin"] });
@@ -1055,6 +1078,55 @@ export default function SeriesManagement() {
                     className="w-full px-3.5 py-2.5 rounded-xl bg-[#101216] border border-[#262a33] text-xs text-white focus:outline-none focus:border-[#00AEF0]"
                   />
                 </div>
+              </div>
+
+              {/* Page layout: grouping of one-page chapters, book-format scans */}
+              <div>
+                <label className="font-semibold text-gray-300 block mb-1">Page Layout</label>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <select
+                    value={groupSize}
+                    onChange={(e) => setGroupSize(e.target.value)}
+                    title="Merge consecutive source chapters into one long vertical chapter"
+                    className="w-full px-3.5 py-2.5 rounded-xl bg-[#101216] border border-[#262a33] text-xs text-white focus:outline-none focus:border-[#00AEF0]"
+                  >
+                    <option value="">Keep source chapters as they are</option>
+                    <option value="5">Group every 5 source chapters into 1</option>
+                    <option value="10">Group every 10 source chapters into 1</option>
+                    <option value="20">Group every 20 source chapters into 1</option>
+                  </select>
+                  <select
+                    value={sourceFormat}
+                    onChange={(e) => {
+                      setSourceFormat(e.target.value);
+                      if (e.target.value === "single" && !groupSize) setGroupSize("10");
+                    }}
+                    title="Tell the scraper how this website lays out its pictures"
+                    className="w-full px-3.5 py-2.5 rounded-xl bg-[#101216] border border-[#262a33] text-xs text-white focus:outline-none focus:border-[#00AEF0]"
+                  >
+                    <option value="auto">Source format: detect automatically</option>
+                    <option value="vertical">Vertical strips / normal pages (keep as is)</option>
+                    <option value="double">Book format: two pages per picture (split)</option>
+                    <option value="single">One page per chapter (group chapters)</option>
+                  </select>
+                  <select
+                    value={readingDir}
+                    onChange={(e) => setReadingDir(e.target.value)}
+                    title="Which half of a two-page scan is read first"
+                    className="w-full px-3.5 py-2.5 rounded-xl bg-[#101216] border border-[#262a33] text-xs text-white focus:outline-none focus:border-[#00AEF0]"
+                  >
+                    <option value="auto">Reading order: automatic (by type)</option>
+                    <option value="rtl">Right-to-left (Japanese manga)</option>
+                    <option value="ltr">Left-to-right (manhwa / manhua)</option>
+                  </select>
+                </div>
+                {groupSize && (
+                  <p className="text-[11px] text-gray-500 mt-1.5">
+                    Chapters are merged in order (1, 2, 3 …) into one long top-to-bottom chapter. Full groups
+                    are published as they complete; the last partial group appears once enough chapters exist
+                    or the series is marked completed.
+                  </p>
+                )}
               </div>
 
               {/* 4. Scraper Schedule */}

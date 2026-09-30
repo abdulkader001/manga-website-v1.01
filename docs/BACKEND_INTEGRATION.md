@@ -50,6 +50,44 @@ Production: `docker compose up` (web image is built with Vite, nginx proxies
 Approving a new website (SRS 1G.6.0) happens when the admin supplies the site's
 base URL with the import, or by using the Custom Parser panel.
 
+## Pictures, page order and layouts
+
+Every chapter's pictures are downloaded when the chapter is scraped, compressed
+to **WebP** and served from this site (nginx serves the files straight from the
+storage volume, cached for a year). Width is capped (`PAGE_MAX_WIDTH`, default
+1280px), quality never drops below a floor that keeps text edges clean for OCR
+and for erasing the original lettering, flat art is stored losslessly, and very
+tall strips are cut into slices of at most 3000px on blank rows. The stored
+file is the one picture the reader shows *and* OCR reads, so detected text
+coordinates line up exactly. Pages that fail to download keep their source URL.
+Set `MIRROR_PAGE_IMAGES=false` to turn this off. Existing series can be
+converted with `POST /admin/series/{id}/mirror-images` (or
+`/admin/maintenance/mirror-all-images`).
+
+**Page order.** Pages are read in the order the source gives them; a chapter
+spread over several HTML pages is followed through a "next" link, a page
+dropdown / numbered links (auto-detected) or numbered URLs, and a page that
+cannot be fetched fails the chapter instead of dropping it. If every image is
+named by its own number and the source lists them out of order, the numbers
+win. Everything ends up as one vertical, top-to-bottom flow.
+
+**Layout of a source** (set on the import form under *Page Layout*; the
+preview scans real chapters and pre-fills a suggestion):
+
+| Source format | What it does |
+| --- | --- |
+| Detect automatically | wide two-page scans are split, everything else is kept |
+| Vertical strips / normal pages | nothing is split or merged |
+| Book format (two pages per picture) | every picture is cut at its gutter into two pages |
+| One page per chapter | consecutive source chapters are merged (10 by default, or 5 / 20 / any size up to 50) into one long chapter |
+
+*Reading order* decides which half of a two-page scan comes first (right-to-left
+for manga, left-to-right for manhwa/manhua by default). Grouped chapters are
+published in full groups as they complete; the last partial group appears once
+enough chapters exist or the series is marked completed. Spread splitting and
+reading order can be changed later with `POST /admin/series/{id}/layout`
+(re-compresses from the kept source URLs); the grouping size is fixed at import.
+
 ## Parsers and domain changes
 
 For every source page the pipeline tries, in order:
