@@ -1,0 +1,140 @@
+# Roadmap: fixes and hardening
+
+This is the living to-do list for the project. It is written so a fresh chat
+with an AI coding agent can pick it up cold: read this file, do what the owner
+asks, then update this file.
+
+## How to use (owner)
+
+Say one of:
+
+- `do 3` — do item 3 only.
+- `do 1, 2, 3` or `do PR A` — do those items (a `PR` group is one pull request).
+- `status` — show what is done and what is next.
+
+The agent does only what you name, updates the tables below in the same pull
+request, and stops.
+
+## Rules for the agent
+
+1. Read this file, then the referenced audit reports, before touching code.
+2. Do only the named items. Do not start other items, and do not open a pull
+   request unless the owner asks for one.
+3. Verify by running things. Say plainly what was verified and what was only
+   read. Items marked **Together** need the owner's real sites or accounts.
+4. When an item is finished, change its status to `done`, fill in the
+   date and pull request link, and move any new finding to the "Found later"
+   table with the next free number.
+5. Never point the backend tests at a database that holds real data: the test
+   fixtures drop all tables. Use a separate throw-away database.
+6. Keep the UI looking and behaving the same unless the item says otherwise.
+7. Keep repository files free of model names and session links.
+8. Run the same checks CI runs before pushing: `ruff check backend_fastapi`,
+   the backend tests (Postgres), `npm run build` and `tsc --noEmit`.
+
+Status values: `todo`, `doing`, `done`, `blocked` (say why in Notes).
+
+## Context (short)
+
+React UI (Vite) + FastAPI + Postgres + Redis + Celery, behind nginx. Scraping
+turns source sites into chapters; page pictures are downloaded, compressed to
+WebP and served from this site; series can be grouped or split into vertical
+pages. Details: [project-verdict-2026-09-30.md](project-verdict-2026-09-30.md),
+[frontend.md](frontend.md),
+[../backend_fastapi/audit/security-review-2026-09-30.md](../backend_fastapi/audit/security-review-2026-09-30.md),
+[../backend_fastapi/README.md](../backend_fastapi/README.md),
+[../deployment/README.md](../deployment/README.md).
+
+## PR A — Visible and easy
+
+| # | Item | Status | Done (date, PR) | Notes |
+| --- | --- | --- | --- | --- |
+| 1 | Bundle Font Awesome and Material Icons into the build (npm packages, imported in `src/index.jsx`) and delete the two CDN `<link>` tags in `index.html`. Production CSP blocks the CDNs, so icons vanish otherwise. | todo | | See `frontend.md`. CSP is in `deployment/nginx/site.conf`. |
+| 2 | Fix the "Western Comic / Webcomic" type: the import form offers `comic`, the backend only knows manga/manhwa/manhua and stores manga (right-to-left). Support it properly (left-to-right default) or remove it from the form. | todo | | `SeriesManagement.jsx`, `scraper_workflow_service.py` |
+| 3 | Return `source_url`, `mangaupdates_url` and `scrape_layout` to admins only (list, detail and search responses). | todo | | Add a test that a normal user and a visitor do not see them. |
+
+## PR B — Hardening
+
+| # | Item | Status | Done (date, PR) | Notes |
+| --- | --- | --- | --- | --- |
+| 4 | nginx hotlink protection (`valid_referers`) and `limit_req` / `limit_conn` on `/api/v1/manga/pages/` and `/covers/`. | todo | | `deployment/nginx/site.conf`. Allow empty referer and the site's own domain(s). |
+| 5 | Refuse to start in production when `ALLOW_PLAINTEXT_SECRETS` is set. | todo | | Add a test. |
+| 6 | Per-IP login rate limit in nginx and in the API (beyond the per-account lockout). | todo | | |
+| 7 | Run picture compression on its own Celery queue and worker service so a big import cannot delay new-chapter checks. | todo | | `tasks/scraper_tasks.py`, compose, Kubernetes and systemd files. |
+
+## PR C — Admin screens and clean-up
+
+| # | Item | Status | Done (date, PR) | Notes |
+| --- | --- | --- | --- | --- |
+| 8 | Buttons on the admin series page: re-compress pictures, and change layout (group size, spread mode, reading direction). The API endpoints exist already. | todo | | `site_admin.py`: `/admin/series/{id}/mirror-images`, `/admin/series/{id}/layout` |
+| 9 | Log which legacy API aliases are still called, then remove the two old mounts (each route is registered three times today). | todo | | Do the removal only after the logs show no use. |
+| 10 | Drop the unused `custom_tabs` table with a migration. | todo | | Ask the owner first: it is data loss. |
+
+## PR D — Keep it running without attention
+
+| # | Item | Status | Done (date, PR) | Notes |
+| --- | --- | --- | --- | --- |
+| 11 | Daily health check per source site: alert when a parser finds 0 chapters or 0 pictures, then try AI re-detection. Sites change layout over time; this is the main long-term breakage. | todo | | |
+| 12 | Storage usage report (admin page or metric) and an alert threshold. `chapters.pages_bytes` already stores sizes. | todo | | |
+| 13 | Error monitoring (Sentry or similar) and alerts for failed Celery tasks. | todo | | Needs the owner's DSN. |
+| 14 | Scheduled backups for Postgres and the pictures volume, plus a written restore test. | todo | | `backend_fastapi/deployment/` has backup scripts to build on. |
+
+## PR E — Deeper security
+
+| # | Item | Status | Done (date, PR) | Notes |
+| --- | --- | --- | --- | --- |
+| 15 | Second factor or re-authentication for the main admin. | todo | | |
+| 16 | Encryption key rotation: accept an old and a new key together, re-encrypt, document the steps. | todo | | |
+| 17 | Public contact page and takedown procedure for hosted pictures. | todo | | Needs the owner's contact details and wording. |
+| 18 | Upgrade `vite` to 6+ and `react-router-dom` to 7 (clears the 4 `npm audit` findings). | todo | | Own PR; click through every page after. |
+
+## PR F — Long-term maintenance
+
+| # | Item | Status | Done (date, PR) | Notes |
+| --- | --- | --- | --- | --- |
+| 19 | Dependabot or Renovate config; keep the weekly dependency audit in CI. | todo | | |
+| 20 | Frontend tests in CI: login, reader, admin import. | todo | | No test runner is installed yet. |
+| 21 | Pin base images and dependencies; document how and when to update them. | todo | | |
+| 22 | Runbook: change of source domain, restore from backup, key rotation, adding a new source site. | todo | | |
+| 23 | Move pictures to S3 or a CDN when the library outgrows the disk (design first). | todo | | Only when item 12 shows the need. |
+
+## PR G — Real-site verification (Together with the owner)
+
+These need the real source sites or accounts, which the build sandbox cannot
+reach. The agent guides and fixes what the checks show.
+
+| # | Item | Status | Done (date, PR) | Notes |
+| --- | --- | --- | --- | --- |
+| 24 | Run Test & Live Preview on one series per supported site; fix parsers from what it shows. | todo | | Sites: see `backend_fastapi/app/scrapers/presets.py`. |
+| 25 | Import one real MangaUpdates link and check the metadata (the id decoding was never tried on the real site). | todo | | |
+| 26 | Import one real two-page (book format) series and one long-strip series; check split, order and compression by eye. | todo | | |
+| 27 | Configure an OCR and translation provider (Admin → API management) and translate one real chapter. | todo | | |
+| 28 | `docker compose build` and `up`, then click through the site once (Docker images were never built in the sandbox). | todo | | |
+
+## PR H — Decision needed
+
+| # | Item | Status | Done (date, PR) | Notes |
+| --- | --- | --- | --- | --- |
+| 29 | Public browsing: today everything except login pages requires login, so search engines cannot index series and ads reach logged-in users only. Proposed: browsing public, login only for bookmarks, ratings, comments and translation. | blocked | | Owner decides first. `src/app.js`, `seo.py` |
+
+## Owner actions (not for the agent)
+
+| # | Action | Status | Notes |
+| --- | --- | --- | --- |
+| U1 | Rotate the Google OAuth client secret that was committed in the old `Manga-Website` repository. | todo | Google Cloud console. |
+| U2 | Make sure `ALLOW_PLAINTEXT_SECRETS` is not set on the production server. | todo | |
+| U3 | Provide contact details for the takedown page (item 17). | todo | |
+| U4 | Provide a Sentry (or similar) DSN (item 13). | todo | |
+
+## Found later
+
+| # | Item | Status | Done (date, PR) | Notes |
+| --- | --- | --- | --- | --- |
+| | | | | |
+
+## Done log
+
+| Date | What | Pull request |
+| --- | --- | --- |
+| 2026-09-30 | UI connected to the FastAPI backend, scraping, page compression, layouts | #4, #5 |
+| 2026-09-30 | Repository tidy: unused files and custom tabs removed, audit and deployment files grouped | #6 |
