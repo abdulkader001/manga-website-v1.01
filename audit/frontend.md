@@ -3,15 +3,15 @@
 ## Build and dependencies
 
 - `vite build` and `tsc --noEmit` pass; CI runs both.
-- Runtime dependencies are now 5 (`react`, `react-dom`, `react-router-dom`,
+- Runtime dependencies are now 5 (`react`, `react-dom`, `react-router`,
   `@tanstack/react-query`, `express` for the dev/standalone gateway). Six unused
   packages were removed in the clean-up: `dompurify`, `lucide-react`,
   `onnxruntime-web`, `prop-types`, `web-vitals`, `tesseract.js`.
-- `npm audit`: 4 findings (1 high in `vite`, 3 moderate in `esbuild` and
-  `react-router`/`react-router-dom`). They affect the development server and
-  router SSR features, not the production bundle. Fixing them needs major
-  upgrades (`vite` 6+, `react-router-dom` 7); do it as its own change with a
-  full click-through.
+- `npm audit`: 0 findings. The 4 earlier ones (`vite`, `esbuild`,
+  `react-router`/`react-router-dom`) were cleared on 2026-09-30 by moving to
+  `vite` 7, `@vitejs/plugin-react` 5 and `react-router` 7. Router imports now
+  come from `react-router` (the v7 package; `react-router-dom` is only a
+  re-export of it). `vite` 7 needs Node 20.19+ or 22.12+; `.nvmrc` is 22.
 
 ## Content-Security-Policy vs external resources
 

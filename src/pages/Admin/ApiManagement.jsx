@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useMemo } from "react";
-import { Link } from "react-router-dom";
+import { Link } from "react-router";
 import api from "../../services/api";
 import { useApiRegistry } from "../../services/apiRegistry";
 

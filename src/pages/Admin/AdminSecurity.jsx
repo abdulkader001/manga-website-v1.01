@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link } from "react-router";
 import api from "../../services/api";
 import { CodeForm, Enrolment } from "../../components/AdminSecondFactor";
 

@@ -81,12 +81,13 @@ pages. Details: [project-verdict-2026-09-30.md](project-verdict-2026-09-30.md),
 
 ## PR E — Deeper security
 
+Item 17 (contact page and takedown procedure) was dropped by the owner on 2026-09-30.
+
 | # | Item | Status | Done (date, PR) | Notes |
 | --- | --- | --- | --- | --- |
 | 15 | Second factor or re-authentication for the main admin. | done | 2026-09-30 | Authenticator-app codes (TOTP) for admin-tier accounts: enrol at `/admin/security`, then admin routes need a 30-minute step-up cookie (`admin_second_factor.py`, `routers/admin_2fa.py`, guard in `dependencies/auth.py`, migration `20261002_admin_totp`). `ADMIN_2FA_REQUIRED=true` makes it mandatory for main admins; off by default so nobody is locked out. Secret encrypted at rest; codes single-use; guesses rate-limited. Tests `test_admin_second_factor.py` (SQLite). Screens build and type-check but were not clicked through; migration not run on Postgres. No backup codes: a lost phone is fixed by clearing the row (see `deployment/key-rotation.md`). |
 | 16 | Encryption key rotation: accept an old and a new key together, re-encrypt, document the steps. | done | 2026-09-30 | `EMAIL_ENCRYPTION_KEY=NEW,OLD` and `INTEGRATIONS_SECRET_PREVIOUS`; `scripts/rotate_encryption_key.py` re-encrypts emails, OAuth tokens, admin authenticator secrets and API keys; steps in `deployment/key-rotation.md`. Several email keys need `EMAIL_HASH_SECRET` pinned (startup refuses otherwise). Tests `test_key_rotation.py` (SQLite); the script was not run against Postgres. |
-| 17 | Public contact page and takedown procedure for hosted pictures. | blocked | | Needs the owner's contact details and wording (U3). Not started. |
-| 18 | Upgrade `vite` to 6+ and `react-router-dom` to 7 (clears the 4 `npm audit` findings). | todo | | Own PR; click through every page after. Left out of PR E on purpose. |
+| 18 | Upgrade `vite` to 6+ and `react-router-dom` to 7 (clears the 4 `npm audit` findings). | done | 2026-09-30 | `vite` 7.3 (not 8: 8 swaps the bundler and needs a config rewrite; 7 clears the advisories), `@vitejs/plugin-react` 5, `react-router` 7 (imports moved from `react-router-dom`). `npm audit`: 0. Build and `tsc` pass. Clicked through 18 routes in Chromium against a seeded local API: no errors, and the admin second-factor gate works. That run found `/admin/roles` crashing because the permission catalogue sends only keys; fixed by deriving the label. Not checked: reader with real page images, admin import with a real source site. |
 
 ## PR F — Long-term maintenance
 
@@ -123,7 +124,6 @@ reach. The agent guides and fixes what the checks show.
 | --- | --- | --- | --- |
 | U1 | Rotate the Google OAuth client secret that was committed in the old `Manga-Website` repository. | todo | Google Cloud console. |
 | U2 | Make sure `ALLOW_PLAINTEXT_SECRETS` is not set on the production server. | todo | |
-| U3 | Provide contact details for the takedown page (item 17). | todo | |
 | U4 | Provide a Sentry (or similar) DSN (item 13). | todo | |
 
 ## Found later

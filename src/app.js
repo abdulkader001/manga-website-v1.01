@@ -1,5 +1,5 @@
 import React, { Suspense } from "react";
-import { BrowserRouter as Router, Routes, Route, useLocation, Outlet } from "react-router-dom";
+import { BrowserRouter as Router, Routes, Route, useLocation, Outlet } from "react-router";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 import Navbar from "./components/Navbar";
