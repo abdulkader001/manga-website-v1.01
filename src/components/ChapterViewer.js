@@ -152,7 +152,7 @@ export default function ChapterViewer() {
     if (chapterId && chapter) {
       recordHistory();
     }
-  }, [mangaId, chapterId, chapter]);
+  }, [mangaId, chapterId, chapter, authUser]);
 
   const showToast = (msg) => {
     setToastMessage(msg);

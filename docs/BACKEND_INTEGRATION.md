@@ -16,6 +16,12 @@ celery -A backend_fastapi.app.core.celery_app:celery_app worker -Q scrape,celery
 npm install && npm run dev      # UI + gateway on :3000
 ```
 
+`docker compose` ships secure defaults: `FORCE_HTTPS_REDIRECTS=true` redirects
+plain-HTTP requests, so the stack expects TLS in front of nginx (the backend
+refuses to start in production with it off). To try the compose stack over
+plain `http://localhost:8080`, set `FORCE_HTTPS_REDIRECTS=false` and
+`ENVIRONMENT=development` in `.env` first.
+
 Production: `docker compose up` (web image is built with Vite, nginx proxies
 `/api/`, the SEO feeds and serves `dist/`).
 
