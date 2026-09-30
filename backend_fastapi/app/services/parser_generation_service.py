@@ -100,7 +100,6 @@ def _test_series_selectors(html: str, selectors: Dict[str, str]) -> Dict[str, An
 
 
 def _test_chapter_selectors(html: str, selectors: Dict[str, str]) -> Dict[str, Any]:
-    from ..scrapers import parsing
     from ..scrapers.base_scraper import BaseScraper
 
     soup = _soup(html)

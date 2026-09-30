@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import json
-from datetime import datetime
 from typing import List
 
 import structlog
@@ -15,7 +13,7 @@ from ...schemas.manga import (
     ChapterBase,
     ChapterDetailResponse,
 )
-from sqlalchemy import Text, cast, func
+from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from ...utils.swr_cache import cached_with_swr

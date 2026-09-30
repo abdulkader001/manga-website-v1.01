@@ -28,7 +28,6 @@ from ...schemas.admin import (
     AdsConfigPayload,
     AdsConfigResponse,
     AdminStatusResponse,
-    AdminSettingsResponse,
 )
 from ...schemas.manga import MangaBase
 
@@ -1973,7 +1972,6 @@ async def create_series_by_url(
     url = _parse_series_url(payload.source_url or payload.url or payload.base_url or "")
     provider = _normalise_provider(payload.provider)
 
-    from ...services.manga_service import schedule_series_scrape
     from ...utils.bounded_threadpool import run_in_db_threadpool
 
     submitter_id = current_user.id

@@ -3,7 +3,6 @@ reports, site announcements, bookmark import and the signed image proxy."""
 
 from __future__ import annotations
 
-from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 import requests
