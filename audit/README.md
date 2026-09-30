@@ -5,6 +5,7 @@ they describe.
 
 | Report | What it covers |
 | --- | --- |
+| [ROADMAP.md](ROADMAP.md) | **Start here.** Numbered to-do list of fixes and hardening, with status; updated as items are done |
 | [project-verdict-2026-09-30.md](project-verdict-2026-09-30.md) | What was built, what was verified, mismatches, ordered recommendations |
 | [frontend.md](frontend.md) | Frontend build/dependencies, CSP vs external icons, login gate, mismatches, removed files |
 | [../backend_fastapi/audit/](../backend_fastapi/audit/README.md) | Backend security review and design notes |
