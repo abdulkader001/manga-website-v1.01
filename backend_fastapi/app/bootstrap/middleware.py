@@ -22,7 +22,7 @@ from ..utils.structured_logging import bind_request_context, clear_request_conte
 from ..utils.csrf_middleware import CSRFMiddleware
 from ..services.maintenance import MaintenanceModeMiddleware
 from .backpressure import BackpressureMiddleware
-from .metrics import add_prometheus_middleware
+from .metrics import add_prometheus_middleware, record_legacy_alias
 from .timeout import TimeoutMiddleware
 
 logger = structlog.get_logger("backend_fastapi.app")
@@ -167,6 +167,7 @@ class LegacyApiAliasDeprecationMiddleware(BaseHTTPMiddleware):
             alias = "no-prefix"
             canonical = f"/api/v1{path}"
 
+        record_legacy_alias(alias, request)
         logger.warning(
             "legacy_api_alias_used",
             alias=alias,

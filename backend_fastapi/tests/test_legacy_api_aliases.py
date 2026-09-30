@@ -56,3 +56,28 @@ def test_unmatched_path_is_not_flagged(fastapi_client):
     resp = fastapi_client.get("/this-route-does-not-exist")
     assert resp.status_code == 404
     assert "deprecation" not in _headers(resp)
+
+
+def _alias_count(alias: str) -> float:
+    from prometheus_client import REGISTRY
+
+    total = 0.0
+    for metric in REGISTRY.collect():
+        if metric.name != "legacy_api_alias_requests":
+            continue
+        for sample in metric.samples:
+            if sample.name.endswith("_total") and sample.labels["alias"] == alias:
+                total += sample.value
+    return total
+
+
+def test_legacy_alias_calls_are_counted_per_alias(fastapi_client):
+    """Roadmap item 9: /metrics must show which aliases are still in use."""
+    prefixed, bare = _alias_count("api-prefix"), _alias_count("no-prefix")
+
+    fastapi_client.get("/api/bookmarks")
+    fastapi_client.get("/bookmarks")
+    fastapi_client.get("/api/v1/bookmarks")
+
+    assert _alias_count("api-prefix") == prefixed + 1
+    assert _alias_count("no-prefix") == bare + 1
