@@ -628,6 +628,13 @@ class SeriesUrlPayload(BaseModel):
     custom_description: Optional[str] = Field(default=None, max_length=5000)
     custom_cover_image: Optional[str] = Field(default=None, max_length=1000)
     author: Optional[str] = Field(default=None, max_length=300)
+    # How the source lays chapters/pages out (see services/chapter_grouping.py).
+    chapter_group_size: Optional[int] = Field(default=None, ge=1, le=50)
+    split_spreads: Optional[bool] = None
+    spread_mode: Optional[str] = Field(default=None, max_length=8)
+    # Manual override of what the scraper detects: auto | vertical | double | single.
+    source_format: Optional[str] = Field(default=None, max_length=10)
+    reading_direction: Optional[str] = Field(default=None, max_length=3)
 
 
 class ApprovedDomainPayload(BaseModel):

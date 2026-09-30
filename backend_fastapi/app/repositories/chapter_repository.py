@@ -26,12 +26,13 @@ class ChapterRepository:
         return [float(r[0]) for r in rows if r[0] is not None]
 
     def get_urls_for_manga(self, manga_id: int) -> set[str]:
-        rows = (
-            self.db.query(Chapter.chapter_url)
-            .filter(Chapter.manga_id == manga_id)
-            .all()
-        )
-        return {r[0] for r in rows if r[0] is not None}
+        """Every source URL already stored for the series, including the
+        members of grouped chapters."""
+
+        from ..services.chapter_grouping import known_source_urls
+
+        rows = self.db.query(Chapter).filter(Chapter.manga_id == manga_id).all()
+        return known_source_urls(rows)
 
     def get_unscraped_chapters(self, manga_id: int) -> List[Chapter]:
         return (

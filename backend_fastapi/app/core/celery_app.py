@@ -5,7 +5,7 @@ from urllib.parse import urlparse, urlunparse
 
 import structlog
 from celery import Celery, Task
-from celery.signals import task_failure
+from celery.signals import task_failure, worker_process_init
 
 from .settings import settings
 from ..tasks._instrumentation import (
@@ -226,6 +226,40 @@ celery_app.conf.task_annotations = {
 
 _dlq_logger = structlog.get_logger("backend_fastapi.celery.dlq")
 DEAD_LETTER_KEY = "celery:dead_letter"
+
+
+WORKER_IDLE_TXN_MS = int(os.getenv("CELERY_IDLE_IN_TXN_TIMEOUT_MS", "900000"))
+
+
+@worker_process_init.connect
+def _prepare_database_in_child(**_kwargs) -> None:  # pragma: no cover - exercised by workers
+    """Give each forked worker process its own, worker-appropriate connections.
+
+    * The parent may already hold pooled connections (opened while importing
+      the app); children that inherit and share one corrupt it ("SSL
+      connection has been closed unexpectedly"). ``close=False`` drops the
+      inherited pool without closing sockets the parent still uses.
+    * The API keeps Postgres' strict 10s idle-in-transaction limit, but a
+      scrape or image job legitimately spends longer than that on network
+      I/O between two queries, so worker connections get a longer allowance
+      (``CELERY_IDLE_IN_TXN_TIMEOUT_MS``, default 15 minutes) instead of being
+      killed mid-task.
+    """
+
+    from sqlalchemy import event
+
+    from .db import engine
+
+    engine.dispose(close=False)
+    if engine.dialect.name != "postgresql":
+        return
+
+    @event.listens_for(engine, "connect")
+    def _lengthen_idle_in_txn(dbapi_connection, _record):
+        cursor = dbapi_connection.cursor()
+        cursor.execute(f"SET idle_in_transaction_session_timeout = {int(WORKER_IDLE_TXN_MS)}")
+        cursor.close()
+        dbapi_connection.commit()
 
 
 @task_failure.connect

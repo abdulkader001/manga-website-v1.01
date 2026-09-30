@@ -135,7 +135,7 @@ def detect_chapter_list(soup: BeautifulSoup, base_url: str = _BASE) -> Optional[
     best_group: Optional[List[Tag]] = None
     best_score = 0.0
     for members in groups.values():
-        if len(members) < 3:
+        if len(members) < 2:
             continue
         numbered = sum(
             1
@@ -149,6 +149,11 @@ def detect_chapter_list(soup: BeautifulSoup, base_url: str = _BASE) -> Optional[
         )
         number_fraction = numbered / len(members)
         if number_fraction < 0.6:
+            continue
+        # A brand-new series can have just two chapters. With so little to go
+        # on, require every link to say "chapter"/"episode"/... so a pair of
+        # navigation links is never taken for a chapter list.
+        if len(members) < 3 and hinted < len(members):
             continue
         score = len(members) * number_fraction * (1.0 + hinted / len(members))
         if score > best_score:
@@ -189,6 +194,56 @@ def detect_series_definition(html: str, base_url: str = _BASE) -> Optional[Dict[
     return definition
 
 
+_PAGE_PARAMS = re.compile(r"^(page|p|pg|pageno|page_no|index)$", re.I)
+
+
+def _page_stem(url: str) -> str:
+    """Chapter URL without a trailing slash or ``.html``-style extension, the
+    part every page of the same chapter shares."""
+
+    parsed = urlparse(url)
+    path = re.sub(r"\.(html?|php|aspx?)$", "", parsed.path.rstrip("/"), flags=re.I)
+    return f"{parsed.netloc}{path}"
+
+
+def detect_pagination(soup: BeautifulSoup, url: str) -> Optional[Dict[str, Any]]:
+    """Numbered links to the other pages of *this* chapter, as ``page_list``.
+
+    Deliberately conservative: a link counts only when it extends the chapter's
+    own URL (``/ch/12`` -> ``/ch/12/2``, ``/ch/12_2.html``) or adds a ``page=``
+    style parameter to it, and its label is a bare page number. A dropdown of
+    *chapters* therefore never qualifies.
+    """
+
+    stem = _page_stem(url)
+    if not stem:
+        return None
+    members: List[Tag] = []
+    numbers: List[int] = []
+    for tag in soup.find_all(["a", "option"]):
+        raw = tag.get("href") if tag.name == "a" else tag.get("value")
+        label = parsing.text_of(tag)
+        if not raw or not re.fullmatch(r"\d{1,3}", label or ""):
+            continue
+        absolute = parsing.absolute(url, raw)
+        if not absolute or absolute == url:
+            continue
+        candidate = urlparse(absolute)
+        candidate_stem = _page_stem(absolute)
+        query_pages = [k for k in re.findall(r"([A-Za-z_]+)=\d+", candidate.query) if _PAGE_PARAMS.match(k)]
+        extends = candidate_stem != stem and candidate_stem.startswith(stem) and re.fullmatch(
+            r"[/_\-]?\d{1,3}", candidate_stem[len(stem):]
+        )
+        same_with_param = candidate_stem == stem and bool(query_pages)
+        if extends or same_with_param:
+            members.append(tag)
+            numbers.append(int(label))
+    if len(members) < 1 or len(set(numbers)) != len(numbers):
+        return None
+    selector = _pick_selector(soup, members, members[0].name)
+    return {"page_list": selector} if selector else None
+
+
 def detect_reader_definition(html: str, base_url: str = _BASE) -> Optional[Dict[str, Any]]:
     """The page-image group of a reader page."""
 
@@ -225,4 +280,8 @@ def detect_reader_definition(html: str, base_url: str = _BASE) -> Optional[Dict[
     attr = attr_used.get(signature)
     if attr and attr != "src":
         definition["image_attr"] = attr
+    # A chapter spread over several HTML pages: follow them in order.
+    pagination = detect_pagination(soup, base_url)
+    if pagination:
+        definition.update(pagination)
     return definition

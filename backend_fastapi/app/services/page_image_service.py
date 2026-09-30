@@ -16,6 +16,10 @@ client, decoded with Pillow (decompression-bomb safe), and re-encoded as WebP:
   exceed 16383px, and huge canvases hurt phones and vision models); cuts are
   made on the most uniform row near the limit so speech bubbles and text are
   not split;
+* book-format scans (two pages side by side in one wide image) are cut at the
+  gutter into two pages, right half first for right-to-left manga and left
+  half first otherwise, so every series reads as one vertical top-to-bottom
+  flow;
 * the stored file is the one canonical picture: the reader displays it and OCR
   reads it, so detected text coordinates line up exactly with what is shown;
 * metadata stripped, transparency flattened onto white, EXIF rotation applied.
@@ -160,6 +164,11 @@ def _slices(image: Image.Image) -> List[Image.Image]:
     return pieces
 
 
+# A page image at least this much wider than tall is a two-page spread. Single
+# manga/manhwa pages are ~0.65-0.8; double-page scans ~1.3-1.5.
+SPREAD_MIN_ASPECT = 1.2
+GUTTER_SEARCH_FRACTION = 0.08
+
 FLAT_ART_MAX_COLORS = 8192
 
 
@@ -190,8 +199,43 @@ def _encode(piece: Image.Image) -> bytes:
     return data
 
 
-def compress_page(raw: bytes) -> List[EncodedPage]:
-    """Decode ``raw`` (any raster format) and return one or more WebP slices.
+def _quietest_column(image: Image.Image, mid: int) -> int:
+    """Column near the centre with the least variation: the gutter."""
+
+    gray = image.convert("L")
+    height = gray.height
+    window = max(4, int(image.width * GUTTER_SEARCH_FRACTION))
+    best_col, best_score = mid, None
+    for col in range(mid - window, mid + window + 1, 2):
+        score = ImageStat.Stat(gray.crop((col, 0, col + 1, height))).stddev[0] + 0.02 * abs(col - mid)
+        if best_score is None or score < best_score:
+            best_col, best_score = col, score
+    return best_col
+
+
+def split_spread(image: Image.Image, *, rtl: bool, force: bool = False) -> List[Image.Image]:
+    """One or two page images in reading order: a wide image is a two-page
+    spread and is cut at its gutter (right half first when ``rtl``). With
+    ``force`` the image is cut whatever its shape (a source known to publish
+    every image as a two-page scan)."""
+
+    if image.height <= 0 or image.width < 8:
+        return [image]
+    if not force and image.width / image.height < SPREAD_MIN_ASPECT:
+        return [image]
+    cut = _quietest_column(image, image.width // 2)
+    left = image.crop((0, 0, cut, image.height))
+    right = image.crop((cut, 0, image.width, image.height))
+    return [right, left] if rtl else [left, right]
+
+
+def compress_page(raw: bytes, layout: Optional[Dict[str, object]] = None) -> List[EncodedPage]:
+    """Decode ``raw`` (any raster format) and return one or more WebP pages in
+    reading order (a spread becomes two, a very tall strip several slices).
+
+    ``layout`` is the series layout (see ``chapter_grouping.effective_layout``):
+    ``spread_mode`` (auto / always / never) and ``reading_direction``. Without
+    one nothing is split.
 
     Raises :class:`InvalidImageError` / :class:`ImageTooLargeError` for data
     that is not a usable image.
@@ -199,11 +243,22 @@ def compress_page(raw: bytes) -> List[EncodedPage]:
 
     image = open_image_safely(raw, max_pixels=MAX_SOURCE_PIXELS)
     image = _flatten(image)
+    layout = layout or {}
+    mode = layout.get("spread_mode") or ("auto" if layout.get("split_spreads") else "never")
+    if mode in ("auto", "always"):
+        pages = split_spread(
+            image, rtl=layout.get("reading_direction") == "rtl", force=mode == "always"
+        )
+    else:
+        pages = [image]
     limit = max_width()
-    if image.width > limit:
-        height = max(1, round(image.height * limit / image.width))
-        image = image.resize((limit, height), Image.LANCZOS)
-    return [EncodedPage(_encode(piece), piece.width, piece.height) for piece in _slices(image)]
+    encoded: List[EncodedPage] = []
+    for page in pages:
+        if page.width > limit:
+            height = max(1, round(page.height * limit / page.width))
+            page = page.resize((limit, height), Image.LANCZOS)
+        encoded.extend(EncodedPage(_encode(piece), piece.width, piece.height) for piece in _slices(page))
+    return encoded
 
 
 # ---------------------------------------------------------------------------
@@ -239,11 +294,14 @@ def _download(url: str, referer: Optional[str], headers: Optional[Dict[str, str]
 
 
 def _fetch_and_compress(
-    url: str, referer: Optional[str], headers: Optional[Dict[str, str]]
+    url: str,
+    referer: Optional[str],
+    headers: Optional[Dict[str, str]],
+    layout: Optional[Dict[str, object]] = None,
 ) -> Tuple[Optional[List[EncodedPage]], int, Optional[str]]:
     try:
         raw = _download(url, referer, headers)
-        return compress_page(raw), len(raw), None
+        return compress_page(raw, layout), len(raw), None
     except (InvalidImageError, ImageTooLargeError) as exc:
         return None, 0, f"not a usable image: {str(exc)[:80]}"
     except Exception as exc:  # network / SSRF guard / size cap
@@ -257,6 +315,7 @@ def mirror_chapter(
     *,
     referer: Optional[str] = None,
     headers: Optional[Dict[str, str]] = None,
+    layout: Optional[Dict[str, object]] = None,
 ) -> MirrorResult:
     """Download, compress and store every page. Failed pages keep their
     source URL; already-local URLs are left as they are."""
@@ -268,7 +327,7 @@ def mirror_chapter(
         return result
 
     with ThreadPoolExecutor(max_workers=DOWNLOAD_WORKERS) as pool:
-        outcomes = list(pool.map(lambda item: _fetch_and_compress(item[1], referer, headers), remote))
+        outcomes = list(pool.map(lambda item: _fetch_and_compress(item[1], referer, headers, layout), remote))
 
     final = pages_dir() / str(int(manga_id)) / str(int(chapter_id))
     staging = final.with_name(f"{final.name}.tmp-{uuid.uuid4().hex[:8]}")

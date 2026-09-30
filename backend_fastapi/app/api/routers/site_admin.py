@@ -1099,6 +1099,57 @@ async def delete_chapter_page(
     return {"success": True, "pages": len(pages)}
 
 
+class LayoutPayload(BaseModel):
+    split_spreads: Optional[bool] = None
+    spread_mode: Optional[str] = Field(default=None, max_length=8)
+    reading_direction: Optional[str] = Field(default=None, max_length=3)
+
+
+@router.post("/admin/series/{series_id}/layout")
+async def update_series_layout(
+    request: Request,
+    series_id: int,
+    payload: LayoutPayload,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission("edit_series")),
+) -> Dict[str, Any]:
+    """Change how a series' book-format scans are split (``spread_mode``) and
+    which half reads first (``reading_direction``), then rebuild its stored
+    pictures from the kept source URLs. Chapter grouping is fixed at import."""
+
+    from ...services.chapter_grouping import normalize_layout
+    from ...tasks.scraper_tasks import mirror_series_pages
+
+    manga = db.get(Manga, series_id)
+    if manga is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Series not found")
+    changes = {}
+    if payload.split_spreads is not None:
+        changes["split_spreads"] = payload.split_spreads
+    if payload.spread_mode:
+        changes["spread_mode"] = payload.spread_mode
+    if payload.reading_direction:
+        changes["reading_direction"] = payload.reading_direction
+    merged = {**normalize_layout(manga.scrape_layout), **normalize_layout(changes)}
+    manga.scrape_layout = merged or None
+    rebuilt = 0
+    for chapter in db.query(Chapter).filter(Chapter.manga_id == manga.id).all():
+        if chapter.source_pages:
+            chapter.pages = list(chapter.source_pages)
+            chapter.source_pages = None
+            chapter.pages_bytes = None
+            rebuilt += 1
+    db.commit()
+    mirror_series_pages.delay(manga.id)
+    await ainvalidate_manga_caches(getattr(request.app.state, "redis", None), manga.id)
+    return {
+        "success": True,
+        "layout": merged,
+        "chapters_rebuilding": rebuilt,
+        "message": f"Layout saved; re-compressing {rebuilt} chapters in the background.",
+    }
+
+
 @router.post("/admin/series/{series_id}/mirror-images")
 async def mirror_series_images(
     series_id: int,

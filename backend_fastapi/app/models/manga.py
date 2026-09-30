@@ -152,6 +152,10 @@ class Manga(Base):
     auto_scrape_enabled = Column(
         Boolean, nullable=False, default=True, server_default=sa_text("true")
     )
+    # How this source lays its chapters/pages out:
+    # ``{"group_size": 5, "spread_mode": "auto", "reading_direction": "rtl"}``.
+    # See services/chapter_grouping.py.
+    scrape_layout = Column(JSON, nullable=True)
 
     chapters = relationship(
         "Chapter", lazy="select", back_populates="manga", cascade="all, delete-orphan"
@@ -247,6 +251,7 @@ class Manga(Base):
                 self.type or "manga", "JP"
             ),
             "banner_image": cover,
+            "scrape_layout": self.scrape_layout or {},
             "auto_scrape_enabled": (
                 bool(self.auto_scrape_enabled)
                 if self.auto_scrape_enabled is not None
@@ -281,6 +286,10 @@ class Chapter(Base):
     # The source site's image URLs, kept when ``pages`` holds our own
     # compressed WebP copies (used to re-mirror, remap and roll back).
     source_pages = Column(JSON, nullable=True)
+    # When this chapter merges several source chapters (one-page chapters
+    # grouped in fives or tens): ``[{"url": ..., "number": ...}, ...]`` in
+    # reading order. ``chapter_url`` is the first member's URL.
+    group_urls = Column(JSON, nullable=True)
     # Bytes stored for this chapter's mirrored pages (storage accounting).
     pages_bytes = Column(Integer, nullable=True)
     # queued | scraping | complete | failed (SRS 1G.1.3). Chapters ingest one

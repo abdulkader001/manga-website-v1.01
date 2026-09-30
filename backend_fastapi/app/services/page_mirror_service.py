@@ -43,9 +43,18 @@ def mirror_chapter_by_id(db: Session, chapter_id: int) -> Dict[str, Any]:
         return {"status": "skipped", "reason": "nothing_to_mirror"}
 
     referer, headers = page_image_service.referer_for_chapter(chapter.chapter_url)
+    from .chapter_grouping import effective_layout
+
+    manga_id, layout = chapter.manga_id, effective_layout(chapter.manga)
+    # Downloading and compressing a whole chapter takes far longer than a
+    # transaction should stay open: end it, then look the chapter up again.
+    db.commit()
     result = page_image_service.mirror_chapter(
-        chapter.manga_id, chapter.id, sources, referer=referer, headers=headers
+        manga_id, chapter_id, sources, referer=referer, headers=headers, layout=layout
     )
+    chapter = db.get(Chapter, chapter_id)
+    if chapter is None:
+        return {"status": "skipped", "reason": "chapter_removed"}
     if not result.mirrored:
         # Every page failed: keep the source URLs (still readable) and let the
         # task retry -- the source may just have been briefly unavailable.

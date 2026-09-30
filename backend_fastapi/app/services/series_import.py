@@ -120,6 +120,19 @@ def build_options(payload: Any) -> Dict[str, Any]:
         "base_url": (payload.base_url or "").strip() or None,
         "ensure_parser": True,
     }
+    from .chapter_grouping import normalize_layout
+
+    raw_layout: Dict[str, Any] = {
+        "group_size": getattr(payload, "chapter_group_size", None),
+        "reading_direction": getattr(payload, "reading_direction", None),
+    }
+    if getattr(payload, "split_spreads", None) is not None:
+        raw_layout["split_spreads"] = payload.split_spreads
+    raw_layout["spread_mode"] = getattr(payload, "spread_mode", None)
+    raw_layout["source_format"] = getattr(payload, "source_format", None)
+    layout = normalize_layout(raw_layout)
+    if layout:
+        options["layout"] = layout
     return {k: v for k, v in options.items() if v is not None}
 
 

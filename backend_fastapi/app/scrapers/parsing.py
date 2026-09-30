@@ -279,6 +279,37 @@ def json_from_scripts(
     return None
 
 
+_PAGE_STEM = re.compile(r"(?:p|pg|page|img|image)?[-_]?0*(\d{1,4})", re.I)
+
+
+def order_pages(urls: List[str]) -> List[str]:
+    """Reading order for a chapter's page images.
+
+    Sources normally list pages in order, and that order is kept. But when
+    *every* image sits in one folder and is named by its own page number
+    (``003.jpg``, ``page-12.webp``) and the list is out of order (lazy-load
+    scripts sometimes shuffle it), the numbers win. Anything ambiguous -- mixed
+    folders, unnumbered names, repeated numbers -- is left exactly as found.
+    """
+
+    if len(urls) < 2:
+        return urls
+    numbers: List[int] = []
+    folders = set()
+    for url in urls:
+        path = urlparse(url).path
+        folder, _, name = path.rpartition("/")
+        stem = name.rsplit(".", 1)[0]
+        match = _PAGE_STEM.fullmatch(stem)
+        if not match:
+            return urls
+        folders.add(folder)
+        numbers.append(int(match.group(1)))
+    if len(folders) != 1 or len(set(numbers)) != len(numbers) or numbers == sorted(numbers):
+        return urls
+    return [url for _, url in sorted(zip(numbers, urls))]
+
+
 def dedupe(urls: Iterable[str]) -> List[str]:
     seen: set[str] = set()
     ordered = []
