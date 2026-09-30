@@ -1,0 +1,295 @@
+/* ===========================
+   Mgeko Chapter Viewer Styles
+   =========================== */
+
+.chapter-viewer-page {
+  background-color: #0b0d10;
+  color: #e5e7eb;
+  min-height: 100vh;
+}
+
+/* Chapter Top Sticky Header */
+.chapter-header {
+  background: #101216;
+  border-bottom: 1px solid #262a33;
+  padding: 0.75rem 1rem;
+  position: sticky;
+  top: 0;
+  z-index: 40;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+}
+
+.chapter-header .content-wrap {
+  max-width: 1200px;
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.chapter-header .titles h1 {
+  font-size: 1rem;
+  font-weight: 800;
+  color: #ffffff;
+  margin: 0;
+  line-height: 1.2;
+}
+
+.chapter-header .titles h1 a {
+  color: #ffffff;
+  text-decoration: none;
+  transition: color 0.2s;
+}
+
+.chapter-header .titles h1 a:hover {
+  color: #00AEF0;
+}
+
+.chapter-header .titles h2 {
+  font-size: 0.78rem;
+  color: #00AEF0;
+  font-weight: 700;
+  margin: 0.15rem 0 0 0;
+}
+
+.chapter-header .action-select {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.chapter-header .chnav {
+  padding: 0.35rem 0.85rem;
+  border-radius: 6px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  background: #1f2330;
+  color: #e5e7eb;
+  border: 1px solid #262a33;
+  text-decoration: none;
+  transition: all 0.2s;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.chapter-header .chnav:hover:not(.isDisabled) {
+  background: #00AEF0;
+  color: #ffffff;
+  border-color: #00AEF0;
+}
+
+.chapter-header .chnav.isDisabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+/* Chapter Nav Bar (Dropdown + Prev/Next) */
+.chapternav {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  padding: 0.75rem 1rem;
+  margin: 1rem auto;
+  max-width: 600px;
+  flex-wrap: wrap;
+}
+
+.chapternav .prevchap,
+.chapternav .nextchap {
+  padding: 0.45rem 1rem;
+  border-radius: 6px;
+  font-size: 0.8rem;
+  font-weight: 700;
+  background: #15171c;
+  color: #ffffff;
+  border: 1px solid #262a33;
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  transition: all 0.2s;
+}
+
+.chapternav .prevchap:hover:not(.isDisabled),
+.chapternav .nextchap:hover:not(.isDisabled) {
+  background: #00AEF0;
+  border-color: #00AEF0;
+  color: #ffffff;
+}
+
+.chapternav .isDisabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+.chapternav select {
+  background: #15171c;
+  color: #ffffff;
+  border: 1px solid #262a33;
+  border-radius: 6px;
+  padding: 0.45rem 0.75rem;
+  font-size: 0.8rem;
+  font-weight: 700;
+  outline: none;
+  cursor: pointer;
+  min-width: 160px;
+}
+
+.chapternav select:focus {
+  border-color: #00AEF0;
+}
+
+/* Vertical Continuous Chapter Reader Stream */
+#chapter-reader {
+  margin: 0 auto;
+  max-width: 860px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  background: #000000;
+  box-shadow: 0 0 35px rgba(0, 0, 0, 0.7);
+  border-left: 1px solid #1a1d24;
+  border-right: 1px solid #1a1d24;
+  line-height: 0;
+  font-size: 0;
+}
+
+#chapter-reader .chapter-page-item {
+  width: 100%;
+  position: relative;
+  margin: 0;
+  padding: 0;
+}
+
+#chapter-reader img {
+  width: 100%;
+  min-width: 100% !important;
+  max-width: 100%;
+  height: auto;
+  display: block;
+  margin: 0 auto;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+
+/* Chapter Mini Actions */
+#chapter-mini-actions {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 1.5rem 1rem;
+  flex-wrap: wrap;
+  margin: 1.5rem auto 0 auto;
+  max-width: 800px;
+}
+
+.navChapter {
+  padding: 0.45rem 1rem;
+  background-color: #004DE5;
+  color: white;
+  border-radius: 6px;
+  text-decoration: none;
+  font-size: 0.82rem;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.2s;
+}
+
+.navChapter:hover {
+  background-color: #0038a8;
+  color: white;
+}
+
+.likeChapter {
+  border: 1px solid #383e4d;
+  padding: 0.45rem 1rem;
+  background-color: #15171c;
+  color: #ffffff;
+  border-radius: 6px;
+  font-size: 0.82rem;
+  font-weight: 700;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  transition: all 0.2s;
+}
+
+.likeChapter:hover {
+  border-color: #f43f5e;
+  background-color: #1f2330;
+}
+
+.likeChapter > i {
+  color: #f43f5e;
+  font-size: 0.95rem;
+}
+
+.markChapter {
+  padding: 0.45rem 1rem;
+  color: white;
+  border-radius: 6px;
+  background-color: #101216;
+  border: 1px solid #262a33;
+  font-size: 0.82rem;
+  font-weight: 700;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  transition: all 0.2s;
+}
+
+.markChapter:hover {
+  border-color: #00AEF0;
+  background-color: #00AEF0/15;
+}
+
+.markChapter.is-marked {
+  background-color: #0B253A;
+  border-color: #00AEF0;
+  color: #00AEF0;
+}
+
+.reportBtn {
+  padding: 0.45rem 1rem;
+  background: transparent;
+  color: #00AEF0;
+  border: 1px solid #00AEF0/40;
+  border-radius: 6px;
+  font-size: 0.82rem;
+  font-weight: 700;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  transition: all 0.2s;
+}
+
+.reportBtn:hover {
+  background-color: #00AEF0/15;
+  border-color: #00AEF0;
+}
+
+/* Shake icon animation */
+.shake-icon {
+  animation: shake 0.5s linear;
+}
+
+@keyframes shake {
+  0% { transform: translateX(0); }
+  20% { transform: translateX(-4px); }
+  40% { transform: translateX(4px); }
+  60% { transform: translateX(-4px); }
+  80% { transform: translateX(4px); }
+  100% { transform: translateX(0); }
+}

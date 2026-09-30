@@ -1,0 +1,37 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+# Local virtualenvs — the reproducible install is requirements.txt, not a
+# checked-in interpreter tree.
+.venv/
+venv/
+env/
+
+# Backend runtime artifacts
+backend_fastapi/test_fastapi.db*
+backend_fastapi/branding_uploads/
+test_fastapi.db*
+# Redis snapshot, written to the working directory by a locally-run
+# redis-server (the compose stack keeps its own inside the container volume).
+dump.rdb
+
+# Runtime file-upload storage (PROFILE_UPLOAD_DIR / BRANDING_UPLOAD_DIR /
+# MEME_UPLOAD_DIR etc. default under storage/ — user-uploaded content, not source)
+storage/
+
+# Node / frontend
+frontend/node_modules/
+frontend/build/
+node_modules/
+
+# Local env files (never commit secrets)
+.env
+.env.local
+backend_fastapi/.env
+frontend/.env.local
+
+# Editors / OS
+.DS_Store

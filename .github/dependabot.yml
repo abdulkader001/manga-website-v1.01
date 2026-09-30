@@ -1,0 +1,44 @@
+# backend_fastapi/requirements.txt has described this file as existing since
+# the dependencies were first pinned; it did not. Direct dependencies are
+# pinned to exact versions for reproducible builds, which means nothing ever
+# picks up a security release on its own — that only works with something
+# opening the bump PRs.
+
+version: 2
+updates:
+  - package-ecosystem: pip
+    directory: /backend_fastapi
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      # One PR for the routine patch churn; anything major still arrives on
+      # its own, where it can be read properly.
+      python-minor-and-patch:
+        update-types: ["minor", "patch"]
+
+  - package-ecosystem: npm
+    directory: /frontend
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      js-minor-and-patch:
+        update-types: ["minor", "patch"]
+    ignore:
+      # react-scripts 5 pins a large, mostly-unmaintained build toolchain; a
+      # major bump is a migration, not a dependency update. The transitive
+      # advisories it carries are handled by the `overrides` block in
+      # package.json instead.
+      - dependency-name: react-scripts
+        update-types: ["version-update:semver-major"]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: monthly

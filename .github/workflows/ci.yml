@@ -1,0 +1,221 @@
+name: CI
+
+# F-45: until now nothing ran on any commit or pull request. That is what let
+# three production blockers survive thirteen manual audits — every one of them
+# is asserted automatically below.
+#
+# The backend suite runs against **PostgreSQL**, not SQLite. That difference is
+# not cosmetic: F-75 (an unauthenticated 500 from a bigint OFFSET overflow)
+# cannot occur on SQLite, so no SQLite-backed run could ever have caught it.
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    name: Backend (PostgreSQL)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: manga
+          POSTGRES_PASSWORD: manga
+          POSTGRES_DB: manga_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U manga"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      # NOTE +psycopg2: requirements.txt pins psycopg2-binary; the psycopg (v3)
+      # driver is not installed (F-67).
+      DATABASE_URL: postgresql+psycopg2://manga:manga@localhost:5432/manga_test
+      REDIS_URL: redis://localhost:6379/0
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: backend_fastapi/requirements.lock
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          # The lock, not requirements.txt -- this is what the backend image
+          # installs, so it is what the suite must run against. Installing the
+          # bare direct pins here would leave CI testing a different transitive
+          # dependency set from the one that ships.
+          pip install -r backend_fastapi/requirements.lock
+          # pytest-env is what makes pytest.ini's `env = TESTING=1` block take
+          # effect; without it pytest warns "Unknown config option: env" and the
+          # declared setting is silently inert (the suite only still passes
+          # because conftest sets the same value as a fallback).
+          pip install pytest pytest-timeout pytest-env ruff
+
+      # Rule set is pinned in ruff.toml to the flake8 baseline this codebase
+      # was written against — see the comment there before widening it.
+      - name: Lint (ruff)
+        run: ruff check backend_fastapi scripts
+
+      - name: Test suite against PostgreSQL
+        run: pytest backend_fastapi/tests -q --timeout=600
+
+      # Against its OWN database, not manga_test. The suite builds its schema
+      # with Base.metadata.create_all, so running `alembic upgrade head` on the
+      # same database afterwards fails at the very first migration with
+      # `relation "users" already exists` — which says nothing about the
+      # migration chain and everything about the step ordering.
+      - name: Alembic chain applies cleanly to an empty database
+        env:
+          DATABASE_URL: postgresql+psycopg2://manga:manga@localhost:5432/manga_migrations
+        run: |
+          PGPASSWORD=manga createdb -h localhost -U manga manga_migrations
+          python scripts/verify_alembic_chain.py
+
+  frontend:
+    name: Frontend
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    defaults:
+      run:
+        working-directory: frontend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: frontend/.nvmrc
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Test
+        run: npm test -- --watchAll=false
+        env:
+          CI: "true"
+
+      - name: Build
+        run: npm run build
+        env:
+          CI: "true"
+          GENERATE_SOURCEMAP: "false"
+          INLINE_RUNTIME_CHUNK: "false"
+
+      # F-71: the build artifact itself is the thing that leaked. Assert it
+      # here, where a regression cannot be argued with.
+      - name: Assert no source maps ship
+        run: |
+          maps=$(find build -name '*.map' | head -20)
+          if [ -n "$maps" ]; then
+            echo "::error::Source maps present in the build output:"
+            echo "$maps"
+            exit 1
+          fi
+          echo "No .map files in build output."
+
+      # The strict CSP in nginx.conf has no 'unsafe-inline' in script-src, so
+      # an inline <script> in index.html would render the deployed app blank.
+      - name: Assert index.html carries no inline script
+        run: |
+          if grep -qE '<script(?![^>]*\ssrc=)[^>]*>[^<]' build/index.html; then
+            echo "::error::index.html contains an inline <script>, which the production CSP blocks."
+            exit 1
+          fi
+          echo "index.html has no inline script."
+
+  dependencies:
+    name: Dependency audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: frontend/.nvmrc
+
+      # PYSEC-2026-1325 (ecdsa, Minerva timing attack on ECDSA/ECDH sign and
+      # keygen) has **no fix version** — upstream considers side-channel
+      # attacks out of scope, so this would fail on every run forever and the
+      # whole job would become noise people learn to ignore. It is a
+      # transitive dep of python-jose, and this app only signs and verifies
+      # JWTs with HS256 (symmetric HMAC), so the vulnerable ECDSA/EdDSA/ECDH
+      # code paths are never reached. Same reasoning as the pin in
+      # backend_fastapi/requirements.txt; revisit if a fixed release lands or
+      # if anything here ever starts using asymmetric JWT algorithms.
+      #
+      # Audit the LOCK, not requirements.txt. requirements.txt lists 29 direct
+      # packages; the lock has all 73. Auditing only the direct pins meant
+      # every transitive dependency was invisible to this gate -- which is
+      # where advisories usually land. Pointing it at the lock immediately
+      # surfaced PYSEC-2026-3552 in cryptography (a transitive dep of
+      # python-jose), fixed by pinning 50.0.0.
+      - name: pip-audit
+        run: |
+          python -m pip install --upgrade pip pip-audit
+          pip-audit -r backend_fastapi/requirements.lock --strict \
+            --ignore-vuln PYSEC-2026-1325
+
+      # Two npm steps, because one threshold cannot serve both purposes.
+      #
+      # The gate is `critical`. Everything currently outstanding at `high` is a
+      # transitive dependency of react-scripts (@svgr/webpack, svgo, ws) whose
+      # only fix is `npm audit fix --force`, i.e. migrating off Create React
+      # App — a project, not a dependency bump, and Dependabot is configured to
+      # leave that major alone for the same reason. None of it reaches the
+      # browser: react-scripts is a build tool, and it only sits under
+      # `dependencies` because that is where CRA puts it, so `--omit=dev`
+      # cannot separate it either. Gating on `high` would mean a permanently
+      # red check, which is worse than no check — people stop reading it.
+      #
+      # `if: always()` on both so a Python advisory cannot hide a JavaScript
+      # one; the first run stopped at pip-audit and never reported npm at all.
+      - name: npm audit (gate — critical)
+        if: always()
+        working-directory: frontend
+        run: npm audit --audit-level=critical
+
+      - name: npm audit (report — high and above)
+        if: always()
+        continue-on-error: true
+        working-directory: frontend
+        run: npm audit --audit-level=high
