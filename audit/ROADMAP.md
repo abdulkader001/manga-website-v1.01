@@ -66,7 +66,7 @@ pages. Details: [project-verdict-2026-09-30.md](project-verdict-2026-09-30.md),
 
 | # | Item | Status | Done (date, PR) | Notes |
 | --- | --- | --- | --- | --- |
-| 8 | Buttons on the admin series page: re-compress pictures, and change layout (group size, spread mode, reading direction). The API endpoints exist already. | todo | | `site_admin.py`: `/admin/series/{id}/mirror-images`, `/admin/series/{id}/layout` |
+| 8 | Buttons on the admin series page: re-compress pictures, and change layout (group size, spread mode, reading direction). The API endpoints exist already. | done | 2026-09-30 | Two row buttons and a layout dialog in `SeriesManagement.jsx`. Group size is not offered: the layout endpoint ignores it (grouping is fixed at import). The compress button only handles chapters still pointing at the source site. Build and `tsc` pass; not clicked through in a browser. |
 | 9 | Log which legacy API aliases are still called, then remove the two old mounts (each route is registered three times today). | todo | | Do the removal only after the logs show no use. |
 | 10 | Drop the unused `custom_tabs` table with a migration. | todo | | Ask the owner first: it is data loss. |
 

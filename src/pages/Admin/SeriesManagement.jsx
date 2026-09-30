@@ -148,6 +148,12 @@ export default function SeriesManagement() {
   const [editSourceUrl, setEditSourceUrl] = useState("");
   const [savingSchedule, setSavingSchedule] = useState(false);
 
+  // Picture Layout Modal State
+  const [layoutManga, setLayoutManga] = useState(null);
+  const [layoutSpread, setLayoutSpread] = useState("auto");
+  const [layoutDirection, setLayoutDirection] = useState("rtl");
+  const [savingLayout, setSavingLayout] = useState(false);
+
   // Notice banner
   const [notice, setNotice] = useState(null);
 
@@ -446,6 +452,42 @@ export default function SeriesManagement() {
       setNotice({ type: "error", message: "Failed to update schedule: " + err.message });
     } finally {
       setSavingSchedule(false);
+    }
+  };
+
+  const handleMirrorImages = async (id, title) => {
+    try {
+      const res = await api.admin.series.mirrorImages(id);
+      setNotice({ type: "success", message: `✅ ${res?.message || `Compressing pictures for "${title}".`}` });
+      queryClient.invalidateQueries({ queryKey: ["mangaCatalogAdmin"] });
+    } catch (err) {
+      setNotice({ type: "error", message: "Picture compression failed: " + err.message });
+    }
+  };
+
+  const handleOpenLayout = (m) => {
+    const stored = m.scrape_layout || {};
+    setLayoutManga(m);
+    setLayoutSpread(stored.spread_mode || "auto");
+    setLayoutDirection(stored.reading_direction || (m.type === "manga" ? "rtl" : "ltr"));
+  };
+
+  const handleSaveLayout = async (e) => {
+    e.preventDefault();
+    if (!layoutManga) return;
+    setSavingLayout(true);
+    try {
+      const res = await api.admin.series.updateLayout(layoutManga.id, {
+        spread_mode: layoutSpread,
+        reading_direction: layoutDirection,
+      });
+      setNotice({ type: "success", message: `✅ ${res?.message || `Layout saved for "${layoutManga.title}".`}` });
+      setLayoutManga(null);
+      queryClient.invalidateQueries({ queryKey: ["mangaCatalogAdmin"] });
+    } catch (err) {
+      setNotice({ type: "error", message: "Failed to save layout: " + err.message });
+    } finally {
+      setSavingLayout(false);
     }
   };
 
@@ -876,6 +918,22 @@ export default function SeriesManagement() {
                           </button>
                           <button
                             type="button"
+                            onClick={() => handleMirrorImages(m.id, m.title)}
+                            className="p-2 rounded-xl bg-[#101216] hover:bg-[#00AEF0] text-gray-300 hover:text-white border border-[#262a33] transition"
+                            title="Compress pictures stored on the source site"
+                          >
+                            <i className="fas fa-compress-arrows-alt text-xs"></i>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleOpenLayout(m)}
+                            className="p-2 rounded-xl bg-[#101216] hover:bg-[#1f2330] text-[#00AEF0] border border-[#262a33] transition"
+                            title="Picture layout (spreads, reading direction)"
+                          >
+                            <i className="fas fa-columns text-xs"></i>
+                          </button>
+                          <button
+                            type="button"
                             onClick={() => handleOpenEditSchedule(m)}
                             className="p-2 rounded-xl bg-[#101216] hover:bg-[#1f2330] text-[#00AEF0] border border-[#262a33] transition"
                             title="Edit schedule"
@@ -1250,6 +1308,70 @@ export default function SeriesManagement() {
                 className="px-5 py-2 rounded-xl bg-[#00AEF0] hover:bg-[#0F5065] text-white font-bold text-xs transition"
               >
                 {savingSchedule ? "Saving…" : "Save Schedule"}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {/* Picture Layout Modal */}
+      {layoutManga && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in fade-in">
+          <form
+            onSubmit={handleSaveLayout}
+            className="bg-[#15171c] border border-[#262a33] rounded-2xl max-w-md w-full p-6 space-y-4 shadow-2xl"
+          >
+            <div className="flex items-center justify-between border-b border-[#262a33] pb-3">
+              <div>
+                <h3 className="text-sm font-bold text-white">Picture Layout</h3>
+                <p className="text-[11px] text-[#8b93a3]">{layoutManga.title}</p>
+              </div>
+              <button type="button" onClick={() => setLayoutManga(null)} className="text-gray-400 hover:text-white">✕</button>
+            </div>
+
+            <div className="space-y-3 text-xs">
+              <div>
+                <label className="font-semibold text-gray-300 block mb-1">Two-page scans</label>
+                <select
+                  value={layoutSpread}
+                  onChange={(e) => setLayoutSpread(e.target.value)}
+                  className="w-full px-3 py-2 rounded-xl bg-[#101216] border border-[#262a33] text-xs text-white focus:outline-none focus:border-[#00AEF0]"
+                >
+                  <option value="auto">Split wide images automatically</option>
+                  <option value="always">Always split (book format)</option>
+                  <option value="never">Never split</option>
+                </select>
+              </div>
+              <div>
+                <label className="font-semibold text-gray-300 block mb-1">Reading direction (which half comes first)</label>
+                <select
+                  value={layoutDirection}
+                  onChange={(e) => setLayoutDirection(e.target.value)}
+                  className="w-full px-3 py-2 rounded-xl bg-[#101216] border border-[#262a33] text-xs text-white focus:outline-none focus:border-[#00AEF0]"
+                >
+                  <option value="rtl">Right to left (manga)</option>
+                  <option value="ltr">Left to right (manhwa, manhua)</option>
+                </select>
+              </div>
+              <p className="text-[11px] text-[#8b93a3]">
+                Saving rebuilds this series' stored pictures from the source site in the background. Chapter grouping is fixed at import and cannot be changed here.
+              </p>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-3 border-t border-[#262a33]">
+              <button
+                type="button"
+                onClick={() => setLayoutManga(null)}
+                className="px-4 py-2 rounded-xl bg-[#101216] border border-[#262a33] text-xs text-gray-300 hover:text-white"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={savingLayout}
+                className="px-5 py-2 rounded-xl bg-[#00AEF0] hover:bg-[#0F5065] text-white font-bold text-xs transition"
+              >
+                {savingLayout ? "Saving…" : "Save Layout"}
               </button>
             </div>
           </form>
