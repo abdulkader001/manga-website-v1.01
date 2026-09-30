@@ -22,7 +22,7 @@ if [ ! -f /var/www/manga/.env ]; then
     echo "   Copy the template and fill the placeholder values (e.g. <generate-…>) before starting services:"
     echo "     cp .env.example .env"
     echo "     cp backend_fastapi/.env.example backend_fastapi/.env"
-    echo "     cp frontend/.env.example frontend/.env.local"
+    echo "     cp ./.env.example frontend/.env.local"
   else
     echo "   Create one manually following the secret checklist in README.md#secret-management-and-rotation."
   fi

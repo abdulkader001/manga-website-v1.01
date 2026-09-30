@@ -4,36 +4,25 @@ ARG FRONTEND_NGINX_IMAGE=docker.io/library/nginx:1.27-alpine
 FROM ${FRONTEND_NODE_IMAGE} AS build
 
 ARG FRONTEND_NODE_IMAGE
-ARG REACT_APP_API_BASE=/api/v1
 ARG CI=false
-
-ENV REACT_APP_API_BASE=${REACT_APP_API_BASE}
 ENV CI=${CI}
-# F-71: CRA emits .map files with sourcesContent:true, i.e. the complete
-# original text of every source file, and they were being served with a 200 in
-# production -- the whole frontend, admin routes and role gates included, free
-# to download. If you want maps for error tracking, generate them in a
-# separate build and upload them privately to Sentry; never ship them.
+# F-71: never ship source maps -- they carry the complete original source of
+# every file (admin routes and role gates included). vite.config.ts reads this.
 ENV GENERATE_SOURCEMAP=false
-# Load-bearing for the CSP in nginx.conf: by default CRA inlines the webpack
-# runtime as a <script> block inside index.html, which `script-src 'self'`
-# (no 'unsafe-inline') blocks -- the page would render blank. Emitting it as a
-# separate file keeps the strict policy and the app working.
-ENV INLINE_RUNTIME_CHUNK=false
 LABEL build.frontend_node_image=${FRONTEND_NODE_IMAGE}
 
 WORKDIR /app
 
-COPY frontend/package*.json ./
-# `npm ci` installs exactly what package-lock.json pins; `npm install` is free
-# to resolve newer transitive versions, so two builds of the same commit could
-# ship different dependency trees.
+COPY package.json package-lock.json ./
+# `npm ci` installs exactly what package-lock.json pins.
 RUN npm ci --no-audit --no-fund
 
-COPY frontend/ ./
+COPY index.html vite.config.ts postcss.config.js tailwind.config.js tsconfig.json ./
+COPY public ./public
+COPY src ./src
 RUN npm run build \
- && find build -name '*.map' -delete \
- && if find build -name '*.map' | grep -q .; then \
+ && find dist -name '*.map' -delete \
+ && if find dist -name '*.map' | grep -q .; then \
       echo 'ERROR: source maps present in build output'; exit 1; \
     fi
 
@@ -51,7 +40,7 @@ COPY nginx.conf /etc/nginx/conf.d/default.conf
 # Override the default nginx.conf so nginx can write its PID file while
 # running as an unprivileged user inside the container.
 COPY deploy/nginx/nginx.conf /etc/nginx/nginx.conf
-COPY --from=build /app/build ./
+COPY --from=build /app/dist ./
 
 # Runtime config (/config.json): rendered from the API_BASE env var at
 # container start so the frontend can be repointed without a rebuild.

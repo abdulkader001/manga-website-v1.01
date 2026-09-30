@@ -35,3 +35,6 @@ frontend/.env.local
 
 # Editors / OS
 .DS_Store
+
+# Frontend build output
+dist/
