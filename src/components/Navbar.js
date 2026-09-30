@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { Link, useNavigate, useLocation } from "react-router-dom";
+import { Link, useNavigate, useLocation } from "react-router";
 import NotificationBell from "./NotificationBell";
 import ThemeToggle from "./ThemeToggle";
 import CONFIG from "../config";

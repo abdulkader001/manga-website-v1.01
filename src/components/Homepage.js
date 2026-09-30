@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState, useMemo } from "react";
-import { Link } from "react-router-dom";
+import { Link } from "react-router";
 import api, { apiFetch } from "../services/api";
 import AdPlacement from "./AdPlacement";
 import AdSection from "./GlobalAds";

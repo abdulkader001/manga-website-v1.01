@@ -81,22 +81,23 @@ pages. Details: [project-verdict-2026-09-30.md](project-verdict-2026-09-30.md),
 
 ## PR E — Deeper security
 
+Item 17 (contact page and takedown procedure) was dropped by the owner on 2026-09-30.
+
 | # | Item | Status | Done (date, PR) | Notes |
 | --- | --- | --- | --- | --- |
-| 15 | Second factor or re-authentication for the main admin. | done | 2026-09-30 | Authenticator-app codes (TOTP) for admin-tier accounts: enrol at `/admin/security`, then admin routes need a 30-minute step-up cookie (`admin_second_factor.py`, `routers/admin_2fa.py`, guard in `dependencies/auth.py`, migration `20261002_admin_totp`). `ADMIN_2FA_REQUIRED=true` makes it mandatory for main admins; off by default so nobody is locked out. Secret encrypted at rest; codes single-use; guesses rate-limited. Tests `test_admin_second_factor.py` (SQLite). Screens build and type-check but were not clicked through; migration not run on Postgres. No backup codes: a lost phone is fixed by clearing the row (see `deployment/key-rotation.md`). |
-| 16 | Encryption key rotation: accept an old and a new key together, re-encrypt, document the steps. | done | 2026-09-30 | `EMAIL_ENCRYPTION_KEY=NEW,OLD` and `INTEGRATIONS_SECRET_PREVIOUS`; `scripts/rotate_encryption_key.py` re-encrypts emails, OAuth tokens, admin authenticator secrets and API keys; steps in `deployment/key-rotation.md`. Several email keys need `EMAIL_HASH_SECRET` pinned (startup refuses otherwise). Tests `test_key_rotation.py` (SQLite); the script was not run against Postgres. |
-| 17 | Public contact page and takedown procedure for hosted pictures. | blocked | | Needs the owner's contact details and wording (U3). Not started. |
-| 18 | Upgrade `vite` to 6+ and `react-router-dom` to 7 (clears the 4 `npm audit` findings). | todo | | Own PR; click through every page after. Left out of PR E on purpose. |
+| 15 | Second factor or re-authentication for the main admin. | done | 2026-09-30 | Authenticator-app codes (TOTP) for admin-tier accounts: enrol at `/admin/security`, then admin routes need a 30-minute step-up cookie (`admin_second_factor.py`, `routers/admin_2fa.py`, guard in `dependencies/auth.py`, migration `20261002_admin_totp`). `ADMIN_2FA_REQUIRED=true` makes it mandatory for main admins; off by default so nobody is locked out. Secret encrypted at rest; codes single-use; guesses rate-limited. Tests `test_admin_second_factor.py` (SQLite). Migration applied on PostgreSQL 14 (compose stack) and in the empty-database chain check. Screens clicked through in Chromium, including entering a code at the gate. No backup codes: a lost phone is fixed by clearing the row (see `deployment/key-rotation.md`). |
+| 16 | Encryption key rotation: accept an old and a new key together, re-encrypt, document the steps. | done | 2026-09-30 | `EMAIL_ENCRYPTION_KEY=NEW,OLD` and `INTEGRATIONS_SECRET_PREVIOUS`; `scripts/rotate_encryption_key.py` re-encrypts emails, OAuth tokens, admin authenticator secrets and API keys; steps in `deployment/key-rotation.md`. Several email keys need `EMAIL_HASH_SECRET` pinned (startup refuses otherwise). Tests `test_key_rotation.py`. Rehearsed on PostgreSQL 14 in the compose stack: 5 values rotated, 0 unreadable; afterwards login lookup, email, OAuth tokens, authenticator secret and a stored API key all read with the new keys only. |
+| 18 | Upgrade `vite` to 6+ and `react-router-dom` to 7 (clears the 4 `npm audit` findings). | done | 2026-09-30 | `vite` 7.3 (not 8: 8 swaps the bundler and needs a config rewrite; 7 clears the advisories), `@vitejs/plugin-react` 5, `react-router` 7 (imports moved from `react-router-dom`). `npm audit`: 0. Build and `tsc` pass. Clicked through 18 routes in Chromium against a seeded local API: no errors, and the admin second-factor gate works. That run found `/admin/roles` crashing because the permission catalogue sends only keys; fixed by deriving the label. Not checked: reader with real page images, admin import with a real source site. |
 
 ## PR F — Long-term maintenance
 
 | # | Item | Status | Done (date, PR) | Notes |
 | --- | --- | --- | --- | --- |
-| 19 | Dependabot or Renovate config; keep the weekly dependency audit in CI. | todo | | |
-| 20 | Frontend tests in CI: login, reader, admin import. | todo | | No test runner is installed yet. |
-| 21 | Pin base images and dependencies; document how and when to update them. | todo | | |
-| 22 | Runbook: change of source domain, restore from backup, key rotation, adding a new source site. | todo | | |
-| 23 | Move pictures to S3 or a CDN when the library outgrows the disk (design first). | todo | | Only when item 12 shows the need. |
+| 19 | Dependabot or Renovate config; keep the weekly dependency audit in CI. | done | 2026-09-30 | Fixed `dependabot.yml` (the npm entry pointed at a folder that does not exist, and ignored `react-scripts`, which is gone); it now covers pip, npm, GitHub Actions, base images and compose, and skips only the Vite 8 major on purpose. CI now also runs every Monday (dependency audit only), and the npm gate is `high` because the audit is clean. Not run on GitHub here: the schedule and Dependabot fire only there. |
+| 20 | Frontend tests in CI: login, reader, admin import. | done | 2026-09-30 | Vitest + Testing Library + jsdom (`npm test`, run in CI before the build). 15 tests: login (`Login.test.jsx`), reader (`ChapterViewer.test.jsx`), admin series import (`SeriesManagement.test.jsx`) and the admin second-factor gate. They test the screens with the API mocked, not the API itself; the earlier browser click-through covered the real API. |
+| 21 | Pin base images and dependencies; document how and when to update them. | done | 2026-09-30 | Base images pinned by digest (Python, Node, nginx, PostgreSQL, Redis) and npm dependencies pinned to exact versions (`.npmrc` `save-exact`); Python was already exact plus lock. How and when to update: `deployment/updating.md`. Both images built and the full stack ran healthy (see item 28). The digests are identical on ECR Public and Docker Hub. |
+| 22 | Runbook: change of source domain, restore from backup, key rotation, adding a new source site. | done | 2026-09-30 | `deployment/runbook.md`: source domain change, restore from backup, key rotation (links `key-rotation.md`), adding a new source site. Restore and key rotation rehearsed on the compose stack: encrypted dump, scratch-database verification (51 tables match), a real restore after deleting data (series back, all services healthy), pictures restore verified. Source-domain change and adding a site need the real sites (items 24-26). |
+| 23 | Move pictures to S3 or a CDN when the library outgrows the disk (design first). | done | 2026-09-30 | Design only, as the item says: `audit/storage-design.md` (trigger, options, recommended path, risks). Nothing built; the trigger is the storage report from item 12. |
 
 ## PR G — Real-site verification (Together with the owner)
 
@@ -109,7 +110,7 @@ reach. The agent guides and fixes what the checks show.
 | 25 | Import one real MangaUpdates link and check the metadata (the id decoding was never tried on the real site). | todo | | |
 | 26 | Import one real two-page (book format) series and one long-strip series; check split, order and compression by eye. | todo | | |
 | 27 | Configure an OCR and translation provider (Admin → API management) and translate one real chapter. | todo | | |
-| 28 | `docker compose build` and `up`, then click through the site once (Docker images were never built in the sandbox). | todo | | |
+| 28 | `docker compose build` and `up`, then click through the site once (Docker images were never built in the sandbox). | done | 2026-09-30 | Built both images and ran the whole stack (API, PostgreSQL 14, Redis, 8 Celery workers, beat, nginx web): all healthy, all 9 queues consumed, 18 pages clicked through on the production build behind nginx with no errors. Found and fixed 3 start-up bugs (found later 30-32). Sandbox limits: `deb.debian.org` is blocked here, so the backend image was built without its `postgresql-client` step (the backup scripts ran from the host instead), and images came from Docker Hub instead of ECR Public (same digests). Build once on the server with `docker compose build` to cover that step. |
 
 ## PR H — Decision needed
 
@@ -123,14 +124,17 @@ reach. The agent guides and fixes what the checks show.
 | --- | --- | --- | --- |
 | U1 | Rotate the Google OAuth client secret that was committed in the old `Manga-Website` repository. | todo | Google Cloud console. |
 | U2 | Make sure `ALLOW_PLAINTEXT_SECRETS` is not set on the production server. | todo | |
-| U3 | Provide contact details for the takedown page (item 17). | todo | |
 | U4 | Provide a Sentry (or similar) DSN (item 13). | todo | |
 
 ## Found later
 
 | # | Item | Status | Done (date, PR) | Notes |
 | --- | --- | --- | --- | --- |
-| | | | | |
+| 30 | Every Celery worker and beat container ran a second copy of the API instead of Celery: compose's `command` is appended to the image `ENTRYPOINT` (`start_backend.sh`), which ignores it. No background job (scraping, compression, email, schedules) ever ran under compose. | done | 2026-09-30 | `entrypoint: []` on the workers and beat, in `docker-compose.yml` and the scale overlay (the migrate service already did this). Kubernetes was not affected (`command` replaces the entrypoint there). |
+| 31 | The web container never started: `pid` was set both in `nginx.conf` and in the start command, and nginx refuses a duplicate. | done | 2026-09-30 | Removed it from the command in `web.Dockerfile` and `docker-compose.yml`. |
+| 32 | `WEB_CONCURRENCY=` (blank) in `.env.example` crashed gunicorn at start-up (it parses the value as a number), so a backend configured from the example never served. | done | 2026-09-30 | Set to 4 (same as `GUNICORN_WORKERS`) with a note never to leave it blank. |
+| 34 | `main` had two migration heads after PR #12 (`drop_custom_tabs`) and PR #13 (`admin_totp`) both followed `20261001_page_mirroring`: `alembic upgrade head` refused to run and CI on `main` went red. | done | 2026-09-30 | Merge revision `20261003_merge_totp_custom_tabs` joins them without changing either. Chain checked on an empty PostgreSQL 14 database; full backend suite passes on it. |
+| 33 | The pinned `python:3.11-slim` digest is Debian 13 (trixie), not bookworm as before, so the image's `postgresql-client` is version 17. | todo | | Works with the PostgreSQL 14 server (newer `pg_dump` reads older servers). Check backups once on the server after the first real build. |
 
 ## Done log
 

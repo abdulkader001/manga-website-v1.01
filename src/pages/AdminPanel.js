@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import React, { useMemo } from "react";
-import { Link } from "react-router-dom";
+import { Link } from "react-router";
 import api from "../services/api";
 import useAuth from "../hooks/useAuth";
 import { ADMIN_FEATURE_LINKS } from "../constants/adminFeatures";

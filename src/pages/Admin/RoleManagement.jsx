@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect } from "react";
-import { Link } from "react-router-dom";
+import { Link } from "react-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import api, { apiFetch } from "../../services/api";
 import useAuth from "../../hooks/useAuth";
@@ -423,6 +423,8 @@ export default function RoleManagement() {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                   {perms.map((perm) => {
                     const isGranted = Boolean(activeOverrides[perm.key]);
+                    // The catalogue API sends only the key, so derive a label.
+                    const permName = perm.name || String(perm.key).replace(/_/g, " ");
                     return (
                       <div
                         key={perm.key}
@@ -434,7 +436,7 @@ export default function RoleManagement() {
                       >
                         <div className="space-y-1">
                           <div className="flex items-center gap-2">
-                            <span className="font-bold text-xs text-white">{perm.name}</span>
+                            <span className="font-bold text-xs text-white">{permName}</span>
                             <span className={`px-1.5 py-0.2 rounded text-[9px] font-bold ${
                               isGranted ? "bg-emerald-500/20 text-emerald-300" : "bg-gray-800 text-gray-400"
                             }`}>
@@ -442,7 +444,7 @@ export default function RoleManagement() {
                             </span>
                           </div>
                           <p className="text-[11px] text-[#8b93a3] leading-relaxed">
-                            {perm.description || `Allows the sub-admin to perform ${perm.name.toLowerCase()}.`}
+                            {perm.description || `Allows the sub-admin to perform ${permName.toLowerCase()}.`}
                           </p>
                         </div>
 
@@ -455,7 +457,7 @@ export default function RoleManagement() {
                           }`}
                           role="switch"
                           aria-checked={isGranted}
-                          title={`Toggle ${perm.name}`}
+                          title={`Toggle ${permName}`}
                         >
                           <span
                             aria-hidden="true"

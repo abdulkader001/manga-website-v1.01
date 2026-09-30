@@ -1,8 +1,6 @@
-# backend_fastapi/requirements.txt has described this file as existing since
-# the dependencies were first pinned; it did not. Direct dependencies are
-# pinned to exact versions for reproducible builds, which means nothing ever
-# picks up a security release on its own — that only works with something
-# opening the bump PRs.
+# Dependabot opens the update pull requests. Everything is pinned to exact
+# versions (or digests for images), so nothing updates unless one of these PRs
+# is merged. How to review them: deployment/updating.md.
 
 version: 2
 updates:
@@ -17,8 +15,9 @@ updates:
       python-minor-and-patch:
         update-types: ["minor", "patch"]
 
+  # package.json and package-lock.json live at the repository root.
   - package-ecosystem: npm
-    directory: /frontend
+    directory: /
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
@@ -26,11 +25,11 @@ updates:
       js-minor-and-patch:
         update-types: ["minor", "patch"]
     ignore:
-      # react-scripts 5 pins a large, mostly-unmaintained build toolchain; a
-      # major bump is a migration, not a dependency update. The transitive
-      # advisories it carries are handled by the `overrides` block in
-      # package.json instead.
-      - dependency-name: react-scripts
+      # Vite 8 swaps the bundler and needs a config rewrite (vite.config.ts uses
+      # esbuild-only hooks); take it as a planned change, not a bump.
+      - dependency-name: vite
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@vitejs/plugin-react"
         update-types: ["version-update:semver-major"]
 
   - package-ecosystem: github-actions
@@ -38,7 +37,13 @@ updates:
     schedule:
       interval: monthly
 
+  # Base images, pinned by digest in the Dockerfiles and compose file.
   - package-ecosystem: docker
+    directory: /backend_fastapi
+    schedule:
+      interval: monthly
+
+  - package-ecosystem: docker-compose
     directory: /
     schedule:
       interval: monthly

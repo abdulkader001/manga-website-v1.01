@@ -80,6 +80,9 @@ x-celery-worker: &celery-worker
       condition: service_healthy
     redis:
       condition: service_healthy
+  # The image ENTRYPOINT is start_backend.sh; compose appends `command` to it as
+  # arguments instead of replacing it, so without this every worker ran gunicorn.
+  entrypoint: []
   command: ["/usr/bin/env", "sh", "/app/backend_fastapi/scripts/start_celery_worker.sh"]
   # Checks this worker (broker reachability + a live 'celery worker' process),
   # not the backend's /healthz -- which stayed green while the worker was dead.
@@ -99,7 +102,7 @@ services:
   # PostgreSQL (Database)
   # ======================
   db:
-    image: ${OFFICIAL_LIBRARY_REGISTRY:-public.ecr.aws/docker/library}/postgres:14-bookworm
+    image: ${OFFICIAL_LIBRARY_REGISTRY:-public.ecr.aws/docker/library}/postgres:14-bookworm@sha256:dcc2ca942d8518144f387a0c2630188427835f984caaed0418b986928e761809
     container_name: manga-stack-db
     restart: unless-stopped
     # F-85: the default max_connections is 100, but this stack's demand is the
@@ -135,7 +138,7 @@ services:
   # Redis (Cache / Broker)
   # ======================
   redis:
-    image: ${OFFICIAL_LIBRARY_REGISTRY:-public.ecr.aws/docker/library}/redis:7-alpine
+    image: ${OFFICIAL_LIBRARY_REGISTRY:-public.ecr.aws/docker/library}/redis:7-alpine@sha256:858f009f9709ce576febc734aa78b8f6d624b82571f9ddb6bda4377c833b3499
     container_name: manga-stack-redis
     restart: unless-stopped
     environment:
@@ -370,6 +373,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+    # See x-celery-worker: replace the image entrypoint, do not append to it.
+    entrypoint: []
     command: ["/usr/bin/env", "sh", "/app/backend_fastapi/scripts/start_celery_beat.sh"]
     # Same rationale as celery_worker: verify the scheduler in *this* container.
     healthcheck:
@@ -405,7 +410,7 @@ services:
       # Rendered into /config.json at container start (deployment/nginx/entrypoint.sh)
       # so the frontend can be repointed at a different backend without a rebuild.
       - API_BASE=${API_BASE:-/api/v1}
-    command: ["sh", "-c", "nginx -g 'pid /tmp/nginx.pid; daemon off;'"]
+    command: ["nginx", "-g", "daemon off;"]
     healthcheck:
       test: [
         "CMD-SHELL",
