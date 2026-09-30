@@ -4,7 +4,7 @@
 Both compose services used to curl the *backend's* ``/healthz``, which reports
 on a different container entirely: a worker that had crashed, deadlocked, or
 was killed still looked healthy for as long as the API was up. This ports the
-two checks the k8s manifests already perform (``deploy/k8s/celery-worker.yaml``)
+two checks the k8s manifests already perform (``backend_fastapi/deployment/k8s/celery-worker.yaml``)
 into a single exit-code contract compose can use:
 
 1. the broker is reachable from *this* container (readiness), and

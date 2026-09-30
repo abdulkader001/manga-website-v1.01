@@ -97,7 +97,7 @@ def connection_budget() -> tuple[int, int, int]:
     except ValueError:
         workers = 0
     if workers <= 0:
-        # Mirrors deploy/gunicorn.conf.py's `2 * cpu_count + 1` default.
+        # Mirrors backend_fastapi/deployment/gunicorn.conf.py's `2 * cpu_count + 1` default.
         try:
             import multiprocessing
 

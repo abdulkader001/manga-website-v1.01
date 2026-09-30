@@ -22,8 +22,8 @@ from pathlib import Path
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-WEB_DOCKERFILE = REPO_ROOT / "web.Dockerfile"
-SITE_CONF = REPO_ROOT / "nginx.conf"
+WEB_DOCKERFILE = REPO_ROOT / "deployment" / "web.Dockerfile"
+SITE_CONF = REPO_ROOT / "deployment" / "nginx" / "site.conf"
 
 
 @pytest.fixture(scope="module")
@@ -52,7 +52,7 @@ def test_build_fails_if_a_source_map_survives(dockerfile: str) -> None:
 
 
 def test_image_ships_the_hardened_site_config(dockerfile: str) -> None:
-    assert "COPY nginx.conf /etc/nginx/conf.d/default.conf" in dockerfile
+    assert "COPY deployment/nginx/site.conf /etc/nginx/conf.d/default.conf" in dockerfile
     # The two configs that used to hold these rules while nothing referenced
     # them are gone; if either reappears, the ambiguity F-74 came from is back.
     assert not (REPO_ROOT / "frontend" / "nginx.conf").exists()

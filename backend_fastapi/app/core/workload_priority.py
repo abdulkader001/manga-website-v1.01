@@ -27,7 +27,7 @@ manufacture a free worker slot, so a saturated pool (e.g. a
 ``time_limit``) can still make a HIGH-priority translation job wait behind
 LOW-priority scrape work despite this module's own priority values. Real
 queue isolation, matching what this docstring assumes, is only provided by
-``docker-compose.scale.yml``'s per-queue worker services (or an equivalent
+``backend_fastapi/deployment/docker-compose.scale.yml``'s per-queue worker services (or an equivalent
 k8s deployment) -- these priorities are a genuine anti-starvation mechanism
 only there. Confirm which topology a given deployment is actually running
 before relying on priority alone to protect a reader-facing workload.

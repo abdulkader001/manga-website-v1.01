@@ -93,7 +93,7 @@ def test_gunicorn_timeout_exceeds_the_long_request_ceiling():
     # And the shipped config default agrees, since GUNICORN_TIMEOUT is optional.
     namespace: dict[str, object] = {}
     exec(  # noqa: S102 - reading the config's computed values is the point
-        (REPO_ROOT / "deploy" / "gunicorn.conf.py").read_text(),
+        (REPO_ROOT / "backend_fastapi" / "deployment" / "gunicorn.conf.py").read_text(),
         namespace,
     )
     long_timeout = float(os.getenv("LONG_REQUEST_TIMEOUT_SECONDS", "120"))

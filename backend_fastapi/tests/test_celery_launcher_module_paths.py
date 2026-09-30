@@ -27,10 +27,10 @@ ROOT = Path(__file__).resolve().parents[2]
 LAUNCHER_FILES = [
     "backend_fastapi/scripts/start_celery_worker.sh",
     "backend_fastapi/scripts/start_celery_beat.sh",
-    "deploy/k8s/celery-worker.yaml",
-    "deploy/k8s/celery-beat.yaml",
-    "deploy/manga-worker.service",
-    "deploy/manga-beat.service",
+    "backend_fastapi/deployment/k8s/celery-worker.yaml",
+    "backend_fastapi/deployment/k8s/celery-beat.yaml",
+    "backend_fastapi/deployment/manga-worker.service",
+    "backend_fastapi/deployment/manga-beat.service",
 ]
 
 # ``-A backend_fastapi.app.core.celery_app:celery_app`` (with or without the

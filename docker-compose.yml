@@ -35,7 +35,7 @@ x-backend-service: &backend-service
   build: *backend-build
   pull_policy: build
 
-# F-30: one Celery worker PER routed queue, mirroring docker-compose.scale.yml's
+# F-30: one Celery worker PER routed queue, mirroring backend_fastapi/deployment/docker-compose.scale.yml's
 # per-queue worker pattern (just single-replica / low-concurrency here, since the
 # default/dev path only needs isolation, not throughput). workload_priority.py's
 # anti-starvation guarantee depends on queue isolation, not message priority
@@ -202,7 +202,7 @@ services:
       db:
         condition: service_healthy
     entrypoint: []
-    command: ["sh", "-c", "alembic upgrade head && python scripts/seed_bootstrap_state.py"]
+    command: ["sh", "-c", "alembic upgrade head && python backend_fastapi/scripts/seed_bootstrap_state.py"]
     volumes:
       - .:/app
     networks:
@@ -283,7 +283,7 @@ services:
 
   # The per-queue workers below deliberately carry NO container_name: a fixed
   # name pins a service to exactly one replica, so `up --scale
-  # celery_worker_scrape=3` (the documented path in docker-compose.scale.yml)
+  # celery_worker_scrape=3` (the documented path in backend_fastapi/deployment/docker-compose.scale.yml)
   # fails outright. Compose names them manga-stack-celery_worker_scrape-1 etc.
   celery_worker_scrape:
     <<: *celery-worker
@@ -380,7 +380,7 @@ services:
   web:
     build:
       context: .
-      dockerfile: web.Dockerfile
+      dockerfile: deployment/web.Dockerfile
     container_name: manga-stack-web
     restart: unless-stopped
     depends_on:
@@ -393,7 +393,7 @@ services:
       # compressed chapter pages and covers directly.
       - app-storage:/app/storage:ro
     environment:
-      # Rendered into /config.json at container start (deploy/nginx/entrypoint.sh)
+      # Rendered into /config.json at container start (deployment/nginx/entrypoint.sh)
       # so the frontend can be repointed at a different backend without a rebuild.
       - API_BASE=${API_BASE:-/api/v1}
     command: ["sh", "-c", "nginx -g 'pid /tmp/nginx.pid; daemon off;'"]
