@@ -33,22 +33,6 @@ class FooterSettings(Base):
     socials = Column(JSON, nullable=True)  # list of { "label": "...", "url": "..." }
 
 
-class CustomTab(Base):
-    __tablename__ = "custom_tabs"
-    id = Column(Integer, primary_key=True)
-    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=True)
-    title = Column(String(100), nullable=False)
-    url = Column(String(255), nullable=False)
-    is_global = Column(Boolean, nullable=False, default=False, server_default="false")
-    order = Column(Integer, nullable=False, default=0)
-    created_at = Column(DateTime, nullable=False, server_default=func.now())
-    updated_at = Column(
-        DateTime, nullable=False, server_default=func.now(), onupdate=func.now()
-    )
-
-    user = relationship("User", lazy="selectin", back_populates="custom_tabs")
-
-
 class Setting(Base):
     __tablename__ = "settings"
     id = Column(Integer, primary_key=True)

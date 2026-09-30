@@ -220,12 +220,6 @@ class User(Base):
         back_populates="user",
         cascade="all, delete-orphan",
     )
-    custom_tabs = relationship(
-        "CustomTab",
-        lazy="select",
-        back_populates="user",
-        cascade="all, delete-orphan",
-    )
     processing_settings = relationship(
         "UserProcessingSettings",
         lazy="select",

@@ -77,7 +77,6 @@ from .community import (
 # Settings and Admin models
 from .settings import (
     FooterSettings as FooterSettings,
-    CustomTab as CustomTab,
     Setting as Setting,
     AdSlot as AdSlot,
     GlobalAdProvider as GlobalAdProvider,
