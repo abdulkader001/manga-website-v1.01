@@ -57,10 +57,10 @@ pages. Details: [project-verdict-2026-09-30.md](project-verdict-2026-09-30.md),
 
 | # | Item | Status | Done (date, PR) | Notes |
 | --- | --- | --- | --- | --- |
-| 4 | nginx hotlink protection (`valid_referers`) and `limit_req` / `limit_conn` on `/api/v1/manga/pages/` and `/covers/`. | todo | | `deployment/nginx/site.conf`. Allow empty referer and the site's own domain(s). |
-| 5 | Refuse to start in production when `ALLOW_PLAINTEXT_SECRETS` is set. | todo | | Add a test. |
-| 6 | Per-IP login rate limit in nginx and in the API (beyond the per-account lockout). | todo | | |
-| 7 | Run picture compression on its own Celery queue and worker service so a big import cannot delay new-chapter checks. | todo | | `tasks/scraper_tasks.py`, compose, Kubernetes and systemd files. |
+| 4 | nginx hotlink protection (`valid_referers`) and `limit_req` / `limit_conn` on `/api/v1/manga/pages/` and `/covers/`. | done | 2026-09-30 | `deployment/nginx/site.conf`. Allow empty referer and the site's own domain(s). Done with a `map` on Referer vs Host (nginx.conf) instead of `valid_referers`, because `server_name` is `_`; partner domains go in that map. Tried against a real nginx: own and empty referer 200, foreign 403, burst beyond 200 gets 429. Not tried in the Docker image. |
+| 5 | Refuse to start in production when `ALLOW_PLAINTEXT_SECRETS` is set. | done | 2026-09-30 | `settings.py`; test `test_plaintext_secrets_production_guard.py`. The secure-cookie guard tests now clear the variable. |
+| 6 | Per-IP login rate limit in nginx and in the API (beyond the per-account lockout). | done | 2026-09-30 | Login is Google or magic link (no passwords). nginx: 10 requests/min, burst 10 on those paths. API: 30 per 10 min per IP on Google login and callbacks (magic-link endpoints already had limits). Test `test_login_ip_rate_limit.py`. |
+| 7 | Run picture compression on its own Celery queue and worker service so a big import cannot delay new-chapter checks. | done | 2026-09-30 | Queue `compress` for `mirror_chapter_pages` only; new worker in both compose files, a Kubernetes deployment and `manga-worker-compress.service`. Routing checked; containers, Kubernetes and systemd not run. The systemd general worker still has no `CELERY_QUEUES` (pre-existing). |
 
 ## PR C — Admin screens and clean-up
 

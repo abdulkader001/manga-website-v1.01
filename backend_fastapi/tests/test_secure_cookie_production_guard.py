@@ -21,6 +21,13 @@ from __future__ import annotations
 import pytest
 
 
+@pytest.fixture(autouse=True)
+def _no_plaintext_secrets(monkeypatch) -> None:
+    """The suite-wide ALLOW_PLAINTEXT_SECRETS=1 is refused in production."""
+
+    monkeypatch.delenv("ALLOW_PLAINTEXT_SECRETS", raising=False)
+
+
 def _settings_kwargs(**overrides):
     """Minimum viable Settings payload; the guard under test is the subject."""
 
@@ -29,6 +36,7 @@ def _settings_kwargs(**overrides):
         "jwt_secret_key": "y" * 32,
         "access_token_expire_minutes": 60,
         "algorithm": "HS256",
+        "email_encryption_key": "kyv1YJfbkMLfIrlR_7ZyT7Cn4wnP2vGwpAzKJBo3Hxw=",
     }
     base.update(overrides)
     return base

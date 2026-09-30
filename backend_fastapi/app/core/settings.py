@@ -235,6 +235,16 @@ class Settings(BaseSettings):
                 "WITHOUT the Secure flag."
             )
 
+        # Roadmap item 5: ALLOW_PLAINTEXT_SECRETS lets a host run with
+        # plaintext secrets and unencrypted emails. It is a local-dev escape
+        # hatch, so a production process must never start with it set.
+        if is_production() and _truthy_env("ALLOW_PLAINTEXT_SECRETS"):
+            raise ValueError(
+                "ALLOW_PLAINTEXT_SECRETS is set in a production environment. "
+                "Unset it and configure encrypted secrets and "
+                "EMAIL_ENCRYPTION_KEY instead."
+            )
+
         secret_key = (self.secret_key or "").strip()
         if len(secret_key) < 12:
             raise ValueError("SECRET_KEY must be at least 12 characters long")

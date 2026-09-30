@@ -237,3 +237,19 @@ def test_initialize_celery_handles_failure(monkeypatch):
     app = type("App", (), {"state": type("State", (), {})()})()
     result = asyncio.run(lifecycle.initialize_celery(app))
     assert result is None
+
+
+def test_picture_compression_has_its_own_queue():
+    """Roadmap item 7: compression must not share the scrape queue."""
+    routes = celery_app.conf.task_routes or {}
+    prefix = "backend_fastapi.app.tasks.scraper_tasks."
+    assert routes[prefix + "mirror_chapter_pages"]["queue"] == "compress"
+    # Everything else in the scraper family stays on the scrape queue.
+    assert routes[prefix + "*"]["queue"] == "scrape"
+    # The first matching route is the one a first-match reader would use too.
+    first = next(
+        opts
+        for pattern, opts in routes.items()
+        if (prefix + "mirror_chapter_pages").startswith(pattern.rstrip("*"))
+    )
+    assert first["queue"] == "compress"

@@ -156,6 +156,15 @@ services:
       CELERY_QUEUES: scrape
       CELERY_CONCURRENCY: "4"
 
+  # Picture download + WebP compression (roadmap item 7), kept off the scrape
+  # queue so a big import cannot delay new-chapter checks.
+  celery_worker_compress:
+    <<: *scale-worker
+    environment:
+      <<: *scale-worker-env
+      CELERY_QUEUES: compress
+      CELERY_CONCURRENCY: "2"
+
   celery_worker_ocr:
     <<: *scale-worker
     environment:
