@@ -126,7 +126,9 @@ async def _list_manga_impl(
     )
     if not (payload.get("cache_hit") is False and redis_client):
         payload["cache_hit"] = True
-    catalogue_service.apply_viewer_fields(db, payload.get("items") or [], user)
+    # The cached payload is shared between viewers: work on a copy.
+    payload = {**payload, "items": [dict(i) for i in payload.get("items") or []]}
+    catalogue_service.apply_viewer_fields(db, payload["items"], user)
     return payload
 
 
@@ -243,6 +245,7 @@ async def get_manga_detail(
         celery_task_name="backend_fastapi.app.tasks.manga_tasks.refresh_manga_detail_cache",
         celery_task_kwargs={"cache_key": cache_key, "ttl": 60, "manga_id": manga_id},
     )
+    payload = dict(payload)
     catalogue_service.apply_viewer_fields(db, [payload], user)
     return payload
 

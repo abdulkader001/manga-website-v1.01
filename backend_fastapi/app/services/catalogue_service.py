@@ -197,12 +197,28 @@ def build_chapter_list_payload(
     return payload
 
 
+ADMIN_ONLY_FIELDS = ("source_url", "mangaupdates_url", "scrape_layout")
+
+
+def _hide_admin_fields(items: List[Dict[str, Any]], user: Optional[User]) -> None:
+    """Drop the scraping sources unless the viewer is an admin."""
+
+    from ..dependencies.auth import is_secondary_or_higher
+
+    if user is not None and is_secondary_or_higher(user):
+        return
+    for item in items:
+        for field in ADMIN_ONLY_FIELDS:
+            item.pop(field, None)
+
+
 def apply_viewer_fields(
     db: Session, items: Iterable[Dict[str, Any]], user: Optional[User]
 ) -> None:
     """Per-viewer fields that must never be cached across users."""
 
     items = list(items)
+    _hide_admin_fields(items, user)
     for item in items:
         item["user_rating"] = None
     if user is None or not items:

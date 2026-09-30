@@ -2,6 +2,9 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import App from "./app";
 import { AuthProvider } from "./contexts/AuthContext";
+import "@fortawesome/fontawesome-free/css/all.min.css";
+import "material-icons/iconfont/material-icons.css";
+import "material-icons/iconfont/outlined.css";
 import "./index.css";
 import "./styles/mgeko.css";
 

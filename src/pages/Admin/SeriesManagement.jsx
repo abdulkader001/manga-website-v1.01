@@ -1064,7 +1064,6 @@ export default function SeriesManagement() {
                     <option value="manhwa">Korean Manhwa (Vertical Webtoon)</option>
                     <option value="manga">Japanese Manga (Black &amp; White)</option>
                     <option value="manhua">Chinese Manhua (Color Comic)</option>
-                    <option value="comic">Western Comic / Webcomic</option>
                   </select>
                 </div>
 

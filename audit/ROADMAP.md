@@ -49,9 +49,9 @@ pages. Details: [project-verdict-2026-09-30.md](project-verdict-2026-09-30.md),
 
 | # | Item | Status | Done (date, PR) | Notes |
 | --- | --- | --- | --- | --- |
-| 1 | Bundle Font Awesome and Material Icons into the build (npm packages, imported in `src/index.jsx`) and delete the two CDN `<link>` tags in `index.html`. Production CSP blocks the CDNs, so icons vanish otherwise. | todo | | See `frontend.md`. CSP is in `deployment/nginx/site.conf`. |
-| 2 | Fix the "Western Comic / Webcomic" type: the import form offers `comic`, the backend only knows manga/manhwa/manhua and stores manga (right-to-left). Support it properly (left-to-right default) or remove it from the form. | todo | | `SeriesManagement.jsx`, `scraper_workflow_service.py` |
-| 3 | Return `source_url`, `mangaupdates_url` and `scrape_layout` to admins only (list, detail and search responses). | todo | | Add a test that a normal user and a visitor do not see them. |
+| 1 | Bundle Font Awesome and Material Icons into the build (npm packages, imported in `src/index.jsx`) and delete the two CDN `<link>` tags in `index.html`. Production CSP blocks the CDNs, so icons vanish otherwise. | done | 2026-09-30 | Font Awesome pinned to 6.5+ (same look as the CDN). Build checked; icons not viewed in a browser. |
+| 2 | Fix the "Western Comic / Webcomic" type: the import form offers `comic`, the backend only knows manga/manhwa/manhua and stores manga (right-to-left). Support it properly (left-to-right default) or remove it from the form. | done | 2026-09-30 | Removed the option from the import form. Browse filter still lists `comic` and `webtoon` (matches nothing): not touched. |
+| 3 | Return `source_url`, `mangaupdates_url` and `scrape_layout` to admins only (list, detail and search responses). | done | 2026-09-30 | Stripped per viewer in `catalogue_service.apply_viewer_fields`; test `test_manga_admin_only_fields.py`. Routers now copy the cached payload first (it was shared between viewers). |
 
 ## PR B — Hardening
 
