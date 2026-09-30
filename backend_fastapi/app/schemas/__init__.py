@@ -65,7 +65,6 @@ from .user_settings import (
     UploadProfileImageResponse,
 )
 
-from .custom_tabs import CustomTabCreate
 
 from .ad_slots import AdSlotCreate, AdSlotUpdate
 
@@ -120,7 +119,6 @@ __all__ = [
     "UpdateUserSettingsRequest",
     "UpdateUserAPIKeysResponse",
     "UploadProfileImageResponse",
-    "CustomTabCreate",
     "AdSlotCreate",
     "AdSlotUpdate",
     "BrandingUpdateRequest",

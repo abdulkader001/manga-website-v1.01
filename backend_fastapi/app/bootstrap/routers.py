@@ -21,7 +21,6 @@ from ..api.routers import (
     comments_router,
     community_router,
     config_router,
-    custom_tabs_router,
     glossary_router,
     health_router,
     history_router,
@@ -57,7 +56,6 @@ def build_api_router() -> APIRouter:
     api_router.include_router(branding_router)
     api_router.include_router(cache_admin_router)
     api_router.include_router(history_router)
-    api_router.include_router(custom_tabs_router)
     api_router.include_router(config_router)
     api_router.include_router(integrations_router)
     api_router.include_router(health_router)

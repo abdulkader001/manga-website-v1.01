@@ -3,7 +3,7 @@
 // The API base is resolved in priority order:
 //   1. Runtime config served by nginx at /config.json (written from the
 //      API_BASE env var when the `web` container starts — see
-//      deploy/nginx/entrypoint.sh). This lets ops repoint the frontend at a
+//      deployment/nginx/entrypoint.sh). This lets ops repoint the frontend at a
 //      different backend without rebuilding the image.
 //   2. REACT_APP_API_BASE, a CRA build-time variable baked into the bundle.
 //   3. A hardcoded default, "/api/v1".

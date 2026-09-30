@@ -12,7 +12,6 @@ from .cache_admin import router as cache_admin_router
 from .comments import router as comments_router
 from .community import router as community_router
 from .config import router as config_router
-from .custom_tabs import router as custom_tabs_router
 from .glossary import router as glossary_router
 from .health import router as health_router
 from .history import legacy_router, router as history_router
@@ -50,7 +49,6 @@ __all__ = [
     "config_router",
     "comments_router",
     "community_router",
-    "custom_tabs_router",
     "glossary_router",
     "legacy_router",
     "health_router",

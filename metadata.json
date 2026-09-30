@@ -1,8 +1,0 @@
-{
-  "name": "Manga Reader",
-  "description": "Read and translate manga, manhwa and manhua online. Browse by genre, bookmark series, and pick up where you left off.",
-  "permissions": [],
-  "capabilities": [
-    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
-  ]
-}

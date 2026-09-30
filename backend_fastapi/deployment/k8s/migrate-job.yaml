@@ -1,0 +1,72 @@
+# Gap B / Phase 6 item 36 — Kubernetes migration gate.
+#
+# docker-compose gates the API behind a one-shot migrate service
+# (`manga-stack-migrate`, `depends_on: service_completed_successfully`). This
+# Job is the Kubernetes equivalent: it runs `alembic upgrade head` (plus the
+# idempotent bootstrap-state seed) to completion BEFORE the API should serve
+# traffic, so the API can never roll out against an un-migrated schema.
+#
+# Apply order (human / CD pipeline applies — this repo only commits the
+# manifest):
+#   1. kubectl apply -f backend_fastapi/deployment/k8s/migrate-job.yaml
+#   2. kubectl wait --for=condition=complete job/manga-migrate --timeout=600s
+#   3. kubectl apply -f backend_fastapi/deployment/k8s/api.yaml
+# The API Deployment also self-gates via an initContainer that blocks until the
+# schema reaches head (see api.yaml), so even an all-at-once apply is safe: API
+# pods stay in Init until this Job has advanced the schema.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: manga-migrate
+  labels:
+    app.kubernetes.io/name: manga-migrate
+    app.kubernetes.io/component: migrate
+    app.kubernetes.io/part-of: manga
+spec:
+  backoffLimit: 3
+  # Keep the finished Job around briefly so `kubectl wait`/inspection works,
+  # then let the cluster garbage-collect it.
+  ttlSecondsAfterFinished: 600
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: manga-migrate
+        app.kubernetes.io/component: migrate
+        app.kubernetes.io/part-of: manga
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: migrate
+          # D-4: pin to an immutable tag or digest before applying -- a human
+          # / CD pipeline substitutes this placeholder (":latest" +
+          # IfNotPresent let a node silently keep running a stale image
+          # after a rebuild).
+          image: manga-backend:REPLACE_WITH_IMAGE_TAG
+          imagePullPolicy: IfNotPresent
+          workingDir: /app
+          command: ["/bin/bash", "-lc"]
+          # Mirrors docker-compose's manga-stack-migrate command. DDL runs
+          # against the writer directly — do NOT point DATABASE_URL at a
+          # transaction-pooled endpoint (PgBouncer/RDS Proxy) for migrations.
+          args:
+            - >-
+              alembic upgrade head &&
+              python backend_fastapi/scripts/seed_bootstrap_state.py
+          env:
+            - name: ALEMBIC_CONFIG
+              value: /app/alembic.ini
+            - name: PYTHONPATH
+              value: /app/backend_fastapi
+          envFrom:
+            - configMapRef:
+                name: backend-config
+            - secretRef:
+                name: backend-secrets
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "512Mi"
+            limits:
+              cpu: "1"
+              memory: "1Gi"
+          terminationMessagePolicy: FallbackToLogsOnError

@@ -82,7 +82,7 @@ jobs:
       # Rule set is pinned in ruff.toml to the flake8 baseline this codebase
       # was written against — see the comment there before widening it.
       - name: Lint (ruff)
-        run: ruff check backend_fastapi scripts
+        run: ruff check backend_fastapi
 
       - name: Test suite against PostgreSQL
         run: pytest backend_fastapi/tests -q --timeout=600
@@ -97,7 +97,7 @@ jobs:
           DATABASE_URL: postgresql+psycopg2://manga:manga@localhost:5432/manga_migrations
         run: |
           PGPASSWORD=manga createdb -h localhost -U manga manga_migrations
-          python scripts/verify_alembic_chain.py
+          python backend_fastapi/scripts/verify_alembic_chain.py
 
   frontend:
     name: Frontend
@@ -139,7 +139,7 @@ jobs:
           fi
           echo "No .map files in dist output."
 
-      # The strict CSP in nginx.conf has no 'unsafe-inline' in script-src, so
+      # The strict CSP in deployment/nginx/site.conf has no 'unsafe-inline' in script-src, so
       # an inline <script> in index.html would render the deployed app blank.
       - name: Assert index.html carries no inline script
         run: |

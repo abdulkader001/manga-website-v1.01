@@ -18,11 +18,11 @@ python -m compileall "${SCRIPT_DIR}/../app/models"
 : "${APP_HOST:=0.0.0.0}"
 : "${APP_PORT:=8000}"
 
-# Without -c gunicorn silently ignores deploy/gunicorn.conf.py and runs a
+# Without -c gunicorn silently ignores backend_fastapi/deployment/gunicorn.conf.py and runs a
 # single worker on the 30s default timeout. Resolve the config relative to the
 # repository root so it works both in the container (/app) and from a checkout.
 REPO_ROOT="$(CDPATH= cd -- "${SCRIPT_DIR}/../.." && pwd)"
-: "${GUNICORN_CONF:=${REPO_ROOT}/deploy/gunicorn.conf.py}"
+: "${GUNICORN_CONF:=${REPO_ROOT}/backend_fastapi/deployment/gunicorn.conf.py}"
 
 if [ ! -f "${GUNICORN_CONF}" ]; then
   echo "start_backend: gunicorn config not found at ${GUNICORN_CONF}" >&2

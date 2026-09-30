@@ -14,10 +14,8 @@ COPY backend_fastapi/ /app/backend_fastapi/
 # Copy Alembic config and migrations
 COPY alembic.ini /app/alembic.ini
 
-# Gunicorn reads deploy/gunicorn.conf.py at startup (see scripts/start_backend.sh),
+# Gunicorn reads backend_fastapi/deployment/gunicorn.conf.py at startup (see scripts/start_backend.sh),
 # so the deploy directory has to exist inside the image.
-COPY deploy/gunicorn.conf.py /app/deploy/gunicorn.conf.py
-COPY deploy/logging.conf /app/deploy/logging.conf
 COPY backend_fastapi/app/migrations/ /app/backend_fastapi/app/migrations/
 
 # The application dependencies rely on pre-built wheels, so we can skip installing
