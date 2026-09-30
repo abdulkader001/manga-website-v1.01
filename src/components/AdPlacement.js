@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { auditUrlSecurity } from "../utils/urlValidator";
+import { apiFetch } from "../services/api";
 
 export default function AdPlacement({ placement, className = "" }) {
   const [ad, setAd] = useState(null);
@@ -20,7 +21,7 @@ export default function AdPlacement({ placement, className = "" }) {
 
   useEffect(() => {
     let isMounted = true;
-    fetch("/api/v1/ad-slots")
+    apiFetch("/api/v1/ad-slots")
       .then((res) => (res.ok ? res.json() : []))
       .then((slots) => {
         if (!isMounted || !Array.isArray(slots)) return;
@@ -85,10 +86,10 @@ export default function AdPlacement({ placement, className = "" }) {
             className="w-full h-auto max-h-[140px] sm:max-h-[180px] object-cover transition duration-300 hover:opacity-95"
             loading="lazy"
           />
-        ) : ad.code ? (
+        ) : (ad.html_code || ad.code) ? (
           <div
             className="p-4 text-center text-xs text-gray-400"
-            dangerouslySetInnerHTML={{ __html: ad.code }}
+            dangerouslySetInnerHTML={{ __html: ad.html_code || ad.code }}
           />
         ) : (
           <div className="py-4 text-center text-xs text-[#8b93a3]">

@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import api from "../../services/api";
+import api, { apiFetch } from "../../services/api";
 import useAuth from "../../hooks/useAuth";
 import { maskEmail } from "../../utils/maskEmail";
 
@@ -24,7 +24,7 @@ export default function UserDatabase() {
 
   // Fetch admin settings for reverifyDays
   useEffect(() => {
-    fetch("/api/v1/admin/settings")
+    apiFetch("/api/v1/admin/settings")
       .then((r) => (r.ok ? r.json() : null))
       .then((d) => {
         if (d?.settings?.session_timeout_days) {
@@ -38,7 +38,7 @@ export default function UserDatabase() {
     e.preventDefault();
     setSavingInterval(true);
     try {
-      await fetch("/api/v1/admin/settings", {
+      await apiFetch("/api/v1/admin/settings", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ session_timeout_days: Number(reverifyDays) }),

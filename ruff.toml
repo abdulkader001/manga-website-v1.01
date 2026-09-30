@@ -1,0 +1,29 @@
+# Lint configuration for the Python backend.
+#
+# The rule set deliberately mirrors the flake8 baseline this codebase was
+# written against (backend_fastapi/setup.cfg): pyflakes plus pycodestyle,
+# ignoring the three checks that conflict with black-style formatting. Ruff's
+# own defaults pull in pyupgrade/flake8-bugbear/isort as well, which would
+# report thousands of stylistic rewrites across a codebase that never opted
+# into them — a lint gate nobody can keep green is a lint gate that gets
+# switched off, so this one asserts only real defects.
+#
+# Widening the set is a deliberate, separate piece of work: add a rule family,
+# fix the fallout, commit. Don't turn them all on at once.
+
+target-version = "py311"
+line-length = 88
+
+[lint]
+select = ["E", "F", "W"]
+ignore = [
+  "E203",  # whitespace before ':' — disagrees with black
+  "E501",  # line length — enforced by the formatter, not the linter
+  # (flake8's W503, "line break before binary operator", has no ruff
+  # equivalent — ruff never implemented it, so nothing to ignore.)
+]
+
+[lint.per-file-ignores]
+"__init__.py" = ["F401"]
+"backend_fastapi/app/models/__init__.py" = ["F401"]
+"backend_fastapi/app/tasks/__init__.py" = ["F401"]

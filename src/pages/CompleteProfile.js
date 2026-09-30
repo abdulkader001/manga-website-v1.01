@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import useAuth from "../hooks/useAuth";
+import { apiFetch } from "../services/api";
 
 const MONTHS = [
   { value: "01", name: "January" },
@@ -75,7 +76,7 @@ export default function CompleteProfile() {
     setCheckingUsername(true);
     const timeout = setTimeout(async () => {
       try {
-        const res = await fetch(`/api/v1/auth/check-username?username=${encodeURIComponent(clean)}`);
+        const res = await apiFetch(`/api/v1/auth/check-username?username=${encodeURIComponent(clean)}`);
         const data = await res.json();
         setUsernameStatus(data);
       } catch {
@@ -113,7 +114,7 @@ export default function CompleteProfile() {
     setError("");
 
     try {
-      const res = await fetch("/api/v1/auth/complete-profile", {
+      const res = await apiFetch("/api/v1/auth/complete-profile", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

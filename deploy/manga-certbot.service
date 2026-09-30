@@ -1,0 +1,10 @@
+[Unit]
+Description=Renew TLS certificates for Manga website
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/opt/manga/deploy/renew_certificates.sh
+User=root
+Group=root

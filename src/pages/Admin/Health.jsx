@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import { Link } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import api from "../../services/api";
+import api, { apiFetch } from "../../services/api";
 import useAuth from "../../hooks/useAuth";
 import AuthGuard from "../../components/AuthGuard";
 
@@ -104,7 +104,7 @@ export default function Health() {
     if (!isMainAdmin) return;
     setClearingCache(true);
     try {
-      const res = await fetch("/api/v1/admin/settings/clear-cache", { method: "POST" });
+      const res = await apiFetch("/api/v1/admin/settings/clear-cache", { method: "POST" });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error?.message || "Failed to flush cache");
       setNotice({ type: "success", message: "✅ " + data.message });
@@ -120,7 +120,7 @@ export default function Health() {
     if (!isMainAdmin) return;
     setClearingCache(true);
     try {
-      const res = await fetch("/api/v1/admin/maintenance/purge-all-images", { method: "POST" });
+      const res = await apiFetch("/api/v1/admin/maintenance/purge-all-images", { method: "POST" });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error?.message || "Failed to purge image cache");
       setNotice({ type: "success", message: "✅ " + data.message });

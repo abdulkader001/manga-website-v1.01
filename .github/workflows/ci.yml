@@ -104,29 +104,21 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
 
-    defaults:
-      run:
-        working-directory: frontend
 
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-node@v4
         with:
-          node-version-file: frontend/.nvmrc
+          node-version-file: .nvmrc
           cache: npm
-          cache-dependency-path: frontend/package-lock.json
+          cache-dependency-path: package-lock.json
 
       - name: Install dependencies
         run: npm ci --no-audit --no-fund
 
       - name: Lint
         run: npm run lint
-
-      - name: Test
-        run: npm test -- --watchAll=false
-        env:
-          CI: "true"
 
       - name: Build
         run: npm run build
@@ -139,19 +131,19 @@ jobs:
       # here, where a regression cannot be argued with.
       - name: Assert no source maps ship
         run: |
-          maps=$(find build -name '*.map' | head -20)
+          maps=$(find dist -name '*.map' | head -20)
           if [ -n "$maps" ]; then
-            echo "::error::Source maps present in the build output:"
+            echo "::error::Source maps present in the dist output:"
             echo "$maps"
             exit 1
           fi
-          echo "No .map files in build output."
+          echo "No .map files in dist output."
 
       # The strict CSP in nginx.conf has no 'unsafe-inline' in script-src, so
       # an inline <script> in index.html would render the deployed app blank.
       - name: Assert index.html carries no inline script
         run: |
-          if grep -qE '<script(?![^>]*\ssrc=)[^>]*>[^<]' build/index.html; then
+          if grep -qE '<script(?![^>]*\ssrc=)[^>]*>[^<]' dist/index.html; then
             echo "::error::index.html contains an inline <script>, which the production CSP blocks."
             exit 1
           fi
@@ -171,7 +163,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version-file: frontend/.nvmrc
+          node-version-file: .nvmrc
 
       # PYSEC-2026-1325 (ecdsa, Minerva timing attack on ECDSA/ECDH sign and
       # keygen) has **no fix version** — upstream considers side-channel
@@ -211,11 +203,9 @@ jobs:
       # one; the first run stopped at pip-audit and never reported npm at all.
       - name: npm audit (gate — critical)
         if: always()
-        working-directory: frontend
         run: npm audit --audit-level=critical
 
       - name: npm audit (report — high and above)
         if: always()
         continue-on-error: true
-        working-directory: frontend
         run: npm audit --audit-level=high

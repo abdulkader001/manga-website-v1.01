@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo } from "react";
 import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import useAuth from "../../hooks/useAuth";
+import { apiFetch } from "../../services/api";
 
 const TIME_RANGES = [
   { id: "1d", label: "1 Day (24h)", desc: "Current 24-hr BST cycle" },
@@ -26,7 +27,7 @@ export default function AuditReport() {
   const { data: reportData, isLoading, refetch } = useQuery({
     queryKey: ["websiteAuditReport", selectedRange],
     queryFn: async () => {
-      const res = await fetch(`/api/v1/admin/audit-report?range=${selectedRange}`);
+      const res = await apiFetch(`/api/v1/admin/audit-report?range=${selectedRange}`);
       if (!res.ok) throw new Error("Failed to load audit report");
       return res.json();
     },

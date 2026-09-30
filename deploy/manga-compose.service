@@ -1,0 +1,15 @@
+[Unit]
+Description=Manga Website (Docker Compose)
+Requires=docker.service
+After=docker.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=/var/www/manga
+ExecStart=/usr/bin/docker compose --env-file /var/www/manga/.env up -d
+ExecStop=/usr/bin/docker compose --env-file /var/www/manga/.env down
+TimeoutStartSec=0
+
+[Install]
+WantedBy=multi-user.target

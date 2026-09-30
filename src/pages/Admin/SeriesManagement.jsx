@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import api from "../../services/api";
+import api, { apiFetch } from "../../services/api";
 import { auditUrlSecurity } from "../../utils/urlValidator";
 
 const FREQUENCY_PRESETS = [
@@ -30,6 +30,18 @@ function formatTimeRemaining(isoDate) {
   }
 }
 
+// Long scraper jobs run on a background worker: start them, then poll the task
+// row until the worker reports "done" or "failed".
+async function waitForTask(taskId, { intervalMs = 1500, timeoutMs = 240000 } = {}) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const task = await api.scraper.getTask(taskId);
+    if (task?.status === "done" || task?.status === "failed") return task;
+    await new Promise((resolve) => setTimeout(resolve, intervalMs));
+  }
+  throw new Error("The scraper worker took too long to answer. Check that a worker is running.");
+}
+
 export default function SeriesManagement() {
   const queryClient = useQueryClient();
 
@@ -44,6 +56,13 @@ export default function SeriesManagement() {
   const [savingAiKey, setSavingAiKey] = useState(false);
   const [aiConfigOpen, setAiConfigOpen] = useState(false);
   const [showAiKey, setShowAiKey] = useState(false);
+
+  // Custom parser (per-website extraction rules written by the Scraper AI)
+  const [parserOpen, setParserOpen] = useState(false);
+  const [parserUrl, setParserUrl] = useState("");
+  const [parserBusy, setParserBusy] = useState(false);
+  const [parserResult, setParserResult] = useState(null);
+  const [parsers, setParsers] = useState([]);
 
   // Auto-detect AI provider live from key format (Global, Chinese, French, US)
   const detectedProvider = useMemo(() => {
@@ -130,7 +149,7 @@ export default function SeriesManagement() {
 
   // Fetch scraper AI API config
   useEffect(() => {
-    fetch("/api/v1/admin/scraper/ai-config")
+    apiFetch("/api/v1/admin/scraper/ai-config")
       .then((r) => r.json())
       .then((d) => {
         if (d?.apiKey) setScraperAiKey(d.apiKey);
@@ -143,7 +162,7 @@ export default function SeriesManagement() {
     e.preventDefault();
     setSavingAiKey(true);
     try {
-      const res = await fetch("/api/v1/admin/scraper/ai-config", {
+      const res = await apiFetch("/api/v1/admin/scraper/ai-config", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -184,33 +203,79 @@ export default function SeriesManagement() {
     setIsPreviewing(true);
     setNotice(null);
     try {
-      const res = await fetch("/api/v1/admin/scraper/preview", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          mangaupdates_url: muTarget,
-          url: seriesUrl.trim(),
-          base_url: baseUrl.trim(),
-          title: customTitle.trim(),
-        }),
+      const started = await api.scraper.startPreview({
+        mangaupdates_url: muTarget || undefined,
+        url: seriesUrl.trim() || undefined,
+        base_url: baseUrl.trim() || undefined,
+        title: customTitle.trim() || undefined,
       });
-      const data = await res.json();
-      if (data?.preview) {
-        setPreviewData(data.preview);
-        if (!customTitle && data.preview.title) setCustomTitle(data.preview.title);
-        if (data.preview.detectedChapterCount) setCustomChapterCount(String(data.preview.detectedChapterCount));
-        if (data.preview.description) setCustomDescription(data.preview.description);
-        if (data.preview.author) setCustomAuthor(data.preview.author);
-        if (data.preview.coverImage) setCustomCover(data.preview.coverImage);
+      const task = await waitForTask(started.task_id);
+      if (task.status === "failed" || !task.ok) {
+        throw new Error(task.message || task.error || "The source could not be read.");
+      }
+      const preview = task.preview;
+      if (preview) {
+        setPreviewData(preview);
+        if (!customTitle && preview.title) setCustomTitle(preview.title);
+        if (preview.detectedChapterCount) setCustomChapterCount(String(preview.detectedChapterCount));
+        if (preview.description) setCustomDescription(preview.description);
+        if (preview.author) setCustomAuthor(preview.author);
+        if (preview.coverImage) setCustomCover(preview.coverImage);
+        const source = preview.chapters || preview.detectedChapterCount
+          ? ` + ${preview.detectedChapterCount ?? 0} chapters from the source site`
+          : "";
+        const warn = (task.warnings || []).length ? ` (${task.warnings.join("; ")})` : "";
         setNotice({
           type: "success",
-          message: `Merged Preview complete! Metadata from MangaUpdates ("${data.preview.title}") + ${data.preview.detectedChapterCount} chapters from source site.`,
+          message: `Preview complete: "${preview.title}"${source}.${warn}`,
         });
       }
     } catch (err) {
       setNotice({ type: "error", message: "Preview extraction failed: " + (err.message || "Unknown error") });
     } finally {
       setIsPreviewing(false);
+    }
+  };
+
+  const loadParsers = async () => {
+    try {
+      const data = await api.scraper.listParsers();
+      setParsers(Array.isArray(data?.items) ? data.items : []);
+    } catch {
+      setParsers([]);
+    }
+  };
+
+  useEffect(() => {
+    if (parserOpen) loadParsers();
+  }, [parserOpen]);
+
+  // Ask the Scraper AI to write extraction rules for any website address.
+  const handleGenerateParser = async (e) => {
+    e.preventDefault();
+    const target = parserUrl.trim();
+    if (!target || parserBusy) return;
+    const audit = auditUrlSecurity(target.includes("://") ? target : `https://${target}`);
+    if (!audit.isSafe) {
+      setNotice({ type: "error", message: `Security Alert: unsafe URL blocked. ${audit.flags.join(", ")}` });
+      return;
+    }
+    setParserBusy(true);
+    setParserResult(null);
+    setNotice(null);
+    try {
+      const started = await api.scraper.startParserGeneration(target);
+      const task = await waitForTask(started.task_id);
+      setParserResult(task);
+      setNotice({
+        type: task.ok ? "success" : "error",
+        message: task.message || (task.ok ? "Parser created." : "Could not create a parser for that site."),
+      });
+      loadParsers();
+    } catch (err) {
+      setNotice({ type: "error", message: err.message || "Parser generation failed." });
+    } finally {
+      setParserBusy(false);
     }
   };
 
@@ -426,6 +491,15 @@ export default function SeriesManagement() {
 
           <button
             type="button"
+            onClick={() => setParserOpen(!parserOpen)}
+            className="px-3.5 py-2.5 rounded-xl bg-[#15171c] hover:bg-[#1f2330] border border-cyan-500/40 text-cyan-300 font-bold text-xs transition flex items-center gap-2 shadow"
+          >
+            <i className="fas fa-code text-cyan-400"></i>
+            <span>Custom Parser</span>
+          </button>
+
+          <button
+            type="button"
             onClick={() => setImportModalOpen(true)}
             className="px-4 py-2.5 rounded-xl bg-[#00AEF0] hover:bg-[#0F5065] text-white font-extrabold text-xs transition flex items-center gap-2 shadow-lg"
           >
@@ -551,6 +625,79 @@ export default function SeriesManagement() {
               </button>
             </div>
           </form>
+        </div>
+      )}
+
+      {/* Custom parser: enter any website, the Scraper AI writes its extraction rules */}
+      {parserOpen && (
+        <div className="bg-[#15171c] border border-cyan-500/50 p-5 rounded-2xl shadow-2xl space-y-4">
+          <div className="flex items-center justify-between border-b border-[#262a33] pb-3">
+            <div className="flex items-center gap-2.5">
+              <div className="w-8 h-8 rounded-full bg-cyan-500/20 border border-cyan-500/40 flex items-center justify-center text-cyan-300">
+                <i className="fas fa-code"></i>
+              </div>
+              <div>
+                <h3 className="text-sm font-bold text-white">Custom Parser for a Website</h3>
+                <p className="text-xs text-[#8b93a3]">
+                  Paste a series page (best) or the site address. Known layouts and moved domains are matched automatically; otherwise the Scraper AI writes and tests the rules.
+                </p>
+              </div>
+            </div>
+            <button type="button" onClick={() => setParserOpen(false)} className="text-gray-400 hover:text-white">✕</button>
+          </div>
+
+          <form onSubmit={handleGenerateParser} className="flex flex-col sm:flex-row gap-2">
+            <input
+              type="text"
+              value={parserUrl}
+              onChange={(e) => setParserUrl(e.target.value)}
+              placeholder="https://newsite.example/manga/some-series"
+              className="flex-1 px-3.5 py-2.5 rounded-xl bg-[#101216] border border-[#262a33] text-xs text-white placeholder:text-gray-500 focus:outline-none focus:border-cyan-400 font-mono"
+            />
+            <button
+              type="submit"
+              disabled={parserBusy || !parserUrl.trim()}
+              className="px-5 py-2.5 rounded-xl bg-cyan-600 hover:bg-cyan-700 disabled:opacity-50 text-white font-bold text-xs transition flex items-center justify-center gap-2 shadow"
+            >
+              <i className={parserBusy ? "fas fa-spinner fa-spin" : "fas fa-magic"}></i>
+              <span>{parserBusy ? "Analyzing site…" : "Generate Parser"}</span>
+            </button>
+          </form>
+
+          {parserResult && (
+            <div className={`p-3 rounded-xl border text-xs space-y-1 ${parserResult.ok ? "border-emerald-500/40 text-emerald-300 bg-emerald-950/30" : "border-red-500/40 text-red-300 bg-red-950/30"}`}>
+              <div className="font-bold">{parserResult.message}</div>
+              {parserResult.domain && (
+                <div className="font-mono text-[11px] opacity-80">
+                  {parserResult.domain}
+                  {parserResult.parser?.source ? ` · ${parserResult.parser.source}` : ""}
+                  {parserResult.parser?.status ? ` · ${parserResult.parser.status}` : ""}
+                </div>
+              )}
+              {parserResult.sample?.title && (
+                <div className="opacity-80">
+                  Sample: {parserResult.sample.title} — {parserResult.sample.chapters_found ?? 0} chapters found
+                  {parserResult.approved ? " · website approved for scraping" : ""}
+                </div>
+              )}
+            </div>
+          )}
+
+          {parsers.length > 0 && (
+            <div className="space-y-1.5">
+              <div className="text-[11px] font-bold uppercase tracking-wide text-gray-400">Parsers on file</div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                {parsers.map((item) => (
+                  <div key={item.id} className="flex items-center justify-between px-3 py-2 rounded-lg bg-[#101216] border border-[#262a33] text-xs">
+                    <span className="font-mono text-gray-200 truncate">{item.domain}</span>
+                    <span className={`ml-2 shrink-0 px-2 py-0.5 rounded-full text-[10px] font-bold ${item.status === "active" ? "bg-emerald-500/15 text-emerald-300" : "bg-amber-500/15 text-amber-300"}`}>
+                      v{item.version} · {item.status}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       )}
 

@@ -97,6 +97,15 @@ function isSessionCheckPath(path) {
 // (content rights, comment ownership, admin permission tiers, community
 // moderation, etc.) and must keep surfacing to the caller instead of logging
 // the user out.
+// Anonymous visitors browse and read freely. A background GET that comes back
+// 401 for someone who was never signed in is just "no access", not a dying
+// session, so only redirect when a session existed (or the visitor tried to
+// perform an action that needs one).
+let sessionActive = false;
+export function setSessionActive(value) {
+  sessionActive = !!value;
+}
+
 function handleSessionExpired() {
   try {
     localStorage.removeItem("csrf_token");
@@ -178,7 +187,7 @@ async function request(path, { method = "GET", body, headers = {}, params, signa
     err.body = data;
     err.code = data && typeof data === "object" ? data.error?.code : undefined;
 
-    if (res.status === 401 && !isSessionCheckPath(p)) {
+    if (res.status === 401 && !isSessionCheckPath(p) && (sessionActive || method !== "GET")) {
       handleSessionExpired();
     }
 
@@ -186,6 +195,28 @@ async function request(path, { method = "GET", body, headers = {}, params, signa
   }
 
   return data;
+}
+
+// ---- fetch() with the same base URL, cookies and CSRF header as `api.*` ----
+// For call sites that need the raw Response (status handling, non-JSON bodies).
+// Unlike request() it never redirects on 401: a wrong password is a normal
+// answer on the login form, not an expired session. Accepts the historical
+// "/api/v1/..." paths as well as bare "/..." ones.
+export async function apiFetch(path, init = {}) {
+  await configReady;
+  let p = String(path || "");
+  p = p.replace(/^\/api(\/v1)?(?=\/)/, "");
+  if (!p.startsWith("/")) p = `/${p}`;
+  const url = new URL(`${BASE_URL}${p}`, window.location.origin);
+  const method = (init.method || "GET").toUpperCase();
+  const csrf = getCsrf();
+  const isFormData = typeof FormData !== "undefined" && init.body instanceof FormData;
+  const headers = {
+    ...(isFormData || method === "GET" ? {} : { "Content-Type": "application/json" }),
+    ...(csrf && method !== "GET" ? { "X-CSRF-Token": csrf } : {}),
+    ...(init.headers || {}),
+  };
+  return fetch(url.toString(), { ...init, method, headers, credentials: "include" });
 }
 
 // ---- Public verbs ----
@@ -222,6 +253,17 @@ const api = {
       }
     },
     options: () => api.get("/auth/options"),
+    loginPassword: (email, password) => api.post("/auth/login-password", { email, password }),
+    checkUsername: (username) =>
+      api.get("/auth/check-username", { params: { username } }),
+    completeProfile: (payload) => api.post("/auth/complete-profile", payload),
+    updateProfile: (payload) => api.post("/auth/profile", payload),
+  },
+
+  announcements: {
+    list: () => api.get("/announcements"),
+    broadcast: (payload) => api.post("/admin/broadcast", payload),
+    remove: (id) => api.del(`/admin/announcements/${id}`),
   },
 
   // ---- Manga & Chapters (public) ----
@@ -448,6 +490,14 @@ const api = {
 
   // ---- Admin: Scraper endpoints (Secondary+ / Main Admin) ----
   scraper: {
+    getAiConfig: () => api.get("/admin/scraper/ai-config"),
+    saveAiConfig: (payload) => api.post("/admin/scraper/ai-config", payload),
+    // Preview / parser generation run on a background worker: start returns a
+    // task id, getTask is polled until status is "done" or "failed".
+    startPreview: (payload) => api.post("/admin/scraper/preview", payload),
+    startParserGeneration: (url) => api.post("/admin/scraper/parsers/generate", { url }),
+    getTask: (taskId) => api.get(`/admin/scraper/tasks/${encodeURIComponent(taskId)}`),
+    listParsers: () => api.get("/admin/scraper/parsers"),
     addSeriesByUrl: (url) => api.post("/admin/series", { url }),
     rescrapeSeries: (seriesId, confirmTitle) =>
       api.post(`/admin/series/${seriesId}/rescrape`, { confirm_title: confirmTitle }),

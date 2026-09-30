@@ -26,7 +26,7 @@ export default function ChapterViewer() {
   const { mangaId, chapterId } = useParams();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const { isAdmin, isSecondaryAdmin } = useAuth();
+  const { isAdmin, isSecondaryAdmin, user: authUser } = useAuth();
   const isPrivileged = isAdmin || isSecondaryAdmin;
 
   // OCR Translation states
@@ -100,6 +100,7 @@ export default function ChapterViewer() {
   const { data: bookmarks } = useQuery({
     queryKey: ["bookmarks"],
     queryFn: () => api.bookmarks.list(),
+    enabled: !!authUser,
   });
 
   useEffect(() => {
@@ -137,7 +138,8 @@ export default function ChapterViewer() {
           localStorage.setItem(`manga_max_read_${mangaId}`, String(chNum || chapterId));
         } catch (e) {}
 
-        // 2. Sync to server API
+        // 2. Sync to server API (signed-in readers only)
+        if (!authUser) return;
         await api.history.add({
           mangaId: Number(mangaId),
           chapterId: Number(chapterId),
@@ -150,7 +152,7 @@ export default function ChapterViewer() {
     if (chapterId && chapter) {
       recordHistory();
     }
-  }, [mangaId, chapterId, chapter]);
+  }, [mangaId, chapterId, chapter, authUser]);
 
   const showToast = (msg) => {
     setToastMessage(msg);
@@ -524,6 +526,7 @@ export default function ChapterViewer() {
                     imageUrl={imgUrl}
                     language={ocrLang}
                     chapterId={chapterId}
+                    pageIndex={idx}
                     mangaId={mangaId}
                     translatable={chapter?.may_translate !== false}
                     onLimitReached={(res) => setLimitNotice("Translation limit reached.")}

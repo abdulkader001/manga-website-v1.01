@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState, useEffect } from "react";
+import { apiFetch } from "../services/api";
 
 const AdsContext = createContext({});
 
@@ -18,7 +19,7 @@ export default function AdSection({ sectionKey, className = "", fallback = null 
 
   useEffect(() => {
     let isMounted = true;
-    fetch("/api/v1/ad-slots")
+    apiFetch("/api/v1/ad-slots")
       .then((res) => (res.ok ? res.json() : []))
       .then((slots) => {
         if (!isMounted || !Array.isArray(slots)) return;
@@ -72,10 +73,10 @@ export default function AdSection({ sectionKey, className = "", fallback = null 
             className="w-full h-auto max-h-[140px] object-cover hover:opacity-95 transition"
             loading="lazy"
           />
-        ) : ad.code ? (
+        ) : (ad.html_code || ad.code) ? (
           <div
             className="p-3 text-center text-xs"
-            dangerouslySetInnerHTML={{ __html: ad.code }}
+            dangerouslySetInnerHTML={{ __html: ad.html_code || ad.code }}
           />
         ) : null}
       </a>

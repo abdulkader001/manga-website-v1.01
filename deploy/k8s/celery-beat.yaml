@@ -1,0 +1,91 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: manga-celery-beat
+  labels:
+    app.kubernetes.io/name: manga-celery-beat
+    app.kubernetes.io/component: celery-beat
+    app.kubernetes.io/part-of: manga
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: manga-celery-beat
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: manga-celery-beat
+        app.kubernetes.io/component: celery-beat
+        app.kubernetes.io/part-of: manga
+    spec:
+      containers:
+        - name: beat
+          # D-4: pin to an immutable tag or digest before applying -- a human
+          # / CD pipeline substitutes this placeholder (":latest" +
+          # IfNotPresent let a node silently keep running a stale image
+          # after a rebuild).
+          image: manga-backend:REPLACE_WITH_IMAGE_TAG
+          imagePullPolicy: IfNotPresent
+          # F-47: django_celery_beat.schedulers.DatabaseScheduler requires
+          # Django, which this stack does not install -- that scheduler
+          # always fails, and only the "|| ..." fallback ever actually ran.
+          # Use the real scheduler directly via the shared startup script
+          # (also gives this pod the same readiness gate as compose/worker).
+          # Runs `celery -A backend_fastapi.app.core.celery_app:celery_app beat`.
+          command: ["/usr/bin/env", "sh", "/app/backend_fastapi/scripts/start_celery_beat.sh"]
+          envFrom:
+            - configMapRef:
+                name: backend-config
+            - secretRef:
+                name: backend-secrets
+          resources:
+            requests:
+              cpu: "200m"
+              memory: "384Mi"
+            limits:
+              cpu: "500m"
+              memory: "768Mi"
+          readinessProbe:
+            exec:
+              command:
+                - /bin/bash
+                - -c
+                - >-
+                  python - <<'PY'
+                  import os
+                  from redis import Redis
+                  url = os.environ.get("CELERY_BROKER_URL") or os.environ.get("REDIS_URL")
+                  if not url:
+                      raise SystemExit(1)
+                  client = Redis.from_url(url)
+                  client.ping()
+                  PY
+            initialDelaySeconds: 20
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            exec:
+              command:
+                - python
+                - /app/backend_fastapi/scripts/celery_healthcheck.py
+                - beat
+            initialDelaySeconds: 60
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          terminationMessagePolicy: FallbackToLogsOnError
+      restartPolicy: Always
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: manga-celery-beat
+  labels:
+    app.kubernetes.io/name: manga-celery-beat
+    app.kubernetes.io/component: celery-beat
+    app.kubernetes.io/part-of: manga
+spec:
+  clusterIP: None
+  selector:
+    app.kubernetes.io/name: manga-celery-beat

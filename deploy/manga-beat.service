@@ -1,0 +1,22 @@
+[Unit]
+Description=Manga Celery Beat (Scheduler)
+After=network.target redis.service
+Requires=redis.service
+
+[Service]
+User=manga
+Group=manga
+# Repo root -- the "backend_fastapi" package is a subdirectory of this, and
+# Celery's "-A backend_fastapi..." app path only resolves when the process
+# is launched from here (matching the container's WORKDIR=/app).
+WorkingDirectory=/var/www/manga
+
+EnvironmentFile=/var/www/manga/.env
+# Runs `celery -A backend_fastapi.app.core.celery_app:celery_app beat`.
+ExecStart=/usr/bin/env sh /var/www/manga/backend_fastapi/scripts/start_celery_beat.sh
+
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
