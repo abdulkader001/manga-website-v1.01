@@ -195,6 +195,39 @@ def is_secondary_or_higher(user: User) -> bool:
     }
 
 
+def enforce_admin_second_factor(request: Request, user: User) -> None:
+    """Roadmap item 15: admins with a second factor also need a step-up.
+
+    Applies to admin-tier accounts only. With a second factor enrolled, admin
+    routes need the short-lived step-up cookie (see ``POST /admin/2fa/verify``).
+    With ``ADMIN_2FA_REQUIRED`` a main admin who has not enrolled yet is held
+    back until they do.
+    """
+
+    if not is_secondary_or_higher(user):
+        return
+
+    from ..core.settings import settings
+    from ..services import admin_second_factor as second_factor
+
+    if getattr(user, "totp_enabled", False):
+        token = request.cookies.get(second_factor.STEP_UP_COOKIE)
+        if not second_factor.step_up_valid(user, token):
+            raise ApiError(
+                ErrorCode.REVERIFICATION_REQUIRED,
+                "Enter your authenticator code to continue.",
+                details={"reason": "step_up_required"},
+            )
+        return
+
+    if settings.admin_2fa_required and is_main_admin(user):
+        raise ApiError(
+            ErrorCode.REVERIFICATION_REQUIRED,
+            "Set up your authenticator app before using admin features.",
+            details={"reason": "enrolment_required"},
+        )
+
+
 def require_permission(permission: str):
     """Dependency factory enforcing an effective permission (SRS 1F.10).
 
@@ -205,10 +238,13 @@ def require_permission(permission: str):
     """
 
     async def _dependency(
+        request: Request,
         current_user: User = Depends(get_current_user),
         db: Session = Depends(get_db),
     ) -> User:
         from ..services.permissions_service import has_permission
+
+        enforce_admin_second_factor(request, current_user)
 
         if not has_permission(db, current_user, permission):
             raise ApiError(
@@ -221,7 +257,9 @@ def require_permission(permission: str):
     return _dependency
 
 
-async def require_admin_user(current_user: User = Depends(get_current_user)) -> User:
+async def require_admin_user(
+    request: Request, current_user: User = Depends(get_current_user)
+) -> User:
     """Ensure the requester is at least a secondary admin."""
 
     if not is_secondary_or_higher(current_user):
@@ -229,10 +267,12 @@ async def require_admin_user(current_user: User = Depends(get_current_user)) -> 
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Admin privileges required",
         )
+    enforce_admin_second_factor(request, current_user)
     return current_user
 
 
 async def require_main_admin_user(
+    request: Request,
     current_user: User = Depends(get_current_user),
 ) -> User:
     """Ensure the requester has full (main/permanent) admin rights."""
@@ -242,4 +282,5 @@ async def require_main_admin_user(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Main admin privileges required",
         )
+    enforce_admin_second_factor(request, current_user)
     return current_user

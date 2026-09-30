@@ -10,7 +10,7 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 from typing import Iterator
 
-from cryptography.fernet import Fernet, InvalidToken
+from cryptography.fernet import Fernet, InvalidToken, MultiFernet
 from cryptography.exceptions import InvalidKey
 from cryptography.hazmat.primitives.kdf.argon2 import Argon2id
 
@@ -18,7 +18,7 @@ from .crypto_utils import allow_plaintext_fallback, ensure_encrypted_env_loaded
 
 logger = structlog.get_logger("backend_fastapi.email_crypto")
 
-_EMAIL_CIPHER: Fernet | None = None
+_EMAIL_CIPHER: MultiFernet | None = None
 _EMAIL_KEY_BYTES: bytes | None = None
 _EMAIL_HASH_SECRET: bytes | None = None
 _EMAIL_DECRYPT_ALLOWED: ContextVar[bool] = ContextVar(
@@ -37,7 +37,22 @@ class EmailCipherError(RuntimeError):
     """Raised when email encryption helpers cannot be initialised."""
 
 
-def _load_email_cipher() -> Fernet | None:
+def split_email_keys(value: str | bytes | None) -> list[bytes]:
+    """Split ``EMAIL_ENCRYPTION_KEY`` into its keys, newest first.
+
+    Key rotation (roadmap item 16): the variable may hold several
+    comma-separated Fernet keys. The first key encrypts everything new; every
+    key is tried when decrypting, so old rows stay readable until
+    ``scripts/rotate_encryption_key.py`` has re-encrypted them.
+    """
+
+    if not value:
+        return []
+    text = value.decode("utf-8") if isinstance(value, bytes) else value
+    return [part.strip().encode("utf-8") for part in text.split(",") if part.strip()]
+
+
+def _load_email_cipher() -> MultiFernet | None:
     global _EMAIL_CIPHER, _EMAIL_KEY_BYTES
 
     if _EMAIL_CIPHER is not None:
@@ -57,10 +72,10 @@ def _load_email_cipher() -> Fernet | None:
         logger.error(message)
         raise EmailCipherError(message)
 
-    raw_key = key.encode("utf-8") if isinstance(key, str) else key
+    raw_keys = split_email_keys(key)
 
     try:
-        _EMAIL_CIPHER = Fernet(raw_key)
+        _EMAIL_CIPHER = MultiFernet([Fernet(raw) for raw in raw_keys])
     except (TypeError, ValueError) as exc:  # pragma: no cover - defensive branch
         logger.error(
             "Invalid EMAIL_ENCRYPTION_KEY configured; expected 32 url-safe base64 encoded bytes"
@@ -69,7 +84,10 @@ def _load_email_cipher() -> Fernet | None:
             "Invalid EMAIL_ENCRYPTION_KEY configured; expected 32 url-safe base64 encoded bytes"
         ) from exc
 
-    _EMAIL_KEY_BYTES = raw_key
+    # Hash fallback: the *oldest* key, so adding a new first key during a
+    # rotation does not change lookup values. Production pins the hash secret
+    # explicitly (see settings.py), so this only matters in development.
+    _EMAIL_KEY_BYTES = raw_keys[-1]
     return _EMAIL_CIPHER
 
 
@@ -268,6 +286,7 @@ def reset_email_crypto_state() -> None:
 
 
 __all__ = [
+    "split_email_keys",
     "allow_email_decryption",
     "can_decrypt_emails",
     "decrypt_email",

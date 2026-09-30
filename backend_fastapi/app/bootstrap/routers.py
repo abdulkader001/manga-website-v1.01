@@ -13,6 +13,7 @@ from ..api.routers import (
     ad_slots_router,
     ads_router,
     admin_router,
+    admin_2fa_router,
     auth_router,
     backup_router,
     bookmarks_router,
@@ -48,6 +49,7 @@ def build_api_router() -> APIRouter:
     # /auth/microsoft, /auth/check-username, ...
     api_router.include_router(account_router)
     api_router.include_router(admin_router)
+    api_router.include_router(admin_2fa_router)
     api_router.include_router(ad_slots_router)
     api_router.include_router(ads_router)
     api_router.include_router(auth_router)

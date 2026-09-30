@@ -1,6 +1,7 @@
 import React from "react";
 import { Navigate, useLocation } from "react-router-dom";
 import useAuth from "../hooks/useAuth";
+import AdminSecondFactor from "./AdminSecondFactor";
 
 export default function AuthGuard({ children, requireAdmin, requireMainAdmin, allowSecondaryAdmins }) {
   const { user, isAdmin, isSecondaryAdmin, isLoading } = useAuth();
@@ -38,16 +39,16 @@ export default function AuthGuard({ children, requireAdmin, requireMainAdmin, al
     if (!isMain) {
       return <Navigate to="/admin" replace />;
     }
-    return children;
+    return <AdminSecondFactor>{children}</AdminSecondFactor>;
   }
 
   // 4. Admin permissions check
   if (requireAdmin) {
     if (allowSecondaryAdmins && (isAdmin || isSecondaryAdmin)) {
-      return children;
+      return <AdminSecondFactor>{children}</AdminSecondFactor>;
     }
     if (isAdmin) {
-      return children;
+      return <AdminSecondFactor>{children}</AdminSecondFactor>;
     }
     return <Navigate to="/" replace />;
   }

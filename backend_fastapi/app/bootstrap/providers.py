@@ -27,7 +27,9 @@ def initialize_integration_vault(app: FastAPI) -> None:
         )
 
     try:
-        vault = IntegrationKeyVault.from_secret(integration_secret)
+        vault = IntegrationKeyVault.from_env()
+        if vault is None:
+            raise ValueError("INTEGRATIONS_SECRET is empty")
     except ValueError as exc:  # pragma: no cover - validated preflight
         raise RuntimeError("INTEGRATIONS_SECRET is invalid") from exc
 
