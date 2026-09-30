@@ -93,11 +93,11 @@ Item 17 (contact page and takedown procedure) was dropped by the owner on 2026-0
 
 | # | Item | Status | Done (date, PR) | Notes |
 | --- | --- | --- | --- | --- |
-| 19 | Dependabot or Renovate config; keep the weekly dependency audit in CI. | todo | | |
-| 20 | Frontend tests in CI: login, reader, admin import. | todo | | No test runner is installed yet. |
-| 21 | Pin base images and dependencies; document how and when to update them. | todo | | |
-| 22 | Runbook: change of source domain, restore from backup, key rotation, adding a new source site. | todo | | |
-| 23 | Move pictures to S3 or a CDN when the library outgrows the disk (design first). | todo | | Only when item 12 shows the need. |
+| 19 | Dependabot or Renovate config; keep the weekly dependency audit in CI. | done | 2026-09-30 | Fixed `dependabot.yml` (the npm entry pointed at a folder that does not exist, and ignored `react-scripts`, which is gone); it now covers pip, npm, GitHub Actions, base images and compose, and skips only the Vite 8 major on purpose. CI now also runs every Monday (dependency audit only), and the npm gate is `high` because the audit is clean. Not run on GitHub here: the schedule and Dependabot fire only there. |
+| 20 | Frontend tests in CI: login, reader, admin import. | done | 2026-09-30 | Vitest + Testing Library + jsdom (`npm test`, run in CI before the build). 15 tests: login (`Login.test.jsx`), reader (`ChapterViewer.test.jsx`), admin series import (`SeriesManagement.test.jsx`) and the admin second-factor gate. They test the screens with the API mocked, not the API itself; the earlier browser click-through covered the real API. |
+| 21 | Pin base images and dependencies; document how and when to update them. | done | 2026-09-30 | Base images pinned by digest (Python, Node, nginx, PostgreSQL, Redis) and npm dependencies pinned to exact versions (`.npmrc` `save-exact`); Python was already exact plus lock. How and when to update: `deployment/updating.md`. Digests were read from the registries; the Docker images were not built here (no daemon), so build once before merging. |
+| 22 | Runbook: change of source domain, restore from backup, key rotation, adding a new source site. | done | 2026-09-30 | `deployment/runbook.md`: source domain change, restore from backup, key rotation (links `key-rotation.md`), adding a new source site. Written from the code and the existing backup docs; the steps were not rehearsed against a live server. |
+| 23 | Move pictures to S3 or a CDN when the library outgrows the disk (design first). | done | 2026-09-30 | Design only, as the item says: `audit/storage-design.md` (trigger, options, recommended path, risks). Nothing built; the trigger is the storage report from item 12. |
 
 ## PR G — Real-site verification (Together with the owner)
 

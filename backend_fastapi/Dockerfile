@@ -3,7 +3,9 @@
 # ==========================
 
 # Base image
-FROM public.ecr.aws/docker/library/python:3.11-slim
+# Pinned by digest (roadmap item 21). Dependabot proposes newer digests; see
+# deployment/updating.md before changing this by hand.
+FROM public.ecr.aws/docker/library/python:3.11-slim@sha256:e41613d42d4891e4930f79523f93f81bbc7632584ec65e36ab055f41a800b41e
 
 # Working directory
 WORKDIR /app
