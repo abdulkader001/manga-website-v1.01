@@ -65,6 +65,7 @@ ENTRYPOINT ["/entrypoint.sh"]
 # nothing and the container exits immediately — it only ever worked because
 # docker-compose supplies the command. The PID file goes to /tmp because the
 # container runs as the unprivileged `nginx` user.
-CMD ["nginx", "-g", "pid /tmp/nginx.pid; daemon off;"]
+# `pid` is set in nginx.conf; repeating it here makes nginx refuse to start.
+CMD ["nginx", "-g", "daemon off;"]
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s CMD sh -c 'wget --quiet --tries=1 http://127.0.0.1:8080/ -O - >/dev/null'
