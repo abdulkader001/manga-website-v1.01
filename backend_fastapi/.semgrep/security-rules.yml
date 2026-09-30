@@ -1,0 +1,83 @@
+rules:
+  - id: no-requests-verify-false
+    languages: [python]
+    severity: ERROR
+    message: >
+      TLS certificate verification is disabled (verify=False). This exposes
+      requests to MITM attacks. Never disable verification.
+    patterns:
+      - pattern-either:
+          - pattern: requests.$FN(..., verify=False, ...)
+          - pattern: httpx.$FN(..., verify=False, ...)
+          - pattern: $CLIENT.$FN(..., verify=False, ...)
+
+  - id: no-subprocess-shell-true
+    languages: [python]
+    severity: ERROR
+    message: >
+      subprocess called with shell=True can enable command injection when any
+      argument is attacker-influenced. Use a list of args and shell=False.
+    patterns:
+      - pattern-either:
+          - pattern: subprocess.$FN(..., shell=True, ...)
+          - pattern: subprocess.Popen(..., shell=True, ...)
+
+  - id: no-eval-exec
+    languages: [python]
+    severity: ERROR
+    message: >
+      Use of eval()/exec() can execute arbitrary code. Avoid it, especially on
+      any request-derived value.
+    patterns:
+      - pattern-either:
+          - pattern: eval(...)
+          - pattern: exec(...)
+
+  - id: no-yaml-unsafe-load
+    languages: [python]
+    severity: ERROR
+    message: >
+      yaml.load without a safe loader can construct arbitrary Python objects.
+      Use yaml.safe_load (or Loader=yaml.SafeLoader).
+    patterns:
+      - pattern: yaml.load($X)
+
+  - id: no-md5-sha1-for-security
+    languages: [python]
+    severity: ERROR
+    message: >
+      MD5/SHA1 are cryptographically broken. Use SHA-256+ (or HMAC-SHA256 for
+      keyed hashing).
+    patterns:
+      - pattern-either:
+          - pattern: hashlib.md5(...)
+          - pattern: hashlib.sha1(...)
+
+  - id: no-string-built-sql
+    languages: [python]
+    severity: ERROR
+    paths:
+      exclude:
+        - "**/*/migrations/*"
+    message: >
+      SQL built via an f-string, %-format, +-concatenation, or .format() and
+      passed to execute()/executemany()/text() risks SQL injection if any
+      part is attacker-influenced. Use parameterized queries (bound
+      parameters) instead -- never string-built SQL, with no exceptions
+      (SRS 4G.2). Migrations are excluded because DDL identifiers (table/
+      column names) cannot be bound as parameters; those are fixed,
+      developer-authored constants, never user input.
+    patterns:
+      - pattern-either:
+          - pattern: $CURSOR.execute(f"...")
+          - pattern: $CURSOR.execute("..." % ...)
+          - pattern: $CURSOR.execute("...".format(...))
+          - pattern: $CURSOR.execute("..." + ...)
+          - pattern: $CURSOR.executemany(f"...", ...)
+          - pattern: $CURSOR.executemany("..." % ..., ...)
+          - pattern: $CURSOR.executemany("...".format(...), ...)
+          - pattern: $CURSOR.executemany("..." + ..., ...)
+          - pattern: text(f"...")
+          - pattern: text("..." % ...)
+          - pattern: text("...".format(...))
+          - pattern: text("..." + ...)

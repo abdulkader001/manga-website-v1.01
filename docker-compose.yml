@@ -1,0 +1,420 @@
+# ==================================================
+#  Manga Website – Local Docker Stack (Stable + Fixed)
+# ==================================================
+#  Copy .env.example -> .env and adjust at least:
+#   POSTGRES_DB, POSTGRES_USER, POSTGRES_PASSWORD,
+#   DATABASE_URL, REDIS_URL, SECRET_KEY, JWT_SECRET_KEY,
+#   MAGIC_LINK_SECRET, PORT, CELERY_WORKER_CONCURRENCY,
+#   EMAIL_ENCRYPTION_KEY
+# ==================================================
+
+# Pin the Compose project name instead of inheriting it from the directory
+# name. Without this, unpacking/renaming the source tree (Manga-Website ->
+# Manga-Website-main, a second clone, ...) starts a *different* project, which
+# no longer owns the already-running containers -- but the fixed
+# container_name values below still collide with them, so `up` dies with
+# "the container name /manga-stack-redis is already in use" instead of just
+# recreating the stack. With a pinned name, Compose recognises the running
+# containers as its own from any directory.
+#
+# One-time cleanup if you already have containers stranded under the old
+# directory-derived project name:
+#   docker rm -f manga-stack-db manga-stack-redis manga-stack-backend \
+#     manga-stack-web manga-stack-celery-worker manga-stack-celery-beat \
+#     manga-stack-migrate
+name: manga-stack
+
+x-backend-build: &backend-build
+  context: .
+  dockerfile: backend_fastapi/Dockerfile
+
+x-backend-image: &backend-image manga-backend:latest
+
+x-backend-service: &backend-service
+  image: *backend-image
+  build: *backend-build
+  pull_policy: build
+
+# F-30: one Celery worker PER routed queue, mirroring docker-compose.scale.yml's
+# per-queue worker pattern (just single-replica / low-concurrency here, since the
+# default/dev path only needs isolation, not throughput). workload_priority.py's
+# anti-starvation guarantee depends on queue isolation, not message priority
+# alone -- a single shared worker pool consuming every queue (the old setup)
+# lets a saturated LOW-priority scrape job block a HIGH-priority translation job
+# for the scrape task's full time_limit. Keep the queue list in sync with
+# celery_app task_routes / task_default_queue.
+x-celery-worker-env: &celery-worker-env
+  APP_ENV: development
+  DATABASE_URL: postgresql+psycopg2://manga:${POSTGRES_PASSWORD:-changeme}@db:5432/manga
+  REDIS_URL: ${REDIS_URL}
+  REDIS_USERNAME: ${REDIS_USERNAME}
+  REDIS_PASSWORD: ${REDIS_PASSWORD}
+  CELERY_BROKER_URL: ${CELERY_BROKER_URL}
+  CELERY_RESULT_BACKEND: ${CELERY_RESULT_BACKEND}
+  SECRET_KEY: ${SECRET_KEY}
+  JWT_SECRET_KEY: ${JWT_SECRET_KEY}
+  MAGIC_LINK_SECRET: ${MAGIC_LINK_SECRET}
+  INTEGRATIONS_SECRET: ${INTEGRATIONS_SECRET}
+  ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES}
+  ALGORITHM: ${ALGORITHM:-HS256}
+  EMAIL_ENCRYPTION_KEY: ${EMAIL_ENCRYPTION_KEY:?Set EMAIL_ENCRYPTION_KEY to a Fernet key (see .env.example)}
+  PYTHONPATH: /app/backend_fastapi
+  GOOGLE_OAUTH_CLIENT_ID: ${GOOGLE_OAUTH_CLIENT_ID}
+  GOOGLE_OAUTH_CLIENT_SECRET: ${GOOGLE_OAUTH_CLIENT_SECRET}
+  GOOGLE_OAUTH_REDIRECT_URI: ${GOOGLE_OAUTH_REDIRECT_URI}
+  DEFAULT_OCR_ENGINE: ${DEFAULT_OCR_ENGINE}
+  DEFAULT_TRANSLATION_PROVIDER: ${DEFAULT_TRANSLATION_PROVIDER}
+  PROFILE_UPLOAD_DIR: /app/storage/profile_uploads
+  BRANDING_UPLOAD_DIR: /app/storage/branding/uploads
+  BRANDING_ASSET_DIR: /app/storage/branding/public
+
+x-celery-worker: &celery-worker
+  <<: *backend-service
+  restart: unless-stopped
+  env_file:
+    - .env
+  depends_on:
+    backend:
+      condition: service_healthy
+    db:
+      condition: service_healthy
+    redis:
+      condition: service_healthy
+  command: ["/usr/bin/env", "sh", "/app/backend_fastapi/scripts/start_celery_worker.sh"]
+  # Checks this worker (broker reachability + a live 'celery worker' process),
+  # not the backend's /healthz -- which stayed green while the worker was dead.
+  healthcheck:
+    test: ["CMD", "python", "/app/backend_fastapi/scripts/celery_healthcheck.py", "worker"]
+    interval: 15s
+    timeout: 10s
+    start_period: 30s
+    retries: 3
+  networks:
+    - manga-network
+  volumes:
+    - app-storage:/app/storage
+
+services:
+  # ======================
+  # PostgreSQL (Database)
+  # ======================
+  db:
+    image: ${OFFICIAL_LIBRARY_REGISTRY:-public.ecr.aws/docker/library}/postgres:14-bookworm
+    container_name: manga-stack-db
+    restart: unless-stopped
+    # F-85: the default max_connections is 100, but this stack's demand is the
+    # API's GUNICORN_WORKERS x (SQLALCHEMY_POOL_SIZE + MAX_OVERFLOW) *plus* a
+    # pool per Celery worker service, the migration job and any backup/psql
+    # session. At the documented 4 x 30 that is 120 for the API alone, so the
+    # server has to be told it may hand out more than the default.
+    command:
+      - "docker-entrypoint.sh"
+      - "postgres"
+      - "-c"
+      - "max_connections=${POSTGRES_MAX_CONNECTIONS:-300}"
+    environment:
+      POSTGRES_DB: manga
+      POSTGRES_USER: manga
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
+      POSTGRES_HOST_AUTH_METHOD: scram-sha-256
+      LANG: C.UTF-8
+      LC_ALL: C.UTF-8
+      TZ: UTC
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    networks:
+      - manga-network
+
+  # ======================
+  # Redis (Cache / Broker)
+  # ======================
+  redis:
+    image: ${OFFICIAL_LIBRARY_REGISTRY:-public.ecr.aws/docker/library}/redis:7-alpine
+    container_name: manga-stack-redis
+    restart: unless-stopped
+    environment:
+      # Single source of truth for the Redis credential. Everything below reads
+      # it from the *container* environment: each `$$` escapes the expansion so
+      # it happens in the container's shell rather than being interpolated by
+      # Compose at parse time. The previous `${REDIS_PASSWORD:?...}` inside
+      # `command:` was parse-time, which (a) aborted `docker compose up` when
+      # the var was unset even though this default says it is optional, and
+      # (b) baked the plaintext password into the container's argv, where any
+      # `ps`/`docker inspect` reader could see it.
+      REDIS_USERNAME: ${REDIS_USERNAME:-default}
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-changeme_redis}
+    command:
+      - sh
+      - -c
+      - |
+        set -eu
+        if [ -z "$${REDIS_PASSWORD:-}" ]; then
+          echo "REDIS_PASSWORD must be set (see .env.example)" >&2
+          exit 1
+        fi
+        # Pass the credential via a private config file instead of --requirepass
+        # so it never appears on the redis-server command line.
+        umask 077
+        conf=/tmp/redis.conf
+        {
+          echo "appendonly yes"
+          echo "bind 0.0.0.0"
+          echo "protected-mode yes"
+          printf 'requirepass %s\n' "$${REDIS_PASSWORD}"
+        } > "$$conf"
+        echo "⚙️  Redis starting with authentication enforcement…"
+        exec redis-server "$$conf"
+    healthcheck:
+      # REDISCLI_AUTH keeps the password out of redis-cli's argv (unlike -a).
+      test: ["CMD-SHELL", "REDISCLI_AUTH=\"$${REDIS_PASSWORD}\" redis-cli ping | grep -q PONG"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+    networks:
+      - manga-network
+
+  # ======================
+  # One-shot Migration Job
+  # ======================
+  manga-stack-migrate:
+    <<: *backend-service
+    container_name: manga-stack-migrate
+    restart: "no"
+    env_file:
+      - .env
+    environment:
+      APP_ENV: development
+      DATABASE_URL: postgresql+psycopg2://manga:${POSTGRES_PASSWORD:-changeme}@db:5432/manga
+      REDIS_URL: ${REDIS_URL}
+      REDIS_USERNAME: ${REDIS_USERNAME}
+      CELERY_BROKER_URL: ${CELERY_BROKER_URL}
+      CELERY_RESULT_BACKEND: ${CELERY_RESULT_BACKEND}
+      ALEMBIC_CONFIG: /app/alembic.ini
+      PYTHONPATH: /app/backend_fastapi
+    depends_on:
+      db:
+        condition: service_healthy
+    entrypoint: []
+    command: ["sh", "-c", "alembic upgrade head && python scripts/seed_bootstrap_state.py"]
+    volumes:
+      - .:/app
+    networks:
+      - manga-network
+
+  # ======================
+  # FastAPI Backend (API)
+  # ======================
+  backend:
+    <<: *backend-service
+    container_name: manga-stack-backend
+    restart: unless-stopped
+    working_dir: /app
+    env_file:
+      - .env
+    environment:
+      APP_ENV: development
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:8080}
+      BACKEND_URL: ${BACKEND_URL:-http://backend:8000}
+      DATABASE_URL: postgresql+psycopg2://manga:${POSTGRES_PASSWORD:-changeme}@db:5432/manga
+      REDIS_URL: ${REDIS_URL}
+      REDIS_USERNAME: ${REDIS_USERNAME}
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+      CELERY_BROKER_URL: ${CELERY_BROKER_URL}
+      CELERY_RESULT_BACKEND: ${CELERY_RESULT_BACKEND}
+      SECRET_KEY: ${SECRET_KEY}
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY}
+      MAGIC_LINK_SECRET: ${MAGIC_LINK_SECRET}
+      INTEGRATIONS_SECRET: ${INTEGRATIONS_SECRET}
+      ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES}
+      ALGORITHM: ${ALGORITHM:-HS256}
+      EMAIL_ENCRYPTION_KEY: ${EMAIL_ENCRYPTION_KEY:?Set EMAIL_ENCRYPTION_KEY to a Fernet key (see .env.example)}
+      PYTHONPATH: /app/backend_fastapi
+      GOOGLE_OAUTH_CLIENT_ID: ${GOOGLE_OAUTH_CLIENT_ID}
+      GOOGLE_OAUTH_CLIENT_SECRET: ${GOOGLE_OAUTH_CLIENT_SECRET}
+      GOOGLE_OAUTH_REDIRECT_URI: ${GOOGLE_OAUTH_REDIRECT_URI}
+      DEFAULT_OCR_ENGINE: ${DEFAULT_OCR_ENGINE}
+      DEFAULT_TRANSLATION_PROVIDER: ${DEFAULT_TRANSLATION_PROVIDER}
+      ALEMBIC_CONFIG: /app/alembic.ini
+      FORCE_HTTPS_REDIRECTS: ${FORCE_HTTPS_REDIRECTS:-true}
+      APP_PORT: ${APP_PORT:-8000}
+      PROFILE_UPLOAD_DIR: /app/storage/profile_uploads
+      BRANDING_UPLOAD_DIR: /app/storage/branding/uploads
+      BRANDING_ASSET_DIR: /app/storage/branding/public
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      manga-stack-migrate:
+        condition: service_completed_successfully
+    ports:
+      - "8000:8000"
+    command: ["/usr/bin/env", "sh", "/app/backend_fastapi/scripts/start_backend.sh"]
+    healthcheck:
+      test: [
+        "CMD-SHELL",
+        "python -c \"import urllib.request;urllib.request.urlopen('http://localhost:8000/healthz')\" >/dev/null 2>&1 || exit 1"
+      ]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    networks:
+      - manga-network
+    volumes:
+      - app-storage:/app/storage
+      
+  # ======================
+  # Celery Workers (one per routed queue -- see F-30 note above services:)
+  # ======================
+  celery_worker:
+    <<: *celery-worker
+    container_name: manga-stack-celery-worker
+    environment:
+      <<: *celery-worker-env
+      CELERY_QUEUES: "default,celery"
+      CELERY_CONCURRENCY: 1
+
+  # The per-queue workers below deliberately carry NO container_name: a fixed
+  # name pins a service to exactly one replica, so `up --scale
+  # celery_worker_scrape=3` (the documented path in docker-compose.scale.yml)
+  # fails outright. Compose names them manga-stack-celery_worker_scrape-1 etc.
+  celery_worker_scrape:
+    <<: *celery-worker
+    environment:
+      <<: *celery-worker-env
+      CELERY_QUEUES: scrape
+      CELERY_CONCURRENCY: 1
+
+  celery_worker_ocr:
+    <<: *celery-worker
+    environment:
+      <<: *celery-worker-env
+      CELERY_QUEUES: ocr
+      CELERY_CONCURRENCY: 1
+
+  celery_worker_translation:
+    <<: *celery-worker
+    environment:
+      <<: *celery-worker-env
+      CELERY_QUEUES: translation
+      CELERY_CONCURRENCY: 1
+
+  celery_worker_email:
+    <<: *celery-worker
+    environment:
+      <<: *celery-worker-env
+      CELERY_QUEUES: email
+      CELERY_CONCURRENCY: 1
+
+  celery_worker_maintenance:
+    <<: *celery-worker
+    environment:
+      <<: *celery-worker-env
+      CELERY_QUEUES: maintenance
+      CELERY_CONCURRENCY: 1
+
+  celery_worker_notifications:
+    <<: *celery-worker
+    environment:
+      <<: *celery-worker-env
+      CELERY_QUEUES: notifications
+      CELERY_CONCURRENCY: 1
+
+  # ======================
+  # Celery Beat Scheduler
+  # ======================
+  celery_beat:
+    <<: *backend-service
+    container_name: manga-stack-celery-beat
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      APP_ENV: development
+      DATABASE_URL: postgresql+psycopg2://manga:${POSTGRES_PASSWORD:-changeme}@db:5432/manga
+      REDIS_URL: ${REDIS_URL}
+      REDIS_USERNAME: ${REDIS_USERNAME}
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+      CELERY_BROKER_URL: ${CELERY_BROKER_URL}
+      CELERY_RESULT_BACKEND: ${CELERY_RESULT_BACKEND}
+      GOOGLE_OAUTH_CLIENT_ID: ${GOOGLE_OAUTH_CLIENT_ID}
+      GOOGLE_OAUTH_CLIENT_SECRET: ${GOOGLE_OAUTH_CLIENT_SECRET}
+      GOOGLE_OAUTH_REDIRECT_URI: ${GOOGLE_OAUTH_REDIRECT_URI}
+      PROFILE_UPLOAD_DIR: /app/storage/profile_uploads
+      BRANDING_UPLOAD_DIR: /app/storage/branding/uploads
+      BRANDING_ASSET_DIR: /app/storage/branding/public
+      DEFAULT_OCR_ENGINE: ${DEFAULT_OCR_ENGINE}
+      DEFAULT_TRANSLATION_PROVIDER: ${DEFAULT_TRANSLATION_PROVIDER}
+      INTEGRATIONS_SECRET: ${INTEGRATIONS_SECRET}
+      PYTHONPATH: /app/backend_fastapi
+    depends_on:
+      backend:
+        condition: service_healthy
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: ["/usr/bin/env", "sh", "/app/backend_fastapi/scripts/start_celery_beat.sh"]
+    # Same rationale as celery_worker: verify the scheduler in *this* container.
+    healthcheck:
+      test: ["CMD", "python", "/app/backend_fastapi/scripts/celery_healthcheck.py", "beat"]
+      interval: 15s
+      timeout: 10s
+      start_period: 30s
+      retries: 3
+    networks:
+      - manga-network
+    volumes:
+      - app-storage:/app/storage
+      
+  # ======================
+  # Web Server (Nginx + React)
+  # ======================
+  web:
+    build:
+      context: .
+      dockerfile: web.Dockerfile
+    container_name: manga-stack-web
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "8080:8080"
+    environment:
+      # Rendered into /config.json at container start (deploy/nginx/entrypoint.sh)
+      # so the frontend can be repointed at a different backend without a rebuild.
+      - API_BASE=${API_BASE:-/api/v1}
+    command: ["sh", "-c", "nginx -g 'pid /tmp/nginx.pid; daemon off;'"]
+    healthcheck:
+      test: [
+        "CMD-SHELL",
+        "wget --quiet --tries=1 http://127.0.0.1:8080/ -O - >/dev/null"
+        ]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+    networks:
+      - manga-network
+
+# ======================
+# Volumes
+# ======================
+volumes:
+  db-data:
+  app-storage:
+  
+# ======================
+# Network
+# ======================
+networks:
+  manga-network:
+    driver: bridge

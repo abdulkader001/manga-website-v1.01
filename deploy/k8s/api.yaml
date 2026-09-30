@@ -1,0 +1,147 @@
+# Gap B / Phase 6 item 36 — FastAPI API Deployment + Service (+ HPA).
+#
+# Previously deploy/k8s/ had only celery beat/worker manifests, so there was no
+# API Deployment and, more importantly, no migration gate: on Kubernetes the
+# API could roll out before `alembic upgrade head` ran. This manifest adds the
+# API and gates its rollout on migrations two ways:
+#
+#   1. A dedicated migrate Job (deploy/k8s/migrate-job.yaml) runs
+#      `alembic upgrade head` once — the single, race-free schema owner.
+#   2. The `wait-for-migrations` initContainer below blocks pod startup until
+#      the schema actually reaches head (reusing scripts/wait_for_migrations.sh,
+#      the same gate start_backend.sh applies). So an API pod never starts its
+#      app container against an un-migrated schema, even if everything is
+#      applied at once — it simply waits in Init until the Job completes.
+#
+# This is [IaC]: committed here, applied by a human / CD pipeline with cluster
+# access. Do not apply against a cluster from this repo.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: manga-api
+  labels:
+    app.kubernetes.io/name: manga-api
+    app.kubernetes.io/component: api
+    app.kubernetes.io/part-of: manga
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: manga-api
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: manga-api
+        app.kubernetes.io/component: api
+        app.kubernetes.io/part-of: manga
+    spec:
+      initContainers:
+        # Migration gate: block until the DB schema is at Alembic head. This
+        # only waits (it does not run migrations — the migrate Job does), so N
+        # replicas never race to migrate. If migrations have not run yet, the
+        # pod stays in Init rather than serving a stale schema.
+        - name: wait-for-migrations
+          # D-4: pin to an immutable tag or digest before applying -- a human
+          # / CD pipeline substitutes this placeholder (":latest" +
+          # IfNotPresent let a node silently keep running a stale image
+          # after a rebuild).
+          image: manga-backend:REPLACE_WITH_IMAGE_TAG
+          imagePullPolicy: IfNotPresent
+          command: ["/bin/bash", "-lc"]
+          args:
+            - backend_fastapi/scripts/wait_for_migrations.sh
+          env:
+            - name: PYTHONPATH
+              value: /app/backend_fastapi
+          envFrom:
+            - configMapRef:
+                name: backend-config
+            - secretRef:
+                name: backend-secrets
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "256Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+          terminationMessagePolicy: FallbackToLogsOnError
+      containers:
+        - name: api
+          # D-4: pin to an immutable tag or digest before applying -- a human
+          # / CD pipeline substitutes this placeholder (":latest" +
+          # IfNotPresent let a node silently keep running a stale image
+          # after a rebuild).
+          image: manga-backend:REPLACE_WITH_IMAGE_TAG
+          imagePullPolicy: IfNotPresent
+          command: ["/usr/bin/env", "sh", "/app/backend_fastapi/scripts/start_backend.sh"]
+          ports:
+            - containerPort: 8000
+          envFrom:
+            - configMapRef:
+                name: backend-config
+            - secretRef:
+                name: backend-secrets
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "512Mi"
+            limits:
+              cpu: "1"
+              memory: "1Gi"
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8000
+            initialDelaySeconds: 30
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 3
+          terminationMessagePolicy: FallbackToLogsOnError
+      restartPolicy: Always
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: manga-api
+  labels:
+    app.kubernetes.io/name: manga-api
+    app.kubernetes.io/component: api
+    app.kubernetes.io/part-of: manga
+spec:
+  selector:
+    app.kubernetes.io/name: manga-api
+  ports:
+    - port: 80
+      targetPort: 8000
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: manga-api
+  labels:
+    app.kubernetes.io/name: manga-api
+    app.kubernetes.io/component: api
+    app.kubernetes.io/part-of: manga
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: manga-api
+  minReplicas: 3
+  maxReplicas: 30
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 65

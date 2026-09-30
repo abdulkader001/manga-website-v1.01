@@ -1,0 +1,99 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: manga-celery-worker
+  labels:
+    app.kubernetes.io/name: manga-celery-worker
+    app.kubernetes.io/component: celery-worker
+    app.kubernetes.io/part-of: manga
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: manga-celery-worker
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: manga-celery-worker
+        app.kubernetes.io/component: celery-worker
+        app.kubernetes.io/part-of: manga
+    spec:
+      containers:
+        - name: worker
+          # D-4: pin to an immutable tag or digest before applying -- a human
+          # / CD pipeline substitutes this placeholder (":latest" +
+          # IfNotPresent let a node silently keep running a stale image
+          # after a rebuild).
+          image: manga-backend:REPLACE_WITH_IMAGE_TAG
+          imagePullPolicy: IfNotPresent
+          # Runs `celery -A backend_fastapi.app.core.celery_app:celery_app worker`
+          # via the shared script below, which also applies --queues/readiness.
+          command: ["/usr/bin/env", "sh", "/app/backend_fastapi/scripts/start_celery_worker.sh"]
+          env:
+            # F-46: without this, celery worker consumes only the default
+            # queue and six of eight routed queues go unconsumed. The start
+            # script (start_celery_worker.sh) appends --queues from
+            # CELERY_QUEUES. Single-worker default: consume every routed
+            # queue so tasks routed by item-38 task_routes are not stranded.
+            # Mirrors docker-compose.yml's canonical (non-scale) worker.
+            # Keep in sync with celery_app task_routes / task_default_queue.
+            - name: CELERY_QUEUES
+              value: "default,celery,scrape,ocr,translation,email,maintenance,notifications"
+            - name: CELERY_CONCURRENCY
+              value: "2"
+          envFrom:
+            - configMapRef:
+                name: backend-config
+            - secretRef:
+                name: backend-secrets
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "512Mi"
+            limits:
+              cpu: "1"
+              memory: "1Gi"
+          readinessProbe:
+            exec:
+              command:
+                - /bin/bash
+                - -c
+                - >-
+                  python - <<'PY'
+                  import os
+                  from redis import Redis
+                  url = os.environ.get("CELERY_BROKER_URL") or os.environ.get("REDIS_URL")
+                  if not url:
+                      raise SystemExit(1)
+                  client = Redis.from_url(url)
+                  client.ping()
+                  PY
+            initialDelaySeconds: 20
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            exec:
+              command:
+                - python
+                - /app/backend_fastapi/scripts/celery_healthcheck.py
+                - worker
+            initialDelaySeconds: 60
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          terminationMessagePolicy: FallbackToLogsOnError
+      restartPolicy: Always
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: manga-celery-worker
+  labels:
+    app.kubernetes.io/name: manga-celery-worker
+    app.kubernetes.io/component: celery-worker
+    app.kubernetes.io/part-of: manga
+spec:
+  clusterIP: None
+  selector:
+    app.kubernetes.io/name: manga-celery-worker

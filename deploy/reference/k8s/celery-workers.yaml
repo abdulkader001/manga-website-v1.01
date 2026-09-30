@@ -1,0 +1,194 @@
+# Reference k8s — one Deployment per Celery queue + an HPA on the two hot
+# queues. REFERENCE ONLY. This is the managed-cloud form of the per-queue
+# workers in docker-compose.scale.yml: isolating queues means a scrape flood
+# can't starve email/maintenance, and each queue scales independently.
+#
+# Each Deployment differs only in: metadata.name, CELERY_QUEUES, and
+# concurrency/replicas. The start script (start_celery_worker.sh) appends
+# --queues from CELERY_QUEUES.
+#
+# Queues (must match celery_app task_routes): scrape, ocr, translation, email,
+# maintenance, notifications, plus default/celery for control tasks.
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: manga-worker-scrape
+  labels: { app.kubernetes.io/name: manga-worker-scrape, app.kubernetes.io/part-of: manga }
+spec:
+  replicas: 2
+  selector: { matchLabels: { app.kubernetes.io/name: manga-worker-scrape } }
+  template:
+    metadata:
+      labels: { app.kubernetes.io/name: manga-worker-scrape }
+    spec:
+      containers:
+        - name: worker
+          image: manga-backend:REPLACE_WITH_IMAGE_TAG  # D-4: pin to an immutable tag or digest before applying.
+          command: ["/usr/bin/env", "sh", "/app/backend_fastapi/scripts/start_celery_worker.sh"]
+          env:
+            - { name: CELERY_QUEUES, value: "scrape" }
+            - { name: CELERY_CONCURRENCY, value: "4" }
+          envFrom:
+            - configMapRef: { name: backend-config }
+            - secretRef: { name: backend-secrets }
+          resources:
+            requests: { cpu: "250m", memory: "512Mi" }
+            limits: { cpu: "1", memory: "1Gi" }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: manga-worker-ocr
+  labels: { app.kubernetes.io/name: manga-worker-ocr, app.kubernetes.io/part-of: manga }
+spec:
+  replicas: 2
+  selector: { matchLabels: { app.kubernetes.io/name: manga-worker-ocr } }
+  template:
+    metadata:
+      labels: { app.kubernetes.io/name: manga-worker-ocr }
+    spec:
+      containers:
+        - name: worker
+          image: manga-backend:REPLACE_WITH_IMAGE_TAG  # D-4: pin to an immutable tag or digest before applying.
+          command: ["/usr/bin/env", "sh", "/app/backend_fastapi/scripts/start_celery_worker.sh"]
+          env:
+            - { name: CELERY_QUEUES, value: "ocr" }
+            - { name: CELERY_CONCURRENCY, value: "2" }
+          envFrom:
+            - configMapRef: { name: backend-config }
+            - secretRef: { name: backend-secrets }
+          resources:
+            requests: { cpu: "500m", memory: "1Gi" }   # OCR is CPU/mem heavy
+            limits: { cpu: "2", memory: "2Gi" }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: manga-worker-translation
+  labels: { app.kubernetes.io/name: manga-worker-translation, app.kubernetes.io/part-of: manga }
+spec:
+  replicas: 2
+  selector: { matchLabels: { app.kubernetes.io/name: manga-worker-translation } }
+  template:
+    metadata:
+      labels: { app.kubernetes.io/name: manga-worker-translation }
+    spec:
+      containers:
+        - name: worker
+          image: manga-backend:REPLACE_WITH_IMAGE_TAG  # D-4: pin to an immutable tag or digest before applying.
+          command: ["/usr/bin/env", "sh", "/app/backend_fastapi/scripts/start_celery_worker.sh"]
+          env:
+            - { name: CELERY_QUEUES, value: "translation" }
+            - { name: CELERY_CONCURRENCY, value: "4" }
+          envFrom:
+            - configMapRef: { name: backend-config }
+            - secretRef: { name: backend-secrets }
+          resources:
+            requests: { cpu: "250m", memory: "512Mi" }
+            limits: { cpu: "1", memory: "1Gi" }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: manga-worker-email
+  labels: { app.kubernetes.io/name: manga-worker-email, app.kubernetes.io/part-of: manga }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app.kubernetes.io/name: manga-worker-email } }
+  template:
+    metadata:
+      labels: { app.kubernetes.io/name: manga-worker-email }
+    spec:
+      containers:
+        - name: worker
+          image: manga-backend:REPLACE_WITH_IMAGE_TAG  # D-4: pin to an immutable tag or digest before applying.
+          command: ["/usr/bin/env", "sh", "/app/backend_fastapi/scripts/start_celery_worker.sh"]
+          env:
+            - { name: CELERY_QUEUES, value: "email" }
+            - { name: CELERY_CONCURRENCY, value: "2" }
+          envFrom:
+            - configMapRef: { name: backend-config }
+            - secretRef: { name: backend-secrets }
+          resources:
+            requests: { cpu: "100m", memory: "256Mi" }
+            limits: { cpu: "500m", memory: "512Mi" }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: manga-worker-maintenance
+  labels: { app.kubernetes.io/name: manga-worker-maintenance, app.kubernetes.io/part-of: manga }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app.kubernetes.io/name: manga-worker-maintenance } }
+  template:
+    metadata:
+      labels: { app.kubernetes.io/name: manga-worker-maintenance }
+    spec:
+      containers:
+        - name: worker
+          image: manga-backend:REPLACE_WITH_IMAGE_TAG  # D-4: pin to an immutable tag or digest before applying.
+          command: ["/usr/bin/env", "sh", "/app/backend_fastapi/scripts/start_celery_worker.sh"]
+          env:
+            # audit + pdf + suggestion tasks all route to the maintenance queue.
+            - { name: CELERY_QUEUES, value: "maintenance" }
+            - { name: CELERY_CONCURRENCY, value: "2" }
+          envFrom:
+            - configMapRef: { name: backend-config }
+            - secretRef: { name: backend-secrets }
+          resources:
+            requests: { cpu: "100m", memory: "256Mi" }
+            limits: { cpu: "500m", memory: "512Mi" }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: manga-worker-notifications
+  labels: { app.kubernetes.io/name: manga-worker-notifications, app.kubernetes.io/part-of: manga }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app.kubernetes.io/name: manga-worker-notifications } }
+  template:
+    metadata:
+      labels: { app.kubernetes.io/name: manga-worker-notifications }
+    spec:
+      containers:
+        - name: worker
+          image: manga-backend:REPLACE_WITH_IMAGE_TAG  # D-4: pin to an immutable tag or digest before applying.
+          command: ["/usr/bin/env", "sh", "/app/backend_fastapi/scripts/start_celery_worker.sh"]
+          env:
+            - { name: CELERY_QUEUES, value: "notifications" }
+            - { name: CELERY_CONCURRENCY, value: "2" }
+          envFrom:
+            - configMapRef: { name: backend-config }
+            - secretRef: { name: backend-secrets }
+          resources:
+            requests: { cpu: "100m", memory: "256Mi" }
+            limits: { cpu: "500m", memory: "512Mi" }
+---
+# Autoscale the two hot queues on CPU. (Queue-depth autoscaling via KEDA is the
+# better long-term signal — add a ScaledObject on Redis list length per queue.)
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: manga-worker-scrape
+spec:
+  scaleTargetRef: { apiVersion: apps/v1, kind: Deployment, name: manga-worker-scrape }
+  minReplicas: 2
+  maxReplicas: 15
+  metrics:
+    - type: Resource
+      resource: { name: cpu, target: { type: Utilization, averageUtilization: 70 } }
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: manga-worker-ocr
+spec:
+  scaleTargetRef: { apiVersion: apps/v1, kind: Deployment, name: manga-worker-ocr }
+  minReplicas: 2
+  maxReplicas: 12
+  metrics:
+    - type: Resource
+      resource: { name: cpu, target: { type: Utilization, averageUtilization: 70 } }

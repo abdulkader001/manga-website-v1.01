@@ -1,0 +1,10 @@
+[Unit]
+Description=Run Manga certificate renewal twice daily
+
+[Timer]
+OnCalendar=*-*-* 00:00,12:00
+RandomizedDelaySec=30m
+Persistent=true
+
+[Install]
+WantedBy=timers.target
