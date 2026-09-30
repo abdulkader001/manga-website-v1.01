@@ -11,7 +11,8 @@ class MangaBase(BaseModel):
     cover_image: Optional[str] = None
     cover_url: Optional[str] = None
     description: Optional[str] = None
-    source_url: str
+    # Admin-only: omitted for readers and visitors.
+    source_url: Optional[str] = None
     language: Optional[str] = None
     type: str
     status: str
@@ -34,6 +35,7 @@ class MangaBase(BaseModel):
     artists: List[str] = []
     alt_titles: List[str] = []
     mangaupdates_url: Optional[str] = None
+    scrape_layout: Optional[dict] = None
     is_hot: bool = False
     views: int = 0
     views_formatted: str = "0"
