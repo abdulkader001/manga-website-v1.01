@@ -110,6 +110,15 @@ def _extract_payload(data: Dict[str, Any]) -> Dict[str, Any]:
         payload["link_url"] = payload["link"]
     if "active" in payload and "enabled" not in payload:
         payload["enabled"] = payload["active"]
+    canvas = {
+        key: payload.pop(key)
+        for key in ("page_target", "canvas_x", "canvas_y", "width_px")
+        if key in payload
+    }
+    if canvas:
+        metadata = dict(payload.get("metadata") or {})
+        metadata.update({k: v for k, v in canvas.items() if v is not None})
+        payload["metadata"] = metadata
     return payload
 
 

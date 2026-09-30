@@ -89,10 +89,12 @@ def test_admin_settings_reflect_env(fastapi_client, monkeypatch):
     resp = fastapi_client.get("/api/admin/settings", headers=headers)
 
     assert resp.status_code == 200
-    assert resp.json() == {
-        "ALLOW_USER_OCR_API": True,
-        "ALLOW_USER_TRANSLATION_API": False,
-    }
+    body = resp.json()
+    assert body["ALLOW_USER_OCR_API"] is True
+    assert body["ALLOW_USER_TRANSLATION_API"] is False
+    # The admin UI reads site settings and branding from the same call.
+    assert {"maintenance_mode", "allow_registration"} <= set(body["settings"])
+    assert {"name", "tagline", "logo_url"} <= set(body["branding"])
 
 
 def test_branding_post_supports_react_client(fastapi_client):

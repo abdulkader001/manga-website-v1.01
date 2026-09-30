@@ -6,6 +6,7 @@ from sqlalchemy import (
     Integer,
     String,
     Boolean,
+    Date,
     DateTime,
     ForeignKey,
     Enum,
@@ -151,6 +152,21 @@ class User(Base):
 
     # OAuth profile fields
     profile_image = Column(String(500), nullable=True)
+
+    # Reader profile (completed once after first sign-in). ``birth_date`` drives
+    # the under-18 content gate; ``password_hash`` is optional -- magic link
+    # and OAuth accounts never need one.
+    microsoft_sub = Column(String(255), unique=True, nullable=True)
+    birth_date = Column(Date, nullable=True)
+    gender = Column(String(32), nullable=True)
+    profile_completed = Column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
+    password_hash = Column(String(255), nullable=True)
+    failed_login_count = Column(
+        Integer, nullable=False, default=0, server_default="0"
+    )
+    login_locked_until = Column(DateTime, nullable=True)
 
     # OAuth tokens are encrypted at rest (Blind Spot #16). The DB columns keep
     # their original names; access is via the access_token/refresh_token
@@ -310,9 +326,32 @@ class User(Base):
             "google_sub": self.google_sub,
             "permanent": self.permanent,
             "profile_image": self.profile_image,
+            "birth_date": self.birth_date.isoformat() if self.birth_date else None,
+            "age": self.age,
+            "is_under_18": self.is_under_18,
+            "gender": self.gender,
+            "profile_completed": bool(self.profile_completed),
+            "has_password": bool(self.password_hash),
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,
         }
+
+    @property
+    def age(self) -> int | None:
+        if not self.birth_date:
+            return None
+        today = datetime.utcnow().date()
+        born = self.birth_date
+        return today.year - born.year - ((today.month, today.day) < (born.month, born.day))
+
+    @property
+    def is_under_18(self) -> bool:
+        age = self.age
+        return age is not None and age < 18
+
+    @property
+    def has_password(self) -> bool:
+        return bool(self.password_hash)
 
 
 class LoginToken(Base):

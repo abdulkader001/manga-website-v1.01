@@ -34,6 +34,11 @@ class AdSlotFields(BaseModel):
     provider_id: Optional[int] = None
     provider_name: Optional[str] = None
     provider: Optional[str] = None
+    # Visual Ads Manager canvas position (kept in the slot's metadata).
+    page_target: Optional[str] = None
+    canvas_x: Optional[int] = None
+    canvas_y: Optional[int] = None
+    width_px: Optional[int] = None
 
 
 class AdSlotCreate(AdSlotFields):

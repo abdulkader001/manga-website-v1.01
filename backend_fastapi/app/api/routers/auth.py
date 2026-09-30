@@ -284,6 +284,15 @@ async def request_magic_link(
         logger.info("magic_link_blocked_disposable_domain")
         return MagicLinkResponse(message="magic_link_sent", debug_token=None)
 
+    from ...services.auth_service import get_user_by_email
+    from ...services.site_content_service import registration_open
+
+    if not registration_open(db) and get_user_by_email(db, email) is None:
+        # Registration is closed: no account is created and no link is sent,
+        # behind the same non-enumerating confirmation.
+        logger.info("magic_link_blocked_registration_closed")
+        return MagicLinkResponse(message="magic_link_sent", debug_token=None)
+
     user = ensure_magic_link_user(db, email)
     _token_record, magic_token = create_magic_login_token(db, user)
 

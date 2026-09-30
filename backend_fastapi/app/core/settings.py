@@ -139,6 +139,10 @@ class Settings(BaseSettings):
     google_oauth_client_secret: str | None = None
     google_oauth_redirect_uri: str | None = None
     google_oauth_hosted_domain: str | None = None
+    microsoft_oauth_client_id: str | None = None
+    microsoft_oauth_client_secret: str | None = None
+    microsoft_oauth_tenant: str = "common"
+    microsoft_oauth_redirect_uri: str | None = None
 
     # Third-party integrations
     supabase_url: str | None = None
@@ -338,6 +342,9 @@ class Settings(BaseSettings):
         "google_oauth_client_id",
         "google_oauth_client_secret",
         "google_oauth_redirect_uri",
+        "microsoft_oauth_client_id",
+        "microsoft_oauth_client_secret",
+        "microsoft_oauth_redirect_uri",
         mode="before",
     )
     @classmethod

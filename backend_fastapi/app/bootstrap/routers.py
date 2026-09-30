@@ -5,6 +5,11 @@ from __future__ import annotations
 from fastapi import APIRouter, FastAPI
 
 from ..api.routers import (
+    account_router,
+    reader_router,
+    scraper_admin_router,
+    seo_router,
+    site_admin_router,
     ad_slots_router,
     ads_router,
     admin_router,
@@ -40,6 +45,9 @@ def build_api_router() -> APIRouter:
     """Return a composed API router containing all feature routes."""
 
     api_router = APIRouter()
+    # Before auth_router: its catch-all GET /auth/{provider} would shadow
+    # /auth/microsoft, /auth/check-username, ...
+    api_router.include_router(account_router)
     api_router.include_router(admin_router)
     api_router.include_router(ad_slots_router)
     api_router.include_router(ads_router)
@@ -68,6 +76,9 @@ def build_api_router() -> APIRouter:
     api_router.include_router(tasks_router)
     api_router.include_router(translation_router)
     api_router.include_router(user_settings_router)
+    api_router.include_router(reader_router)
+    api_router.include_router(site_admin_router)
+    api_router.include_router(scraper_admin_router)
     return api_router
 
 
@@ -86,6 +97,9 @@ def register_api_routes(app: FastAPI) -> None:
 
     # Canonical versioned surface (documented in OpenAPI).
     app.include_router(api_router, prefix="/api/v1")
+
+    # sitemap.xml / rss.xml live at the site root, outside the API prefix.
+    app.include_router(seo_router)
 
     # Deprecated compatibility aliases (hidden from the schema).
     app.include_router(api_router, include_in_schema=False)

@@ -14,7 +14,7 @@ import structlog
 logger = structlog.get_logger("backend_fastapi.cache_invalidation")
 
 MANGA_LIST_PREFIX = "manga_list:"
-MANGA_DETAIL_PREFIX = "manga:"
+MANGA_DETAIL_PREFIX = "manga_detail:"
 MANGA_CHAPTERS_PREFIX = "manga_chapters:"
 
 
@@ -49,12 +49,12 @@ def invalidate_manga_detail_cache(redis_client, manga_id: int | None = None) -> 
     removed = 0
     if redis_client is not None:
         try:
-            for prefix in (MANGA_DETAIL_PREFIX, MANGA_CHAPTERS_PREFIX):
-                for key in redis_client.scan_iter(
-                    match=f"{prefix}{manga_id}*", count=200
-                ):
-                    redis_client.delete(key)
-                    removed += 1
+            removed += int(redis_client.delete(f"{MANGA_DETAIL_PREFIX}{manga_id}") or 0)
+            for key in redis_client.scan_iter(
+                match=f"{MANGA_CHAPTERS_PREFIX}{manga_id}:*", count=200
+            ):
+                redis_client.delete(key)
+                removed += 1
         except Exception:
             logger.warning("cache_invalidation_failed", manga_id=manga_id)
     return removed
@@ -66,3 +66,52 @@ def invalidate_all_manga_caches(redis_client) -> int:
     return invalidate_manga_list_cache(redis_client) + invalidate_manga_detail_cache(
         redis_client
     )
+
+
+async def ainvalidate_manga_caches(redis_client, manga_id: int | None = None) -> None:
+    """Async-client variant for request handlers (``app.state.redis``).
+
+    Drops the listing pages and, when given, one series' detail + chapter
+    caches; with ``manga_id=None`` every series cache goes.
+    """
+
+    if redis_client is None:
+        return
+    prefixes = [MANGA_LIST_PREFIX]
+    if manga_id is None:
+        prefixes += [MANGA_DETAIL_PREFIX, MANGA_CHAPTERS_PREFIX]
+    try:
+        if manga_id is not None:
+            await redis_client.delete(f"{MANGA_DETAIL_PREFIX}{manga_id}")
+            async for key in redis_client.scan_iter(
+                match=f"{MANGA_CHAPTERS_PREFIX}{manga_id}:*", count=200
+            ):
+                await redis_client.delete(key)
+        for prefix in prefixes:
+            async for key in redis_client.scan_iter(match=f"{prefix}*", count=500):
+                await redis_client.delete(key)
+    except Exception:  # best-effort; never break the write that triggered it
+        logger.warning("cache_invalidation_failed", manga_id=manga_id)
+
+
+def invalidate_manga_caches_sync(manga_id: int | None = None) -> None:
+    """For synchronous code paths (threadpool handlers, Celery tasks), which
+    cannot use the app's asyncio Redis client."""
+
+    try:
+        from redis import Redis
+
+        from ..core.settings import get_settings
+
+        settings = get_settings()
+        url = settings.redis_url or settings.celery_broker_url or ""
+        if not url.startswith(("redis://", "rediss://", "unix://")):
+            return
+        client = Redis.from_url(url)
+        try:
+            invalidate_manga_list_cache(client)
+            invalidate_manga_detail_cache(client, manga_id)
+        finally:
+            client.close()
+    except Exception:  # best-effort
+        logger.warning("cache_invalidation_failed", manga_id=manga_id)

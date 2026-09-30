@@ -71,8 +71,6 @@ class ScraperWorkflowService:
             self.job_repo.mark_in_progress(job)
             self.db.commit()
 
-            scraper = BaseScraper(domain)
-
             manga = None
             if job.manga_id:
                 manga = self.manga_repo.get_by_id(job.manga_id)
@@ -81,43 +79,55 @@ class ScraperWorkflowService:
                 if manga:
                     self.job_repo.update(job, manga_id=manga.id)
 
-            existing_chapters = (
-                self.chapter_repo.get_existing_chapter_numbers(manga.id)
-                if manga
-                else []
-            )
-
             try:
-                manga_data = scraper.scrape_manga(url, existing_chapters)
+                options = self._prepare_options(job, url)
+                # Built after _prepare_options: it may have just activated the
+                # parser this scrape should use.
+                scraper = BaseScraper(domain)
+
+                remap = bool(options.get("remap_chapters")) and manga is not None
+                existing_chapters = (
+                    self.chapter_repo.get_existing_chapter_numbers(manga.id)
+                    if manga and not remap
+                    else []
+                )
+                manga_data = scraper.scrape_manga(
+                    url, None if remap else existing_chapters
+                )
+                if remap:
+                    self._remap_chapter_urls(manga, manga_data.get("chapters", []))
 
                 if not manga:
                     # 1G.2.2: the series record is created only AFTER metadata
                     # extraction succeeded — a metadata failure creates no
                     # partial record.
                     manga = self.manga_repo.create(
-                        title=manga_data.get("title", "Unknown"),
-                        description=manga_data.get("description", ""),
-                        cover_image=manga_data.get("cover", ""),
-                        source_url=url,
-                        last_scraped=datetime.utcnow(),
-                        added_by=job.requested_by,
-                        ingestion_status="scraping",
+                        **self._new_series_fields(url, job, manga_data, options)
                     )
                     self.job_repo.update(job, manga_id=manga.id)
                 else:
                     updates = {}
-                    if manga_data.get("title") and manga_data["title"] != "Unknown":
-                        updates["title"] = manga_data["title"]
-                    if manga_data.get("description"):
-                        updates["description"] = manga_data["description"]
-                    if manga_data.get("cover"):
-                        updates["cover_image"] = manga_data["cover"]
+                    if not manga.mangaupdates_url:
+                        # MangaUpdates-managed series keep their metadata; the
+                        # source site only ever supplies chapters for them.
+                        if manga_data.get("title") and manga_data["title"] != "Unknown":
+                            updates["title"] = manga_data["title"]
+                        if manga_data.get("description"):
+                            updates["description"] = manga_data["description"]
+                        if manga_data.get("cover"):
+                            updates["cover_image"] = manga_data["cover"]
                     updates["last_scraped"] = datetime.utcnow()
                     updates["ingestion_status"] = "scraping"
                     updates["last_error"] = None
                     self.manga_repo.update(manga, **updates)
 
                 chapters_data = manga_data.get("chapters", [])
+                cap = options.get("chapters_to_scrape") if options else None
+                if isinstance(cap, int) and cap > 0 and len(chapters_data) > cap:
+                    # The admin asked for only the latest N chapters.
+                    chapters_data = sorted(
+                        chapters_data, key=lambda c: c.get("number", 0.0)
+                    )[-cap:]
                 new_chapters = []
 
                 existing_urls = (
@@ -177,6 +187,139 @@ class ScraperWorkflowService:
                     self._record_health(domain, success=False, exc=e)
                 raise e
 
+    def _prepare_options(self, job, url: str) -> Dict[str, Any]:
+        """Resolve what the submitter asked for before scraping starts.
+
+        * ``ensure_parser``: find or generate a parser for this website (this
+          is what makes a site on a new domain work), activating it when the
+          submitter is allowed to.
+        * ``mangaupdates_url``: load the series metadata from MangaUpdates. A
+          failure fails the job loudly -- never an import with wrong metadata.
+        """
+
+        options = dict(job.options or {})
+        changed = False
+
+        if options.get("ensure_parser"):
+            from ..models import User
+            from ..scrapers.errors import ExtractionError
+            from ..scrapers.source_pipeline import resolve_parser
+
+            actor = self.db.get(User, job.requested_by) if job.requested_by else None
+            result = resolve_parser(
+                self.db, url, base_url=options.get("base_url"), actor=actor, activate=True
+            )
+            if not result.get("ok"):
+                raise ExtractionError(
+                    result.get("message") or "No parser could read this website.",
+                    url=url,
+                    missing_field="parser",
+                    scraper_module=None,
+                )
+            options.pop("ensure_parser")
+            changed = True
+
+        mu_url = options.get("mangaupdates_url")
+        if mu_url and "metadata" not in options:
+            from ..scrapers.errors import ExtractionError
+            from .mangaupdates_service import MangaUpdatesError, fetch_series
+
+            try:
+                metadata = fetch_series(mu_url).to_dict()
+            except MangaUpdatesError as exc:
+                raise ExtractionError(
+                    f"MangaUpdates: {exc}", url=mu_url, missing_field="metadata"
+                ) from exc
+            options["metadata"] = metadata
+            changed = True
+
+        if changed:
+            job.options = options
+            self.db.commit()
+        return options
+
+    def _remap_chapter_urls(self, manga, scraped: list) -> None:
+        """After a source moved to a new domain: point each existing chapter at
+        its new URL (matched by chapter number), keeping its pages, so nothing
+        is duplicated and a later re-scrape of one chapter hits the live site."""
+
+        from ..models import Chapter
+
+        by_number = {}
+        for item in scraped:
+            by_number.setdefault(float(item["number"]), item["url"])
+        taken = {
+            row[0]
+            for row in self.db.query(Chapter.chapter_url).filter(Chapter.manga_id == manga.id)
+        }
+        remapped = 0
+        for chapter in self.db.query(Chapter).filter(Chapter.manga_id == manga.id):
+            new_url = by_number.get(float(chapter.chapter_number))
+            if not new_url or new_url == chapter.chapter_url or new_url in taken:
+                continue
+            taken.discard(chapter.chapter_url)
+            taken.add(new_url)
+            chapter.chapter_url = new_url
+            if not chapter.pages:
+                chapter.ingestion_status = "queued"
+            remapped += 1
+        self.db.flush()
+        logger.info("chapters_remapped", manga_id=manga.id, remapped=remapped)
+
+    def _new_series_fields(
+        self, url: str, job, manga_data: Dict[str, Any], options: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Column values for a brand-new series: MangaUpdates metadata when the
+        submitter supplied it, otherwise what the source page said."""
+
+        meta = dict(options.get("metadata") or {})
+        if options.get("author"):
+            meta["authors"] = [options["author"]]
+        cover_source = (
+            options.get("cover_override") or meta.get("cover_url") or manga_data.get("cover") or ""
+        )
+        cover = ""
+        if cover_source:
+            from .cover_service import fetch_and_store
+
+            cover = fetch_and_store(cover_source, referer=url) or cover_source
+
+        series_type = options.get("type") or meta.get("type") or "manga"
+        if series_type not in {"manga", "manhwa", "manhua"}:
+            series_type = "manga"
+        status_value = meta.get("status") or "ongoing"
+        if status_value not in {"ongoing", "completed", "hiatus", "dropped", "cancelled"}:
+            status_value = "ongoing"
+
+        fields: Dict[str, Any] = dict(
+            title=(
+                options.get("title")
+                or meta.get("title")
+                or manga_data.get("title")
+                or "Unknown"
+            ),
+            description=meta.get("description") or manga_data.get("description", ""),
+            cover_image=cover,
+            source_url=url,
+            last_scraped=datetime.utcnow(),
+            added_by=job.requested_by,
+            ingestion_status="scraping",
+            type=series_type,
+            status=status_value,
+            genres=meta.get("genres") or manga_data.get("genres") or [],
+            authors=meta.get("authors") or manga_data.get("authors") or [],
+            artists=meta.get("artists") or [],
+            alternative_titles=meta.get("alt_titles") or [],
+            mangaupdates_url=meta.get("url"),
+        )
+        if options.get("description"):
+            fields["description"] = options["description"]
+        if options.get("interval_hours"):
+            fields["check_interval_hours"] = int(options["interval_hours"])
+        if options.get("auto_scrape_enabled") is False:
+            fields["auto_scrape_enabled"] = False
+        return fields
+
     def _notify_fix_subscribers(self, chapter, *, success: bool, error=None) -> None:
         """Everyone who clicked Fix gets the completion notice (1G.12.2A)."""
 
@@ -229,7 +372,8 @@ class ScraperWorkflowService:
         # (initial ingestion) finishes.
         from .scheduled_checks_service import schedule_next_check
 
-        schedule_next_check(self.db, manga)
+        if manga.auto_scrape_enabled is not False:
+            schedule_next_check(self.db, manga)
 
         if manga.added_by:
             from .notification_service import notify_async

@@ -141,7 +141,11 @@ def due_series(
     now = now or datetime.utcnow()
     candidates = (
         db.query(Manga)
-        .filter(Manga.next_check_at.isnot(None), Manga.next_check_at <= now)
+        .filter(
+            Manga.next_check_at.isnot(None),
+            Manga.next_check_at <= now,
+            Manga.auto_scrape_enabled.isnot(False),
+        )
         .order_by(Manga.next_check_at.asc())
         .limit(limit * 2)
         .all()
@@ -268,10 +272,15 @@ def run_check(db: Session, manga: Manga) -> Dict[str, Any]:
 
     record_success(db, domain)
 
+    known_urls = {
+        row[0] for row in db.query(Chapter.chapter_url).filter_by(manga_id=manga.id).all()
+    }
     new_chapters = [
         c
         for c in (manga_data.get("chapters") or [])
-        if c.get("number") is not None and float(c["number"]) not in existing_numbers
+        if c.get("number") is not None
+        and float(c["number"]) not in existing_numbers
+        and c.get("url") not in known_urls
     ]
     manga.last_scraped = datetime.utcnow()
     schedule_next_check(db, manga)
@@ -297,6 +306,10 @@ def run_check(db: Session, manga: Manga) -> Dict[str, Any]:
         db.flush()
         created_ids.append(chapter.id)
     db.commit()
+
+    from ..utils.cache_invalidation import invalidate_manga_caches_sync
+
+    invalidate_manga_caches_sync(manga.id)
 
     for chapter_id in created_ids:
         process_chapter_scrape.delay(chapter_id)

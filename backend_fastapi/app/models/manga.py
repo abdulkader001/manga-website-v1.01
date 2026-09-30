@@ -9,6 +9,7 @@ from sqlalchemy import (
     JSON,
     ForeignKey,
     DECIMAL,
+    BigInteger,
     Boolean,
     func,
     Enum,
@@ -20,6 +21,41 @@ from sqlalchemy.orm import relationship
 from .base import Base
 from ..utils.cdn import build_cdn_url
 
+
+
+def format_count(value: int) -> str:
+    """Compact reader-facing count: 950, 1.2k, 3.4M."""
+
+    value = int(value or 0)
+    if value >= 1_000_000:
+        return f"{value / 1_000_000:.1f}".rstrip("0").rstrip(".") + "M"
+    if value >= 1_000:
+        return f"{value / 1_000:.1f}".rstrip("0").rstrip(".") + "k"
+    return str(value)
+
+
+def chapter_number_value(raw) -> int | float | None:
+    """DECIMAL chapter number as a JSON number (12 rather than "12.00")."""
+
+    if raw is None:
+        return None
+    number = float(raw)
+    return int(number) if number.is_integer() else number
+
+
+def scrape_frequency_label(interval_hours: int | None) -> str | None:
+    if not interval_hours:
+        return None
+    if interval_hours < 24:
+        return "hourly"
+    days = interval_hours / 24
+    if days <= 3:
+        return "daily"
+    if days <= 10:
+        return "weekly"
+    if days <= 20:
+        return "biweekly"
+    return "monthly"
 
 # ----------------
 # Manga, Chapter, History, Bookmark
@@ -49,7 +85,9 @@ class Manga(Base):
         default="manga",
     )
     status = Column(
-        Enum("ongoing", "hiatus", "dropped", "cancelled", name="manga_status"),
+        Enum(
+            "ongoing", "completed", "hiatus", "dropped", "cancelled", name="manga_status"
+        ),
         nullable=False,
         default="ongoing",
     )
@@ -103,6 +141,17 @@ class Manga(Base):
     )
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
     popularity = Column(Integer, nullable=True)
+
+    # ----- Reader-facing catalogue fields ---------------------------------
+    # Metadata (title, description, genres, authors, cover) is sourced from
+    # MangaUpdates when a link is supplied; chapters come from ``source_url``.
+    mangaupdates_url = Column(String(512), nullable=True)
+    is_hot = Column(Boolean, nullable=False, default=False, server_default=sa_text("false"))
+    views = Column(BigInteger, nullable=False, default=0, server_default="0")
+    # Pausing keeps the interval but stops scheduled new-chapter checks.
+    auto_scrape_enabled = Column(
+        Boolean, nullable=False, default=True, server_default=sa_text("true")
+    )
 
     chapters = relationship(
         "Chapter", lazy="select", back_populates="manga", cascade="all, delete-orphan"
@@ -165,6 +214,55 @@ class Manga(Base):
             ),
             "attribution": self.attribution,
             "takedown_status": self.takedown_status or "none",
+            **self._catalogue_fields(),
+        }
+
+    def _catalogue_fields(self) -> dict:
+        """Presentation fields the reader UI renders on cards and detail pages.
+
+        Aggregates that need other tables (ratings, chapter counts, period
+        views) are filled in by ``catalogue_service.enrich``.
+        """
+
+        authors = [a for a in (self.authors or []) if isinstance(a, str) and a]
+        artists = [a for a in (self.artists or []) if isinstance(a, str) and a]
+        interval_hours = self.check_interval_hours
+        if interval_hours and interval_hours % 24 == 0:
+            interval_value, interval_unit = interval_hours // 24, "days"
+        elif interval_hours:
+            interval_value, interval_unit = interval_hours, "hours"
+        else:
+            interval_value, interval_unit = None, None
+        views = int(self.views or 0)
+        cover = build_cdn_url(self.cover_image)
+        return {
+            "author": ", ".join(authors) or None,
+            "artist": ", ".join(artists) or None,
+            "alt_titles": self.alternative_titles or [],
+            "mangaupdates_url": self.mangaupdates_url,
+            "is_hot": bool(self.is_hot),
+            "views": views,
+            "views_formatted": format_count(views),
+            "country": {"manga": "JP", "manhwa": "KR", "manhua": "CN"}.get(
+                self.type or "manga", "JP"
+            ),
+            "banner_image": cover,
+            "auto_scrape_enabled": (
+                bool(self.auto_scrape_enabled)
+                if self.auto_scrape_enabled is not None
+                else True
+            ),
+            "scrape_frequency": scrape_frequency_label(interval_hours),
+            "scrape_interval_value": interval_value,
+            "scrape_interval_unit": interval_unit,
+            "next_scrape_at": (
+                self.next_check_at.isoformat()
+                if self.next_check_at and self.auto_scrape_enabled is not False
+                else None
+            ),
+            "last_scraped_at": (
+                self.last_scraped.isoformat() if self.last_scraped else None
+            ),
         }
 
 
@@ -184,6 +282,10 @@ class Chapter(Base):
     # by one (1G.2.3); this makes partial ingestion resumable and visible.
     ingestion_status = Column(
         String(16), nullable=False, default="queued", server_default="queued"
+    )
+    views = Column(Integer, nullable=False, default=0, server_default="0")
+    created_at = Column(
+        DateTime, nullable=True, default=datetime.utcnow, server_default=func.now()
     )
 
     manga = relationship("Manga", lazy="selectin", back_populates="chapters")
@@ -208,15 +310,20 @@ class Chapter(Base):
             pages = [raw_pages]
         else:
             pages = []
+        released = self.created_at or self.scraped_at
+        number = chapter_number_value(self.chapter_number)
         return {
             "id": self.id,
             "manga_id": self.manga_id,
-            "chapter_number": (
-                str(self.chapter_number) if self.chapter_number is not None else None
-            ),
+            "chapter_number": number,
             "chapter_title": self.chapter_title,
+            "title": self.chapter_title or (
+                f"Chapter {number}" if number is not None else None
+            ),
             "chapter_url": self.chapter_url,
             "scraped_at": self.scraped_at.isoformat() if self.scraped_at else None,
+            "release_date": released.isoformat() if released else None,
+            "views": int(self.views or 0),
             "pages": pages,
             "ingestion_status": self.ingestion_status or "queued",
         }

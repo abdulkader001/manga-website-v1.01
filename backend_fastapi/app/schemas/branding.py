@@ -17,6 +17,9 @@ class BrandingUpdateRequest(BaseModel):
 
     logo: Optional[Any] = None
     socialLinks: Optional[Any] = None
+    name: Optional[str] = None
+    tagline: Optional[str] = None
+    logo_url: Optional[str] = None
 
 
 class FooterUpdateRequest(BaseModel):
@@ -26,3 +29,6 @@ class FooterUpdateRequest(BaseModel):
     terms: Optional[str] = None
     privacy: Optional[str] = None
     socials: Optional[Any] = None
+    copyright: Optional[str] = None
+    disclaimer: Optional[str] = None
+    social_links: Optional[Any] = None

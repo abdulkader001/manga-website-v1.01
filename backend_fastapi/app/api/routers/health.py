@@ -94,7 +94,24 @@ async def get_health(db: Session = Depends(get_db)) -> dict[str, object]:
     db_ok = _database_ok(db)
 
     status = "ok" if all(env_checks.values()) and db_ok else "degraded"
+    from .site_admin import health_extras
+
+    extras = health_extras(db) if db_ok else {}
+    services = [
+        {
+            "name": "Database",
+            "status": "healthy" if db_ok else "down",
+            "explanation": "Primary PostgreSQL database." if db_ok else "Database unreachable.",
+        },
+        {
+            "name": "Configuration",
+            "status": "healthy" if all(env_checks.values()) else "degraded",
+            "explanation": "; ".join(warnings) or "All required settings present.",
+        },
+    ]
     return {
+        **extras,
+        "services": services,
         "status": status,
         "db": "ok" if db_ok else "error",
         "cpu_percent": cpu_percent,

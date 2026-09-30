@@ -59,10 +59,16 @@ def test_image_ships_the_hardened_site_config(dockerfile: str) -> None:
     assert not (REPO_ROOT / "nginx" / "conf.d" / "default.conf").exists()
 
 
-def test_inline_runtime_chunk_is_disabled(dockerfile: str) -> None:
-    """Required by the CSP: `script-src 'self'` forbids CRA's inline runtime."""
+def test_vite_build_emits_no_inline_script(dockerfile: str) -> None:
+    """Required by the CSP: `script-src 'self'` forbids inline scripts.
 
-    assert re.search(r"^ENV INLINE_RUNTIME_CHUNK=false", dockerfile, re.MULTILINE)
+    Vite (unlike CRA's inline webpack runtime) emits only `<script src>` tags;
+    the image must build with it and CI asserts the result stays that way.
+    """
+
+    assert re.search(r"^RUN npm run build", dockerfile, re.MULTILINE)
+    ci = (REPO_ROOT / ".github" / "workflows" / "ci.yml").read_text()
+    assert "index.html carries no inline script" in ci
 
 
 @pytest.mark.parametrize(

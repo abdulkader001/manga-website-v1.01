@@ -18,19 +18,16 @@ logger = structlog.get_logger(__name__)
 
 
 def _invalidate_manga_caches_best_effort() -> None:
-    """Item 34: drop cached manga list/detail pages after a write (scrape)."""
+    """Item 34: drop cached manga list/detail pages after a write (scrape).
 
-    try:
-        import redis as _redis
+    The cache lives in the app's Redis (``REDIS_URL``), which is not
+    necessarily the same database as the Celery broker, so invalidating through
+    the broker connection would silently miss it.
+    """
 
-        from ..utils.cache_invalidation import invalidate_all_manga_caches
+    from ..utils.cache_invalidation import invalidate_manga_caches_sync
 
-        broker = celery_app.conf.broker_url or ""
-        if broker.startswith(("redis://", "rediss://")):
-            client = _redis.Redis.from_url(broker)
-            invalidate_all_manga_caches(client)
-    except Exception:  # never let cache invalidation break a scrape
-        logger.warning("manga_cache_invalidation_failed")
+    invalidate_manga_caches_sync()
 
 
 @contextmanager
@@ -557,3 +554,36 @@ def run_scheduled_chapter_checks() -> Dict[str, Any]:
             elif outcome.get("status") == "failed":
                 results["failed"] += 1
         return results
+
+
+@celery_app.task(
+    name="backend_fastapi.app.tasks.scraper_tasks.run_source_task",
+    time_limit=300,
+    soft_time_limit=270,
+)
+def run_source_task(task_id: str) -> Dict[str, Any]:
+    """Run an admin preview / custom-parser request off the API process. The
+    admin page polls the ``admin_task_results`` row for the outcome."""
+
+    from ..models import AdminTaskResult, User
+    from ..scrapers import source_pipeline
+
+    with _session_scope() as session:
+        row = session.get(AdminTaskResult, task_id)
+        if row is None:
+            return {"status": "missing"}
+        row.status = "running"
+        session.commit()
+        actor = session.get(User, row.requested_by) if row.requested_by else None
+        try:
+            result = source_pipeline.run_task(session, row.kind, row.payload or {}, actor)
+            row.status = "done"
+        except Exception as exc:  # the admin sees the failure, the worker keeps going
+            logger.exception("source_task_failed", task_id=task_id)
+            session.rollback()
+            row = session.get(AdminTaskResult, task_id)
+            result = {"ok": False, "message": f"The task failed: {str(exc)[:300]}"}
+            row.status = "failed"
+        row.result = result
+        session.commit()
+        return {"status": row.status}

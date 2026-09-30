@@ -26,6 +26,7 @@ EXPECTED_ORDER = [
     "LegacyApiAliasDeprecationMiddleware",
     "LoggingMiddleware",
     "GZipMiddleware",
+    "MaintenanceModeMiddleware",
     "CSRFMiddleware",
     "RateLimitMiddleware",
 ]

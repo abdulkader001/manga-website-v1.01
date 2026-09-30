@@ -76,29 +76,42 @@ def _find_series_links(
 
 
 def _test_series_selectors(html: str, selectors: Dict[str, str]) -> Dict[str, Any]:
+    from ..scrapers import parsing
+
     soup = _soup(html)
-    title_el = soup.select_one(selectors.get("manga_title", "")) if selectors else None
-    chapter_els = soup.select(selectors.get("chapter_list", "")) if selectors else []
+    selectors = selectors or {}
+    title_el = parsing.select_one(soup, selectors.get("manga_title"))
+    chapter_els = parsing.select(soup, selectors.get("chapter_list"))
     chapter_urls: List[str] = []
     for el in chapter_els:
-        a = el.select_one(selectors.get("chapter_url", "a") or "a")
-        if a is not None and a.get("href"):
-            chapter_urls.append(a["href"])
+        a = parsing.select_one(el, selectors.get("chapter_url", "a") or "a")
+        if a is None and getattr(el, "name", None) == "a":
+            a = el
+        href = a.get("href") if a is not None else None
+        if href:
+            chapter_urls.append(href)
+    title = parsing.text_of(title_el) if title_el is not None else ""
     return {
-        "title": title_el.text.strip() if title_el else None,
+        "title": title or None,
         "chapter_count": len(chapter_els),
         "chapter_urls": chapter_urls,
-        "passed": bool(title_el is not None and title_el.text.strip() and chapter_urls),
+        "passed": bool(title and chapter_urls),
     }
 
 
 def _test_chapter_selectors(html: str, selectors: Dict[str, str]) -> Dict[str, Any]:
+    from ..scrapers import parsing
+    from ..scrapers.base_scraper import BaseScraper
+
     soup = _soup(html)
-    selector = (selectors or {}).get("page_images", "")
-    images = soup.select(selector) if selector else []
-    srcs = [t.get("src") or t.get("data-src") for t in images]
-    srcs = [s for s in srcs if s]
-    return {"image_count": len(srcs), "passed": len(srcs) > 0}
+    selectors = selectors or {}
+    scraper = BaseScraper.__new__(BaseScraper)  # no DB/config lookup for a probe
+    scraper.domain = "probe.invalid"
+    scraper.config = selectors
+    images = scraper._extract_page_images(
+        soup, selectors.get("page_images"), "https://probe.invalid/", selectors
+    )
+    return {"image_count": len(images), "passed": len(images) > 0}
 
 
 def generate_and_test(

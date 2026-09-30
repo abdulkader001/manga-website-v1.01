@@ -70,6 +70,43 @@ AD_PLACEMENTS: List[Dict[str, str]] = [
         "scope": "browse",
         "description": "Below the browse results grid.",
     },
+    # Placements offered by the visual Ads Manager canvas.
+    {
+        "key": "homepage_middle",
+        "label": "Homepage — Middle Banner",
+        "scope": "homepage",
+        "description": "Between the homepage content sections.",
+    },
+    {
+        "key": "reader_sidebar",
+        "label": "Chapter reader — Sidebar",
+        "scope": "chapter",
+        "description": "Beside the chapter pages in the reader.",
+    },
+    {
+        "key": "reader_between_pages",
+        "label": "Chapter reader — Between pages",
+        "scope": "chapter",
+        "description": "Between chapter page images.",
+    },
+    {
+        "key": "manga_detail_header",
+        "label": "Manga detail — Header",
+        "scope": "manga_detail",
+        "description": "Below the series header on the detail page.",
+    },
+    {
+        "key": "manga_detail_sidebar",
+        "label": "Manga detail — Sidebar",
+        "scope": "manga_detail",
+        "description": "Beside the chapter list on the detail page.",
+    },
+    {
+        "key": "browse_grid",
+        "label": "Browse — In-grid sponsor",
+        "scope": "browse",
+        "description": "Inside the browse results grid.",
+    },
 ]
 
 PLACEMENT_KEYS = frozenset(item["key"] for item in AD_PLACEMENTS)

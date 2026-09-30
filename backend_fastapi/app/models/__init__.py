@@ -89,3 +89,14 @@ from .settings import (
     AdminPromotionToken as AdminPromotionToken,
     AdminAuditLog as AdminAuditLog,
 )
+
+# Reader engagement: ratings, likes, broken-chapter reports, announcements,
+# per-day view counters
+from .engagement import (
+    MangaRating as MangaRating,
+    ChapterLike as ChapterLike,
+    ChapterReport as ChapterReport,
+    Announcement as Announcement,
+    MangaDailyView as MangaDailyView,
+    AdminTaskResult as AdminTaskResult,
+)

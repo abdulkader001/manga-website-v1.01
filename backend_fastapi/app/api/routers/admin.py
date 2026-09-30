@@ -57,6 +57,7 @@ from ...models import (
     User,
 )
 from ...services import ads_config_service
+from ...services.permissions_service import has_permission
 from ...services.ocr_service import OCRServiceEngineError
 from ...services.provider_config import (
     ProviderConfigError,
@@ -136,20 +137,20 @@ logger = structlog.get_logger("backend_fastapi.admin")
 
 @router.get(
     "/settings",
-    response_model=AdminSettingsResponse,
     dependencies=[Depends(require_admin_user)],
 )
-def get_admin_settings() -> AdminSettingsResponse:
-    """Expose runtime feature toggles that depend on environment flags."""
+def get_admin_settings(db: Session = Depends(get_db)) -> Dict[str, Any]:
+    """Runtime feature toggles plus the editable site settings and branding."""
 
-    return AdminSettingsResponse(
-        root={
-            "ALLOW_USER_OCR_API": bool_env("ALLOW_USER_OCR_API", default=False),
-            "ALLOW_USER_TRANSLATION_API": bool_env(
-                "ALLOW_USER_TRANSLATION_API", default=False
-            ),
-        }
-    )
+    from .site_admin import site_settings_payload
+
+    return {
+        "ALLOW_USER_OCR_API": bool_env("ALLOW_USER_OCR_API", default=False),
+        "ALLOW_USER_TRANSLATION_API": bool_env(
+            "ALLOW_USER_TRANSLATION_API", default=False
+        ),
+        **site_settings_payload(db),
+    }
 
 
 def _provider_registry_state(request: Request) -> ProviderRegistryState:
@@ -387,6 +388,122 @@ def update_system_provider(
     return {"status": "ok", "providers": state.to_public_payload()["providers"]}
 
 
+class ScraperAiConfigPayload(BaseModel):
+    apiKey: Optional[str] = Field(default=None, max_length=400)
+    model: Optional[str] = Field(default=None, max_length=120)
+    endpointUrl: Optional[str] = Field(default=None, max_length=500)
+    enabled: bool = True
+
+
+def _mask_secret_value(secret: Optional[str]) -> str:
+    if not secret:
+        return ""
+    if len(secret) <= 10:
+        return "••••••••"
+    return f"{secret[:4]}••••••••{secret[-4:]}"
+
+
+@router.get("/scraper/ai-config", dependencies=[Depends(require_main_admin_user)])
+def get_scraper_ai_config(request: Request, db: Session = Depends(get_db)) -> Dict[str, Any]:
+    """The dedicated scraper-generation AI as the Series page edits it. The
+    key is never sent back in full -- only a masked form."""
+
+    record = (
+        db.query(ProviderCredentials)
+        .filter_by(provider_name="scraper_ai", is_system=True)
+        .one_or_none()
+    )
+    if record is None:
+        return {"configured": False, "enabled": False, "apiKey": "", "model": "", "endpointUrl": ""}
+    vault = getattr(request.app.state, "integration_key_vault", None)
+    decrypt = getattr(vault, "decrypt", None)
+    secret = None
+    if record.api_key:
+        try:
+            secret = decrypt(record.api_key) if callable(decrypt) else record.api_key
+        except Exception:
+            secret = None
+    config = record.config or {}
+    return {
+        "configured": bool(record.api_key),
+        "enabled": bool(record.enabled),
+        "provider": config.get("provider_id") or record.provider,
+        "model": config.get("model") or "",
+        "endpointUrl": config.get("api_url") or "",
+        "apiKey": _mask_secret_value(secret),
+    }
+
+
+@router.post("/scraper/ai-config", dependencies=[Depends(require_main_admin_user)])
+def save_scraper_ai_config(
+    request: Request,
+    payload: ScraperAiConfigPayload,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_main_admin_user),
+) -> Dict[str, Any]:
+    from ...services import scraper_ai_service
+    from ...services.url_guard import validate_remote_image_url
+
+    record = (
+        db.query(ProviderCredentials)
+        .filter_by(provider_name="scraper_ai", is_system=True)
+        .one_or_none()
+    )
+    vault = getattr(request.app.state, "integration_key_vault", None)
+    encrypt = getattr(vault, "encrypt", None)
+    decrypt = getattr(vault, "decrypt", None)
+
+    supplied = (payload.apiKey or "").strip()
+    keep_existing = (not supplied or "•" in supplied) and record is not None and bool(record.api_key)
+    if keep_existing:
+        plain_key = decrypt(record.api_key) if callable(decrypt) else record.api_key
+    else:
+        plain_key = supplied
+    if not plain_key:
+        raise ApiError(ErrorCode.VALIDATION_FAILED, "Paste the AI provider's API key.", field="apiKey")
+
+    try:
+        built = scraper_ai_service.build_provider_config(
+            plain_key, payload.model, payload.endpointUrl
+        )
+    except ValueError as exc:
+        raise ApiError(ErrorCode.VALIDATION_FAILED, str(exc), field="endpointUrl")
+    if built["provider_id"] != "anthropic":
+        problem = validate_remote_image_url(built["api_url"])
+        if problem:
+            raise ApiError(
+                ErrorCode.VALIDATION_FAILED,
+                f"That endpoint is not allowed: {problem}.",
+                field="endpointUrl",
+            )
+
+    stored_key = encrypt(plain_key) if callable(encrypt) else plain_key
+    if record is None:
+        record = ProviderCredentials(
+            provider_name="scraper_ai", provider=built["provider_id"], is_system=True, api_key=stored_key
+        )
+        db.add(record)
+    record.provider = built["provider_id"]
+    record.api_key = stored_key
+    record.config = {k: v for k, v in built.items() if k != "provider_id"} | {
+        "provider_id": built["provider_id"]
+    }
+    record.enabled = bool(payload.enabled)
+    db.commit()
+    _refresh_provider_registry(request)
+    log_admin_action(db, request, current_user, "SCRAPER_AI_CONFIG", "provider", "scraper_ai", "success")
+
+    test = scraper_ai_service.test_connection()
+    if test.get("ok"):
+        message = f"Scraper AI saved and verified ({built['provider_id']}, model {built['model'] or 'default'})."
+    else:
+        message = (
+            "Scraper AI saved, but the connection test failed: "
+            f"{test.get('error') or 'no response'}. Check the key, model and endpoint."
+        )
+    return {"success": bool(test.get("ok")), "saved": True, "message": message}
+
+
 @router.post(
     "/system-providers/scraper-ai/test",
     dependencies=[Depends(require_main_admin_user)],
@@ -498,6 +615,20 @@ class SeriesUrlPayload(BaseModel):
         description="Optional provider hint forwarded from the client",
         max_length=100,
     )
+    # Series-management form (all optional; a bare {"url": ...} still works).
+    mangaupdates_url: Optional[str] = Field(default=None, max_length=500)
+    base_url: Optional[str] = Field(default=None, max_length=500)
+    source_url: Optional[str] = Field(default=None, max_length=1000)
+    title: Optional[str] = Field(default=None, max_length=300)
+    type: Optional[str] = Field(default=None, max_length=16)
+    scrape_frequency: Optional[str] = Field(default=None, max_length=32)
+    scrape_interval_value: Optional[int] = Field(default=None, ge=1, le=720)
+    scrape_interval_unit: Optional[str] = Field(default=None, max_length=8)
+    auto_scrape_enabled: Optional[bool] = None
+    chapters_to_scrape: Optional[int] = Field(default=None, ge=1, le=20000)
+    custom_description: Optional[str] = Field(default=None, max_length=5000)
+    custom_cover_image: Optional[str] = Field(default=None, max_length=1000)
+    author: Optional[str] = Field(default=None, max_length=300)
 
 
 class ApprovedDomainPayload(BaseModel):
@@ -1407,10 +1538,9 @@ def set_series_takedown(
     # -- but the cached payload itself would still reflect the pre-takedown
     # state to any admin bypassing the gate, and to every viewer once the
     # gate is satisfied again (e.g. a later "restore" action).
-    from ...utils.cache_invalidation import invalidate_manga_detail_cache
+    from ...utils.cache_invalidation import invalidate_manga_caches_sync
 
-    redis_client = getattr(request.app.state, "redis", None)
-    invalidate_manga_detail_cache(redis_client, manga_id)
+    invalidate_manga_caches_sync(manga_id)
 
     return resolve_series_rights(db, manga)
 
@@ -1835,30 +1965,35 @@ async def create_series_by_url(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> Dict[str, Any]:
-    """Queue a background job to scrape a new series by URL."""
+    """Queue a background job that ingests a series: metadata from
+    MangaUpdates (when a link is given) plus every chapter from the source."""
     await async_endpoint_limiter.check_limit(
         request, f"create_series:{current_user.id}", limit=20, window_seconds=3600
     )
-    url = _parse_series_url(payload.url)
+    url = _parse_series_url(payload.source_url or payload.url or payload.base_url or "")
     provider = _normalise_provider(payload.provider)
 
-    # Move logic to service
     from ...services.manga_service import schedule_series_scrape
     from ...utils.bounded_threadpool import run_in_db_threadpool
 
+    submitter_id = current_user.id
+    can_approve = has_permission(db, current_user, "approve_website")
+
+    def _sync_schedule():
+        from backend_fastapi.app.core.db import SessionLocal
+        from ...services import series_import
+
+        with SessionLocal() as db_session:
+            actor = db_session.get(User, submitter_id)
+            return series_import.queue_series_import(
+                db_session, actor, url, payload, can_approve=can_approve
+            )
+
     try:
-        submitter_id = current_user.id
-
-        def _sync_schedule():
-            from backend_fastapi.app.core.db import SessionLocal
-
-            with SessionLocal() as db_session:
-                return schedule_series_scrape(db_session, url, added_by=submitter_id)
-
         job = await run_in_db_threadpool(_sync_schedule)
     except ApiError:
         # Structured domain errors (unapproved website, duplicate URL, host
-        # forbidden) render via the global handler as the standard envelope.
+        # forbidden, no parser) render via the global handler.
         raise
     except Exception as exc:
         logger.exception("Failed to schedule series scrape", extra={"url": url})
@@ -1868,7 +2003,7 @@ async def create_series_by_url(
         ) from exc
 
     response: Dict[str, Any] = {
-        "message": "series_scrape_scheduled",
+        "message": job.pop("message", "series_scrape_scheduled"),
         "job": job,
         "source_url": url,
     }
@@ -2743,4 +2878,6 @@ def rescrape_chapter(
         chapter_id=chapter_id,
         delete_previous=payload.delete_previous,
         result=result,
+        message=result.get("message")
+        or "Re-scrape queued. The chapter's pages will refresh shortly.",
     )

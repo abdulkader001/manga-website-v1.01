@@ -5,9 +5,7 @@ import time
 
 from ..core.celery_app import celery_app
 from ..core.db import SessionLocal
-from ..services.manga_service import get_manga_list, normalize_multi
-from ..models import Manga, Chapter
-from sqlalchemy import cast, Text, func
+from ..services import catalogue_service
 
 
 @celery_app.task(
@@ -40,50 +38,19 @@ def refresh_manga_list_cache(
 
     db = SessionLocal()
     try:
-        include_genres = normalize_multi(include)
-        exclude_genres = normalize_multi(exclude)
-        if genre and genre not in include_genres:
-            include_genres.insert(0, genre)
-
-        items, total, query = get_manga_list(
+        data = catalogue_service.build_list_payload(
             db,
-            q,
-            type_,
-            status_filter,
-            include_genres,
-            exclude_genres,
-            sort,
-            page,
-            per_page,
+            q=q,
+            type_=type_,
+            status_filter=status_filter,
+            genre=genre,
+            include=include,
+            exclude=exclude,
+            sort=sort,
+            page=page,
+            per_page=per_page,
+            secret_phrase_used=secret_phrase_used,
         )
-
-        genres_column = cast(Manga.genres, Text).label("genres_text")
-        raw_genres = (
-            db.query(genres_column).filter(Manga.genres.isnot(None)).distinct().all()
-        )
-        genre_set = set()
-        for row in raw_genres:
-            genres_text = getattr(row, "genres_text", None)
-            if not genres_text:
-                continue
-            try:
-                parsed = json.loads(genres_text)
-                if isinstance(parsed, list):
-                    for entry in parsed:
-                        if isinstance(entry, str):
-                            genre_set.add(entry)
-            except Exception:
-                pass
-
-        data = {
-            "items": [m.to_dict() for m in items],
-            "total": total,
-            "page": page,
-            "per_page": per_page,
-            "genres": sorted(genre_set),
-            "cache_hit": False,
-            "secret_phrase_used": secret_phrase_used,
-        }
 
         payload = {"data": data, "_expires_at": time.time() + ttl}
         redis_client.setex(cache_key, 86400, json.dumps(payload))
@@ -106,17 +73,9 @@ def refresh_manga_detail_cache(cache_key: str, ttl: int, manga_id: int):
 
     db = SessionLocal()
     try:
-        manga = db.query(Manga).filter(Manga.id == manga_id).first()
-        if manga is None:
+        data = catalogue_service.build_detail_payload(db, manga_id)
+        if data is None:
             return
-        chapters_count = (
-            db.query(func.count(Chapter.id))
-            .filter(Chapter.manga_id == manga_id)
-            .scalar()
-            or 0
-        )
-        data = manga.to_dict()
-        data["chapters_count"] = int(chapters_count)
 
         payload = {"data": data, "_expires_at": time.time() + ttl}
         redis_client.setex(cache_key, 86400, json.dumps(payload))
@@ -133,40 +92,15 @@ def refresh_manga_detail_cache(cache_key: str, ttl: int, manga_id: int):
 def refresh_manga_chapters_cache(cache_key: str, ttl: int, manga_id: int, order: str):
     from redis import Redis
     from ..core.settings import get_settings
-    from datetime import datetime
 
     settings = get_settings()
     redis_client = Redis.from_url(settings.redis_url or settings.celery_broker_url)
 
     db = SessionLocal()
     try:
-        manga = db.query(Manga).filter(Manga.id == manga_id).first()
-        if manga is None:
+        data = catalogue_service.build_chapter_list_payload(db, manga_id, order)
+        if data is None:
             return
-
-        query = db.query(Chapter).filter(Chapter.manga_id == manga.id)
-        if order.lower() == "asc":
-            query = query.order_by(Chapter.chapter_number.asc())
-        else:
-            query = query.order_by(Chapter.chapter_number.desc())
-        chapters = query.all()
-
-        data = []
-        for chapter in chapters:
-            created_at = getattr(chapter, "created_at", None)
-            if isinstance(created_at, datetime):
-                created_at_value = created_at.isoformat()
-            else:
-                created_at_value = created_at
-            data.append(
-                {
-                    "id": chapter.id,
-                    "number": str(chapter.chapter_number),
-                    "title": chapter.chapter_title,
-                    "url": chapter.chapter_url,
-                    "created_at": created_at_value,
-                }
-            )
 
         payload = {"data": data, "_expires_at": time.time() + ttl}
         redis_client.setex(cache_key, 86400, json.dumps(payload))

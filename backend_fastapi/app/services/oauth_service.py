@@ -91,6 +91,11 @@ def ensure_google_user(db: Session, profile: dict[str, Any]) -> User:
     # flag-for-review default. It is flagged for review below instead.
     if user is None and is_disposable_domain(email):
         raise OAuthUserError("disposable_email")
+    if user is None:
+        from .site_content_service import registration_open
+
+        if not registration_open(db):
+            raise OAuthUserError("registration_closed")
 
     created = False
     if user is None:
@@ -106,15 +111,19 @@ def ensure_google_user(db: Session, profile: dict[str, Any]) -> User:
         if user.provider != "google":
             user.provider = "google"
 
+    # Once the reader has completed their profile, their chosen name and
+    # avatar win over whatever the provider sends on later sign-ins.
+    profile_locked = bool(getattr(user, "profile_completed", False))
     name = profile.get("name") or profile.get("given_name")
-    if name:
+    if name and not profile_locked:
         clean_name = strip_all_html(name)
         if user.name != clean_name:
             user.name = clean_name
 
     picture = profile.get("picture")
-    if picture and user.profile_image != picture:
-        user.profile_image = picture
+    if picture and not (profile_locked and user.profile_image):
+        if user.profile_image != picture:
+            user.profile_image = picture
 
     if email_is_verified and not getattr(user, "email_verified", False):
         from .auth_service import mark_email_verified

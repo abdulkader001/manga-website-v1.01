@@ -1,5 +1,6 @@
 """Application routers."""
 
+from .account import router as account_router
 from .admin import router as admin_router
 from .ad_slots import router as ad_slots_router
 from .ads import router as ads_router
@@ -22,6 +23,10 @@ from .system_stats import router as system_stats_router
 from .notifications import router as notifications_router
 from .ocr import router as ocr_router
 from .processing import router as processing_router
+from .reader import router as reader_router
+from .scraper_admin import router as scraper_admin_router
+from .seo import router as seo_router
+from .site_admin import router as site_admin_router
 from .provider_management import router as provider_management_router
 from .system_state import router as system_state_router
 from .tasks import router as tasks_router
@@ -29,6 +34,11 @@ from .translation import router as translation_router
 from .user_settings import router as user_settings_router
 
 __all__ = [
+    "account_router",
+    "reader_router",
+    "scraper_admin_router",
+    "seo_router",
+    "site_admin_router",
     "admin_router",
     "ad_slots_router",
     "ads_router",

@@ -136,6 +136,65 @@ def apply_genre_filters(
     return query
 
 
+_PERIOD_SORTS = {"views_today": 1, "views_week": 7, "views_month": 30}
+
+
+def _apply_sort(db: Session, query, sort: str):
+    """Order the catalogue. Unknown values fall back to ``latest``."""
+
+    from datetime import datetime, timedelta
+
+    from ..models import Chapter, MangaDailyView, MangaRating
+
+    if sort in _PERIOD_SORTS:
+        since = datetime.utcnow().date() - timedelta(days=_PERIOD_SORTS[sort] - 1)
+        period = (
+            db.query(
+                MangaDailyView.manga_id.label("manga_id"),
+                func.sum(MangaDailyView.views).label("period_views"),
+            )
+            .filter(MangaDailyView.day >= since)
+            .group_by(MangaDailyView.manga_id)
+            .subquery()
+        )
+        return query.outerjoin(period, period.c.manga_id == Manga.id).order_by(
+            func.coalesce(period.c.period_views, 0).desc(), Manga.views.desc(), Manga.id
+        )
+    if sort in {"popular", "views"}:
+        return query.order_by(Manga.views.desc(), Manga.popularity.desc().nullslast(), Manga.id)
+    if sort == "rating":
+        ratings = (
+            db.query(
+                MangaRating.manga_id.label("manga_id"),
+                func.avg(MangaRating.score).label("avg_score"),
+            )
+            .group_by(MangaRating.manga_id)
+            .subquery()
+        )
+        return query.outerjoin(ratings, ratings.c.manga_id == Manga.id).order_by(
+            func.coalesce(ratings.c.avg_score, 0).desc(), Manga.id
+        )
+    if sort in {"az", "title"}:
+        return query.order_by(func.lower(Manga.title).asc(), Manga.id)
+    if sort == "chapters":
+        counts = (
+            db.query(
+                Chapter.manga_id.label("manga_id"),
+                func.count(Chapter.id).label("chapter_count"),
+            )
+            .group_by(Chapter.manga_id)
+            .subquery()
+        )
+        return query.outerjoin(counts, counts.c.manga_id == Manga.id).order_by(
+            func.coalesce(counts.c.chapter_count, 0).desc(), Manga.id
+        )
+    if sort == "new":
+        return query.order_by(Manga.created_at.desc(), Manga.id.desc())
+    if sort == "random":
+        return query.order_by(func.random())
+    return query.order_by(Manga.updated_at.desc().nullslast(), Manga.id.desc())
+
+
 def get_manga_list(
     db: Session,
     q: Optional[str],
@@ -150,7 +209,15 @@ def get_manga_list(
     query = db.query(Manga)
 
     if q:
-        query = query.filter(Manga.title.ilike(f"%{q}%"))
+        term = q.strip()
+        query = query.filter(
+            or_(
+                Manga.title.icontains(term, autoescape=True),
+                Manga.original_title.icontains(term, autoescape=True),
+                cast(Manga.alternative_titles, Text).icontains(term, autoescape=True),
+                cast(Manga.authors, Text).icontains(term, autoescape=True),
+            )
+        )
     if type_:
         query = query.filter(Manga.type == type_)
     if status_filter:
@@ -164,14 +231,7 @@ def get_manga_list(
     count_query = query.order_by(None).with_entities(func.count(Manga.id))
     total = int(count_query.scalar() or 0)
 
-    if sort == "latest":
-        query = query.order_by(Manga.updated_at.desc())
-    elif sort == "new":
-        query = query.order_by(Manga.created_at.desc())
-    elif sort == "views":
-        query = query.order_by(Manga.popularity.desc().nullslast())
-    elif sort == "random":
-        query = query.order_by(func.random())
+    query = _apply_sort(db, query, sort)
 
     offset = (page - 1) * per_page
     items = query.offset(offset).limit(per_page).all()
@@ -205,7 +265,9 @@ def _url_dedupe_variants(url: str) -> list[str]:
     return list(dict.fromkeys(variants))
 
 
-def schedule_series_scrape(db_session, url: str, *, added_by: int = None) -> dict:
+def schedule_series_scrape(
+    db_session, url: str, *, added_by: int = None, options: Optional[dict] = None
+) -> dict:
     from ..models import Manga, ScrapingJob
     from .universal_scraper import scrape_series_by_url
 
@@ -268,7 +330,9 @@ def schedule_series_scrape(db_session, url: str, *, added_by: int = None) -> dic
         )
 
     # Use existing helper to queue
-    return scrape_series_by_url(url, db_session=db_session, added_by=added_by)
+    return scrape_series_by_url(
+        url, db_session=db_session, added_by=added_by, options=options
+    )
 
 
 def ingestion_progress(db_session, manga: "Manga") -> dict:

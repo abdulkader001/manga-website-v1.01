@@ -20,6 +20,7 @@ from ..utils.client_ip import resolve_client_ip
 from ..utils.rate_limiter import RateLimitMiddleware
 from ..utils.structured_logging import bind_request_context, clear_request_context
 from ..utils.csrf_middleware import CSRFMiddleware
+from ..services.maintenance import MaintenanceModeMiddleware
 from .backpressure import BackpressureMiddleware
 from .metrics import add_prometheus_middleware
 from .timeout import TimeoutMiddleware
@@ -142,6 +143,9 @@ class LegacyApiAliasDeprecationMiddleware(BaseHTTPMiddleware):
         "/health",
         "/healthz",
         "/metrics",
+        "/sitemap.xml",
+        "/rss.xml",
+        "/feed.xml",
     )
 
     async def dispatch(self, request: Request, call_next):  # type: ignore[override]
@@ -314,7 +318,7 @@ def configure_middleware(app: FastAPI, settings) -> list[str]:
 
         CORS -> SecurityHeaders -> Prometheus -> ForwardedHeaders ->
         HTTPSRedirect -> Timeout -> Backpressure -> LegacyAlias -> Logging ->
-        GZip -> CSRF -> RateLimit -> router
+        GZip -> MaintenanceMode -> CSRF -> RateLimit -> router
 
     Starlette's ``add_middleware`` *prepends*, so the registration calls below
     run in exactly the reverse of that list -- read them bottom-up.
@@ -365,6 +369,7 @@ def configure_middleware(app: FastAPI, settings) -> list[str]:
         )
 
     app.add_middleware(CSRFMiddleware)
+    app.add_middleware(MaintenanceModeMiddleware)
     app.add_middleware(GZipMiddleware)
     app.add_middleware(LoggingMiddleware)
     app.add_middleware(LegacyApiAliasDeprecationMiddleware)

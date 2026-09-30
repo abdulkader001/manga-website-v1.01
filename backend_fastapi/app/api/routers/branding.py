@@ -24,6 +24,8 @@ from fastapi.responses import FileResponse
 from PIL import Image
 from sqlalchemy.orm import Session
 
+from ...utils.sanitizer import strip_all_html
+
 from ...core.db import get_db
 from ...dependencies.auth import require_admin_user
 from ...models import FooterSettings, Setting, User
@@ -42,7 +44,13 @@ logger = structlog.get_logger("backend_fastapi.routers.branding")
 router = APIRouter(tags=["branding"])
 
 _BRANDING_SETTING_KEY = "branding"
-_DEFAULT_BRANDING: Dict[str, Any] = {"logo": "", "socialLinks": {}}
+_DEFAULT_BRANDING: Dict[str, Any] = {
+    "logo": "",
+    "logo_url": "",
+    "socialLinks": {},
+    "name": "",
+    "tagline": "",
+}
 
 _SAFE_FILENAME_RE = re.compile(r"[^A-Za-z0-9_.-]+")
 _BRANDING_PUBLIC_PREFIX = "/branding/assets/"
@@ -79,17 +87,43 @@ def _load_branding(db: Session) -> Dict[str, Any]:
         }
     else:
         sanitized = {}
-    return {"logo": logo, "socialLinks": sanitized}
+    name = payload.get("name") if isinstance(payload.get("name"), str) else ""
+    tagline = payload.get("tagline") if isinstance(payload.get("tagline"), str) else ""
+    return {
+        "logo": logo,
+        "logo_url": logo,
+        "socialLinks": sanitized,
+        "name": name,
+        "tagline": tagline,
+    }
+
+
+def _clean_logo(value: Any) -> str:
+    """A logo is an https URL, a same-site path, or a short emoji/text mark."""
+
+    if not isinstance(value, str):
+        return ""
+    value = value.strip()
+    if value.startswith(("https://", "http://", "/")):
+        return value[:500] if not value.startswith("//") else ""
+    if ":" in value or len(value) > 8:
+        return ""
+    return strip_all_html(value)
 
 
 def _store_branding(db: Session, payload: Dict[str, Any]) -> Dict[str, Any]:
     branding = _load_branding(db)
 
-    logo = payload.get("logo")
+    logo = payload.get("logo_url") if payload.get("logo_url") is not None else payload.get("logo")
     social_links = payload.get("socialLinks")
 
     if logo is not None:
-        branding["logo"] = logo if isinstance(logo, str) else ""
+        branding["logo"] = _clean_logo(logo)
+    branding.pop("logo_url", None)
+    for key, limit in (("name", 60), ("tagline", 160)):
+        value = payload.get(key)
+        if isinstance(value, str):
+            branding[key] = strip_all_html(value).strip()[:limit]
 
     if social_links is not None:
         sanitized: Dict[str, str] = {}
@@ -114,7 +148,7 @@ def _store_branding(db: Session, payload: Dict[str, Any]) -> Dict[str, Any]:
     else:
         record.value = json.dumps(branding)
     db.commit()
-    return branding
+    return _load_branding(db)
 
 
 def _branding_settings_dir(settings: Any | None) -> str | None:
@@ -447,10 +481,19 @@ def _footer_to_dict(settings: FooterSettings | None) -> Dict[str, Any]:
 
 @router.get("/footer")
 def get_footer(db: Session = Depends(get_db)) -> Dict[str, Any]:
-    """Return footer content and social links."""
+    """Return footer content, social links and the public brand identity."""
+
+    from ...services import site_content_service as content
 
     settings = db.query(FooterSettings).first()
-    return _footer_to_dict(settings)
+    payload = _footer_to_dict(settings)
+    branding = _load_branding(db)
+    payload.update(content.get_footer_text(db))
+    payload["social_links"] = content.get_social_links(db)
+    payload["site_name"] = branding.get("name") or ""
+    payload["tagline"] = branding.get("tagline") or ""
+    payload["logo_url"] = branding.get("logo") or ""
+    return payload
 
 
 @router.put("/footer")
@@ -460,25 +503,27 @@ def update_footer(
     db: Session = Depends(get_db),
     _: User = Depends(require_admin_user),
 ) -> Dict[str, Any]:
-    """Update footer copy, links, and socials."""
+    """Update footer copy, links, and socials. Only fields present in the
+    request change; omitting ``social_links`` never clears them."""
+
+    from ...services import site_content_service as content
 
     settings = db.query(FooterSettings).first()
     if not settings:
-        settings = FooterSettings()
+        settings = FooterSettings(contact="", terms="", privacy="", socials=[])
         db.add(settings)
 
     data = payload.model_dump(exclude_unset=True)
-    settings.contact = data.get("contact") or ""
-    settings.terms = data.get("terms") or ""
-    settings.privacy = data.get("privacy") or ""
-    socials_payload = data.get("socials")
-    if isinstance(socials_payload, list):
-        sanitized = [item for item in socials_payload if isinstance(item, dict)]
-    else:
-        sanitized = []
-    settings.socials = sanitized
-
+    for field in ("contact", "terms", "privacy"):
+        if field in data:
+            setattr(settings, field, strip_all_html(data.get(field) or "")[:5000])
+    content.set_footer_text(
+        db, copyright=data.get("copyright"), disclaimer=data.get("disclaimer")
+    )
     db.commit()
-    db.refresh(settings)
 
-    return {"message": "Footer updated", "footer": _footer_to_dict(settings)}
+    links = data.get("social_links", data.get("socials"))
+    if isinstance(links, list):
+        content.replace_social_links(db, links)
+
+    return {"message": "Footer updated", "footer": get_footer(db)}

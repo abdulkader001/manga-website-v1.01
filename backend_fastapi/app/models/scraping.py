@@ -126,6 +126,10 @@ class ScrapingJob(Base):
     # them get the completion notification, not just the first clicker.
     subscribers = Column(JSON, nullable=True)
     last_chapter_number = Column(String, nullable=True)
+    # What the submitter asked for beyond the URL: MangaUpdates metadata, the
+    # series type, schedule, and a cap on how many chapters to ingest. Applied
+    # when the series record is created (after extraction succeeded).
+    options = Column(JSON, nullable=True)
     created_at = Column(DateTime, server_default=func.now())
 
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())

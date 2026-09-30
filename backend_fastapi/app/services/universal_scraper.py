@@ -21,7 +21,9 @@ def _close_if_needed(session, provided: Optional[object]) -> None:
         session.close()
 
 
-def scrape_series_by_url(url: str, db_session=None, added_by=None) -> Dict[str, object]:
+def scrape_series_by_url(
+    url: str, db_session=None, added_by=None, options: Optional[Dict[str, object]] = None
+) -> Dict[str, object]:
     """Create a scraping job for ``url`` to preserve legacy admin actions.
 
     F-19: raises ``ApiError`` rather than a bare ``ValueError`` -- this
@@ -51,7 +53,12 @@ def scrape_series_by_url(url: str, db_session=None, added_by=None) -> Dict[str, 
                 details={"url": norm_url},
             )
 
-        job = ScrapingJob(source_url=norm_url, status="queued", requested_by=added_by)
+        job = ScrapingJob(
+            source_url=norm_url,
+            status="queued",
+            requested_by=added_by,
+            options=options or None,
+        )
         session.add(job)
         session.flush()
         session.commit()

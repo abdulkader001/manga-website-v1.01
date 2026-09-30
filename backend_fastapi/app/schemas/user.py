@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
@@ -66,6 +66,12 @@ class UserRead(UserBase):
     created_at: datetime
     updated_at: datetime | None = None
     email_masked: str | None = None
+    birth_date: date | None = None
+    age: int | None = None
+    is_under_18: bool = False
+    gender: str | None = None
+    profile_completed: bool = False
+    has_password: bool = False
 
 
 class UserInDB(UserRead):

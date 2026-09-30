@@ -187,6 +187,7 @@ def test_ai_fallback_routes_through_scraper_ai_only():
         "services/scraper_ai_service.py",  # the service itself
         "services/parser_generation_service.py",  # parser generation/repair
         "scrapers/ai_fallback.py",  # parser generation/repair
+        "scrapers/source_pipeline.py",  # parser generation for a new website
         "api/routers/admin.py",  # the PA Test action + generation trigger
     }
     assert set(consumers) <= allowed, f"Unexpected scraper-AI consumers: {consumers}"

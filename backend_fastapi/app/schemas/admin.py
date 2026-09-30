@@ -82,6 +82,7 @@ class RescrapeResponse(BaseModel):
     manga_id: Optional[int] = None
     chapter_id: Optional[int] = None
     delete_previous: Optional[bool] = None
+    message: Optional[str] = None
 
 
 class AdminUsersResponse(BaseModel):
