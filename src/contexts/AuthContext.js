@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from "react";
-import api from "../services/api";
+import api, { setSessionActive } from "../services/api";
 
 const AuthContext = createContext(null);
 
@@ -10,13 +10,17 @@ export function AuthProvider({ children }) {
   const fetchUser = useCallback(async () => {
     try {
       const data = await api.auth.me();
-      if (data && data.user) {
-        setUser(data.user);
+      const profile = data && data.user ? data.user : data;
+      if (profile && profile.id) {
+        setUser(profile);
+        setSessionActive(true);
       } else {
         setUser(null);
+        setSessionActive(false);
       }
     } catch (err) {
       setUser(null);
+      setSessionActive(false);
     } finally {
       setIsLoading(false);
     }
@@ -41,7 +45,13 @@ export function AuthProvider({ children }) {
     }
   }, []);
 
-  const isAdmin = !!(user && (user.role === "admin" || user.is_main_admin));
+  const isAdmin = !!(
+    user &&
+    (user.role === "admin" ||
+      user.role === "permanent_admin" ||
+      user.is_main_admin ||
+      user.permanent)
+  );
   const isSecondaryAdmin = !!(user && (user.role === "secondary_admin" || user.is_secondary_admin));
   const username = user?.username || user?.name || (user?.email ? user.email.split("@")[0] : "Reader");
   const name = user?.name || username;

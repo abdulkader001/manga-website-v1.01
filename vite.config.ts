@@ -15,6 +15,11 @@ export default defineConfig({
     },
     react(),
   ],
+  optimizeDeps: {
+    esbuildOptions: {
+      loader: { '.js': 'jsx' },
+    },
+  },
   worker: {
     format: 'es',
   },
@@ -27,6 +32,6 @@ export default defineConfig({
   },
   build: {
     outDir: 'dist',
-    sourcemap: true,
+    sourcemap: process.env.GENERATE_SOURCEMAP !== 'false',
   },
 });

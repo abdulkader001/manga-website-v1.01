@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import api from "../services/api";
+import api, { apiFetch } from "../services/api";
 import useAuth from "../hooks/useAuth";
 
 export default function Login() {
@@ -44,7 +44,7 @@ export default function Login() {
     setLoading(true);
     setError("");
     try {
-      const res = await fetch("/api/v1/auth/login-password", {
+      const res = await apiFetch("/api/v1/auth/login-password", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email: email.trim(), password }),

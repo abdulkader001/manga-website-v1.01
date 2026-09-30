@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState, useEffect } from "react";
+import { apiFetch } from "../services/api";
 
 const AdsContext = createContext({});
 
@@ -18,7 +19,7 @@ export default function AdSection({ sectionKey, className = "", fallback = null 
 
   useEffect(() => {
     let isMounted = true;
-    fetch("/api/v1/ad-slots")
+    apiFetch("/api/v1/ad-slots")
       .then((res) => (res.ok ? res.json() : []))
       .then((slots) => {
         if (!isMounted || !Array.isArray(slots)) return;

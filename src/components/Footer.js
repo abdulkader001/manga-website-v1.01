@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import api from "../services/api";
+import api, { apiFetch } from "../services/api";
 import { updateFavicon } from "../utils/favicon";
 
 const PRESET_LOGOS = [
@@ -147,7 +147,7 @@ export default function Footer() {
     setEditBrandModalOpen(false);
 
     try {
-      await fetch("/api/v1/branding", {
+      await apiFetch("/api/v1/branding", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name: finalName, logo_url: finalLogo, tagline: finalTagline }),

@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import { Link } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import useAuth from "../../hooks/useAuth";
+import { apiFetch } from "../../services/api";
 
 export default function ChapterReports() {
   const { user } = useAuth();
@@ -14,7 +15,7 @@ export default function ChapterReports() {
   const { data: reportsData, isLoading, refetch } = useQuery({
     queryKey: ["chapterReportsAdmin", filterStatus],
     queryFn: async () => {
-      const res = await fetch(`/api/v1/reports/chapters?status=${filterStatus}`);
+      const res = await apiFetch(`/api/v1/reports/chapters?status=${filterStatus}`);
       if (!res.ok) throw new Error("Failed to load chapter reports");
       return res.json();
     },
@@ -25,7 +26,7 @@ export default function ChapterReports() {
   const rescrapeSingleMutation = useMutation({
     mutationFn: async (reportId) => {
       setRescrapingId(reportId);
-      const res = await fetch(`/api/v1/admin/reports/${reportId}/rescrape-single`, {
+      const res = await apiFetch(`/api/v1/admin/reports/${reportId}/rescrape-single`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
       });
@@ -54,7 +55,7 @@ export default function ChapterReports() {
   // Resolve Report Mutation
   const resolveMutation = useMutation({
     mutationFn: async (reportId) => {
-      const res = await fetch(`/api/v1/reports/${reportId}/resolve`, {
+      const res = await apiFetch(`/api/v1/reports/${reportId}/resolve`, {
         method: "POST",
       });
       if (!res.ok) throw new Error("Failed to resolve report");
@@ -72,7 +73,7 @@ export default function ChapterReports() {
   // Delete Report Mutation
   const deleteMutation = useMutation({
     mutationFn: async (reportId) => {
-      const res = await fetch(`/api/v1/reports/${reportId}`, {
+      const res = await apiFetch(`/api/v1/reports/${reportId}`, {
         method: "DELETE",
       });
       if (!res.ok) throw new Error("Failed to delete report");

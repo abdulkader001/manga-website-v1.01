@@ -6,6 +6,7 @@ import CONFIG from "../config";
 import useAuth from "../hooks/useAuth";
 import { updateFavicon } from "../utils/favicon";
 import { maskEmail } from "../utils/maskEmail";
+import { apiFetch } from "../services/api";
 
 const PRESET_LOGOS = [
   { icon: "🦎", name: "Gecko / Lizard" },
@@ -124,7 +125,7 @@ export default function Navbar() {
     setBrandingModalOpen(false);
 
     try {
-      await fetch("/api/v1/branding", {
+      await apiFetch("/api/v1/branding", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name: finalName, logo_url: finalLogo }),

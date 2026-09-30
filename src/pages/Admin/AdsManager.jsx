@@ -1,7 +1,7 @@
 import React, { useState, useRef, useMemo } from "react";
 import { Link } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import api from "../../services/api";
+import api, { apiFetch } from "../../services/api";
 
 const PREVIEW_PAGES = [
   { id: "homepage", label: "Homepage", defaultPlacement: "homepage_top" },
@@ -45,7 +45,7 @@ export default function AdsManager() {
     queryKey: ["globalNetworksList"],
     queryFn: async () => {
       try {
-        const res = await fetch("/api/v1/ads/global-networks");
+        const res = await apiFetch("/api/v1/ads/global-networks");
         return res.ok ? await res.json() : [];
       } catch {
         return [];
@@ -88,7 +88,7 @@ export default function AdsManager() {
   // Global Network Mutations
   const createNetworkMutation = useMutation({
     mutationFn: async (payload) => {
-      const res = await fetch("/api/v1/ads/global-networks", {
+      const res = await apiFetch("/api/v1/ads/global-networks", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
@@ -106,7 +106,7 @@ export default function AdsManager() {
 
   const deleteNetworkMutation = useMutation({
     mutationFn: async (id) => {
-      const res = await fetch(`/api/v1/ads/global-networks/${id}`, { method: "DELETE" });
+      const res = await apiFetch(`/api/v1/ads/global-networks/${id}`, { method: "DELETE" });
       return res.json();
     },
     onSuccess: () => {
@@ -117,7 +117,7 @@ export default function AdsManager() {
 
   const toggleNetworkMutation = useMutation({
     mutationFn: async ({ id, enabled }) => {
-      const res = await fetch(`/api/v1/ads/global-networks/${id}`, {
+      const res = await apiFetch(`/api/v1/ads/global-networks/${id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ enabled }),

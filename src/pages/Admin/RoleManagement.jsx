@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import api from "../../services/api";
+import api, { apiFetch } from "../../services/api";
 import useAuth from "../../hooks/useAuth";
 import { maskEmail } from "../../utils/maskEmail";
 
@@ -143,7 +143,7 @@ export default function RoleManagement() {
   // Fetch active permissions for selected sub-admin
   const { data: userPermsData, isLoading: loadingPerms } = useQuery({
     queryKey: ["userPermissions", selectedUserId],
-    queryFn: () => fetch(`/api/v1/admin/users/${selectedUserId}/permissions`).then((r) => r.json()),
+    queryFn: () => apiFetch(`/api/v1/admin/users/${selectedUserId}/permissions`).then((r) => r.json()),
     enabled: isMainAdmin && !!selectedUserId,
   });
 
@@ -154,7 +154,7 @@ export default function RoleManagement() {
   // Update permissions mutation with instant optimistic feedback
   const updatePermsMutation = useMutation({
     mutationFn: async ({ userId, overrides }) => {
-      const res = await fetch(`/api/v1/admin/users/${userId}/permissions`, {
+      const res = await apiFetch(`/api/v1/admin/users/${userId}/permissions`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ overrides }),

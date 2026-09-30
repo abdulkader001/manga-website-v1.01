@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useState, useMemo } from "react";
 import { Link } from "react-router-dom";
-import api from "../services/api";
+import api, { apiFetch } from "../services/api";
 import AdPlacement from "./AdPlacement";
 import AdSection from "./GlobalAds";
 import useAuth from "../hooks/useAuth";
@@ -165,7 +165,7 @@ export default function Homepage() {
 
   // Load announcements from server if available
   useEffect(() => {
-    fetch("/api/v1/announcements")
+    apiFetch("/api/v1/announcements")
       .then((res) => (res.ok ? res.json() : null))
       .then((data) => {
         if (data?.announcements && Array.isArray(data.announcements)) {
@@ -261,7 +261,7 @@ export default function Homepage() {
     }
 
     try {
-      await fetch("/api/v1/admin/broadcast", {
+      await apiFetch("/api/v1/admin/broadcast", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -287,7 +287,7 @@ export default function Homepage() {
   const handleDeleteNotice = async (id) => {
     setNotifications((prev) => prev.filter((n) => n.id !== id));
     try {
-      await fetch(`/api/v1/admin/announcements/${id}`, { method: "DELETE" });
+      await apiFetch(`/api/v1/admin/announcements/${id}`, { method: "DELETE" });
     } catch (err) {}
   };
 

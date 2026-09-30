@@ -14,7 +14,7 @@ import {
 import { resetUsage } from "../utils/translationUsage";
 import useAccountSync from "./accountSync";
 import useAuth from "../hooks/useAuth";
-import api from "../services/api";
+import api, { apiFetch } from "../services/api";
 import OverlayFontPicker from "../components/OverlayFontPicker";
 
 const TARGET_LANGUAGES: Array<{ value: string; label: string }> = [
@@ -133,7 +133,7 @@ function ProfileIdentitySection() {
     setCheckingUsername(true);
     const timeout = setTimeout(async () => {
       try {
-        const res = await fetch(`/api/v1/auth/check-username?username=${encodeURIComponent(clean)}`);
+        const res = await apiFetch(`/api/v1/auth/check-username?username=${encodeURIComponent(clean)}`);
         const data = await res.json();
         setUsernameStatus(data);
       } catch {
@@ -445,7 +445,7 @@ function ProviderSection({ kind, title, subtitle }: SectionConfig) {
     setTesting(true);
     setTestResult(null);
     try {
-      const res = await fetch("/api/v1/admin/api-registry/test-connection", {
+      const res = await apiFetch("/api/v1/admin/api-registry/test-connection", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

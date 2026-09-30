@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from "react";
-import api from "../services/api";
+import { apiFetch } from "../services/api";
 
 export default function ReaderOverlay({
   imageUrl,
   language = "en",
   chapterId,
+  pageIndex,
   mangaId,
   translatable = true,
   onLimitReached,
@@ -36,75 +37,64 @@ export default function ReaderOverlay({
     return () => window.removeEventListener("reader-font-scale-change", handleScaleChange);
   }, []);
 
-  // Fetch or simulate OCR detection + multi-step translation for this image
+  // Real OCR + translation for this page (server-side, cached per page/language).
   useEffect(() => {
     let isMounted = true;
-    if (!imageUrl) return;
+    setBoxes([]);
+    if (!imageUrl || !chapterId || pageIndex === undefined || pageIndex === null || !translatable) {
+      return undefined;
+    }
 
     setLoading(true);
 
-    // Retrieve user's configured AI or OCR credentials from localStorage if present
-    const userSettingsRaw = localStorage.getItem("app_settings_v1");
-    let userAiConfig = null;
-    let userOcrConfig = null;
-
-    if (userSettingsRaw) {
-      try {
-        const parsed = JSON.parse(userSettingsRaw);
-        if (parsed?.state?.ai?.apiKey || parsed?.state?.ai?.apiUrl) {
-          userAiConfig = parsed.state.ai;
-        }
-        if (parsed?.state?.ocr?.apiKey || parsed?.state?.ocr?.apiUrl) {
-          userOcrConfig = parsed.state.ocr;
-        }
-      } catch (e) {}
-    }
-
-    // Call OCR / translation pipeline
-    api.post("/translate/pipeline", {
-      text: "今すぐ逃げろ！奴が来る！ (Run away now! He's coming!)",
-      target_language: language,
-      user_ai_config: userAiConfig,
-      user_ocr_config: userOcrConfig,
-    })
-      .then((res) => {
-        if (!isMounted) return;
-        // Generate sample speech bubbles calibrated to standard page layout
-        const sampleBoxes = [
-          {
-            id: 1,
-            x: 0.18,
-            y: 0.14,
-            w: 0.38,
-            h: 0.11,
-            original: "今すぐ逃げろ！",
-            translated: language === "ja" ? "今すぐ逃げろ！" : "Run away now! He's coming!",
-          },
-          {
-            id: 2,
-            x: 0.52,
-            y: 0.58,
-            w: 0.36,
-            h: 0.1,
-            original: "何が起きたんだ？",
-            translated: language === "ja" ? "何が起きたんだ？" : "What just happened here?",
-          },
-        ];
-        setBoxes(sampleBoxes);
-      })
-      .catch((err) => {
-        if (onLimitReached && err?.response?.status === 429) {
-          onLimitReached(err);
-        }
-      })
-      .finally(() => {
-        if (isMounted) setLoading(false);
+    const naturalSize = () =>
+      new Promise((resolve) => {
+        const probe = new Image();
+        probe.referrerPolicy = "no-referrer";
+        probe.onload = () => resolve({ w: probe.naturalWidth, h: probe.naturalHeight });
+        probe.onerror = () => resolve(null);
+        probe.src = imageUrl;
       });
+
+    (async () => {
+      try {
+        const [res, size] = await Promise.all([
+          apiFetch(
+            `/processing/chapter/${encodeURIComponent(chapterId)}/page/${pageIndex}?target=${encodeURIComponent(language)}`
+          ),
+          naturalSize(),
+        ]);
+        if (!isMounted) return;
+        if (res.status === 429 && onLimitReached) {
+          onLimitReached(res);
+          return;
+        }
+        if (!res.ok || !size || !size.w || !size.h) return;
+        const data = await res.json();
+        if (!isMounted) return;
+        const found = (data.regions || [])
+          .filter((r) => r.coordinates && String(r.text || "").trim())
+          .map((r, i) => ({
+            id: r.index ?? i,
+            x: r.coordinates.x / size.w,
+            y: r.coordinates.y / size.h,
+            w: r.coordinates.width / size.w,
+            h: r.coordinates.height / size.h,
+            original: r.source_text || "",
+            translated: r.text,
+          }));
+        setBoxes(found);
+      } catch {
+        // Overlay is optional: the page itself is already readable.
+      } finally {
+        if (isMounted) setLoading(false);
+      }
+    })();
 
     return () => {
       isMounted = false;
     };
-  }, [imageUrl, language]);
+  }, [imageUrl, language, chapterId, pageIndex, translatable]);
 
   if (!boxes.length) return null;
 

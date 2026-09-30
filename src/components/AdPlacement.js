@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { auditUrlSecurity } from "../utils/urlValidator";
+import { apiFetch } from "../services/api";
 
 export default function AdPlacement({ placement, className = "" }) {
   const [ad, setAd] = useState(null);
@@ -20,7 +21,7 @@ export default function AdPlacement({ placement, className = "" }) {
 
   useEffect(() => {
     let isMounted = true;
-    fetch("/api/v1/ad-slots")
+    apiFetch("/api/v1/ad-slots")
       .then((res) => (res.ok ? res.json() : []))
       .then((slots) => {
         if (!isMounted || !Array.isArray(slots)) return;
