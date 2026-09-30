@@ -436,6 +436,8 @@ const api = {
       remove: (id) => api.del(`/admin/series/${id}`),
       rescrape: (id) => api.post(`/admin/series/${id}/rescrape`),
       updateSchedule: (id, schedule) => api.post(`/admin/series/${id}/schedule`, schedule),
+      mirrorImages: (id) => api.post(`/admin/series/${id}/mirror-images`),
+      updateLayout: (id, layout) => api.post(`/admin/series/${id}/layout`, layout),
       batchSchedule: (mangaIds, schedule) => api.post("/admin/series/batch-schedule", { manga_ids: mangaIds, ...schedule }),
     },
     rescrapeChapter: (chapterId, { delete_previous = false } = {}) =>

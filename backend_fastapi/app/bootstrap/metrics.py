@@ -44,6 +44,14 @@ if _PROM_AVAILABLE:
         "HTTP request latency in seconds",
         ["method", "path"],
     )
+    # Roadmap item 9: which legacy route aliases are still called. Labelled by
+    # route template (bounded cardinality), so /metrics shows exactly which
+    # old paths are in use before either alias mount is removed.
+    LEGACY_ALIAS_REQUESTS = Counter(
+        "legacy_api_alias_requests_total",
+        "Requests served through a legacy (non /api/v1) route alias",
+        ["alias", "route"],
+    )
     REQUESTS_IN_PROGRESS = Gauge(
         "http_requests_in_progress",
         "In-flight HTTP requests",
@@ -55,6 +63,11 @@ def _route_template(request: Request) -> str:
     route = request.scope.get("route")
     path = getattr(route, "path", None)
     return path or request.url.path
+
+
+def record_legacy_alias(alias: str, request: Request) -> None:
+    if _PROM_AVAILABLE:
+        LEGACY_ALIAS_REQUESTS.labels(alias=alias, route=_route_template(request)).inc()
 
 
 class PrometheusMiddleware(BaseHTTPMiddleware):
