@@ -10,8 +10,8 @@ python "${SCRIPT_DIR}/wait_for_services.py"
 
 : "${CELERY_CONCURRENCY:=8}"
 
-# Optional per-queue binding. Tasks are routed to named queues (scrape/ocr/
-# translation/email/maintenance — see celery_app task_routes); set CELERY_QUEUES
+# Optional per-queue binding. Tasks are routed to named queues (scrape/compress/
+# ocr/translation/email/maintenance — see celery_app task_routes); set CELERY_QUEUES
 # to consume a specific subset so one busy job type can't starve the others. When
 # unset the worker consumes only the default queue, which would strand routed
 # tasks, so callers that rely on the routed queues must set this (the scale

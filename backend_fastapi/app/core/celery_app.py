@@ -164,6 +164,14 @@ celery_app.conf.worker_prefetch_multiplier = 1
 from .workload_priority import priority_for  # noqa: E402
 
 celery_app.conf.task_routes = {
+    # Roadmap item 7: downloading and WebP-compressing chapter pictures is the
+    # heaviest scraper job. It has its own queue (and worker service) so a big
+    # import cannot delay new-chapter checks on the scrape queue. Exact task
+    # names win over the glob below.
+    "backend_fastapi.app.tasks.scraper_tasks.mirror_chapter_pages": {
+        "queue": "compress",
+        "priority": priority_for("backend_fastapi.app.tasks.scraper_tasks"),
+    },
     "backend_fastapi.app.tasks.scraper_tasks.*": {
         "queue": "scrape",
         "priority": priority_for("backend_fastapi.app.tasks.scraper_tasks"),

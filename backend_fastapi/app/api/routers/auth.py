@@ -59,6 +59,22 @@ from ...utils.client_ip import resolve_client_ip
 from ...utils.endpoint_limiter import async_endpoint_limiter
 
 
+async def _limit_login_attempts(request: Request) -> None:
+    """Per-source-IP cap on the OAuth login entry points (roadmap item 6).
+
+    The magic-link endpoints carry their own limits; this covers Google login
+    and its callbacks, which had none beyond the generic middleware limit.
+    nginx applies a coarser per-IP limit in front of the same paths.
+    """
+
+    await async_endpoint_limiter.check_limit(
+        request,
+        f"login_source:{resolve_client_ip(request)}",
+        limit=30,
+        window_seconds=600,
+    )
+
+
 def _bearer_token(request: Request) -> str | None:
     """Return the bearer token when a non-browser client sends one."""
 
@@ -460,7 +476,7 @@ def auth_options() -> dict[str, Any]:
     return response
 
 
-@router.get("/google")
+@router.get("/google", dependencies=[Depends(_limit_login_attempts)])
 def google_login(request: Request) -> RedirectResponse:
     """Redirect the user to Google's OAuth 2.0 authorisation endpoint."""
 
@@ -543,7 +559,11 @@ def _handle_google_callback(
     return redirect
 
 
-@router.get("/google/callback", name=GOOGLE_CALLBACK_ROUTE_NAME)
+@router.get(
+    "/google/callback",
+    name=GOOGLE_CALLBACK_ROUTE_NAME,
+    dependencies=[Depends(_limit_login_attempts)],
+)
 def google_callback(
     request: Request,
     code: str | None = Query(None),
@@ -556,7 +576,11 @@ def google_callback(
     return _handle_google_callback(request, code=code, state=state, error=error, db=db)
 
 
-@router.get("/callback", name="google_callback_legacy")
+@router.get(
+    "/callback",
+    name="google_callback_legacy",
+    dependencies=[Depends(_limit_login_attempts)],
+)
 def google_callback_legacy(
     request: Request,
     code: str | None = Query(None),

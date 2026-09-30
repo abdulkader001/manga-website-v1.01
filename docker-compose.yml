@@ -292,6 +292,15 @@ services:
       CELERY_QUEUES: scrape
       CELERY_CONCURRENCY: 1
 
+  # Picture download + WebP compression (roadmap item 7): its own worker so a
+  # large import cannot hold up the scrape queue's new-chapter checks.
+  celery_worker_compress:
+    <<: *celery-worker
+    environment:
+      <<: *celery-worker-env
+      CELERY_QUEUES: compress
+      CELERY_CONCURRENCY: 1
+
   celery_worker_ocr:
     <<: *celery-worker
     environment:
