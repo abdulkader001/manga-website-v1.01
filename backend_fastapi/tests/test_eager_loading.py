@@ -19,7 +19,6 @@ USER_LAZY_SELECT_RELATIONSHIPS = {
     "complaints",
     "audit_logs",
     "api_keys",
-    "custom_tabs",
     "comments",
     "issued_promotion_tokens",
     "assigned_promotion_tokens",
