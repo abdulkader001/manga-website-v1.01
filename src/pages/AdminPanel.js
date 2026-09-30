@@ -225,6 +225,13 @@ export default function AdminPanel() {
               <i className="fas fa-stethoscope"></i>
               <span>Open Full Self-Diagnostics Suite</span>
             </Link>
+            <Link
+              to="/admin/security"
+              className="px-4 py-1.5 rounded-xl text-xs font-bold bg-[#101216] border border-[#262a33] hover:border-[#00AEF0] text-white transition flex items-center gap-1.5"
+            >
+              <i className="fas fa-shield-halved"></i>
+              <span>Two-step sign-in</span>
+            </Link>
           </div>
 
           {/* Explanatory Services Diagnostic List */}

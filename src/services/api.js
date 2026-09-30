@@ -187,6 +187,16 @@ async function request(path, { method = "GET", body, headers = {}, params, signa
     err.body = data;
     err.code = data && typeof data === "object" ? data.error?.code : undefined;
 
+    // Roadmap item 15: the admin step-up ran out (or was never done). Tell the
+    // admin gate so it asks for a code instead of showing a raw error.
+    if (
+      res.status === 403 &&
+      err.code === "REVERIFICATION_REQUIRED" &&
+      typeof window !== "undefined"
+    ) {
+      window.dispatchEvent(new Event("admin-step-up-required"));
+    }
+
     if (res.status === 401 && !isSessionCheckPath(p) && (sessionActive || method !== "GET")) {
       handleSessionExpired();
     }

@@ -3,6 +3,7 @@ from datetime import datetime
 
 from sqlalchemy import (
     Column,
+    BigInteger,
     Integer,
     String,
     Boolean,
@@ -143,6 +144,16 @@ class User(Base):
     # the user's own logout-everywhere action and by an administrator
     # exercising the revoke_user_sessions permission. NULL means never revoked.
     sessions_revoked_before = Column(DateTime, nullable=True)
+
+    # Admin second factor (roadmap item 15): a TOTP secret, encrypted at rest
+    # like OAuth tokens. ``totp_enabled`` only turns true after the user proved
+    # they can produce a code. ``totp_last_step`` is the last accepted 30 s
+    # step, so one code cannot be used twice.
+    totp_secret_encrypted = Column("totp_secret", Text, nullable=True)
+    totp_enabled = Column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
+    totp_last_step = Column(BigInteger, nullable=True)
 
     username = Column(String(150), nullable=True)
     name = Column(String(150), nullable=True)

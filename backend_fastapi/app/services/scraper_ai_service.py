@@ -13,7 +13,6 @@ generation path (``scrapers.ai_fallback``) and its admin Test action.
 
 from __future__ import annotations
 
-import os
 from typing import Any, Dict, Optional
 
 import structlog
@@ -52,13 +51,10 @@ def honest_failure_report(domain: str) -> Dict[str, Any]:
 
 
 def _vault():
-    secret = os.getenv("INTEGRATIONS_SECRET")
-    if not secret:
-        return None
     try:
         from .integration_key_vault import IntegrationKeyVault
 
-        return IntegrationKeyVault.from_secret(secret)
+        return IntegrationKeyVault.from_env()
     except Exception:  # pragma: no cover - defensive
         return None
 

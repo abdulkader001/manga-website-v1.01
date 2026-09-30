@@ -15,6 +15,7 @@ from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from ..utils.crypto_utils import allow_plaintext_fallback, ensure_encrypted_env_loaded
+from ..utils.email_crypto import split_email_keys
 
 _PROJECT_ROOT = Path(__file__).resolve().parents[2]
 _ENV_PATH = _PROJECT_ROOT / ".env"
@@ -96,6 +97,9 @@ class Settings(BaseSettings):
     # first-time bootstrap, then turned off again.
     main_admin_email_hash: str | None = None
     main_admin_auto_promote_enabled: bool = False
+    # Roadmap item 15: main admins must enrol a second factor (TOTP) before
+    # they can use admin routes. Off by default so nobody is locked out.
+    admin_2fa_required: bool = False
 
     # Email
     email_backend: str | None = None
@@ -275,6 +279,20 @@ class Settings(BaseSettings):
                 "enabled for local dev) — refusing to store plaintext emails."
             )
 
+        # Roadmap item 16: with several keys configured (a rotation in
+        # progress), the lookup hashes must not depend on which key is first.
+        # Require an explicit EMAIL_HASH_SECRET outside local dev.
+        if (
+            not allow_plaintext_fallback()
+            and len(split_email_keys(self.email_encryption_key)) > 1
+            and not (os.getenv("EMAIL_HASH_SECRET") or "").strip()
+        ):
+            raise ValueError(
+                "EMAIL_ENCRYPTION_KEY holds several keys (key rotation) but "
+                "EMAIL_HASH_SECRET is not set. Pin EMAIL_HASH_SECRET to the "
+                "original key first, or every email lookup would stop matching."
+            )
+
         # M5 / Blind Spot #10: enforce schema-drift checks by default in
         # staging/production so drift fails fast at boot. Explicit configuration
         # via ALEMBIC_CHECK_ON_STARTUP always wins.
@@ -334,13 +352,20 @@ class Settings(BaseSettings):
         if value in (None, ""):
             return value
 
-        try:
-            key_bytes = value.encode("utf-8") if isinstance(value, str) else value
-            Fernet(key_bytes)
-        except Exception as exc:  # pragma: no cover - defensive branch
-            raise ValueError(
-                "EMAIL_ENCRYPTION_KEY must be 32 url-safe base64 bytes"
-            ) from exc
+        # Key rotation: several comma-separated keys are allowed, newest first.
+        from ..utils.email_crypto import split_email_keys
+
+        keys = split_email_keys(value)
+        if not keys:
+            raise ValueError("EMAIL_ENCRYPTION_KEY must be 32 url-safe base64 bytes")
+        for key_bytes in keys:
+            try:
+                Fernet(key_bytes)
+            except Exception as exc:  # pragma: no cover - defensive branch
+                raise ValueError(
+                    "EMAIL_ENCRYPTION_KEY must be 32 url-safe base64 bytes "
+                    "(several keys may be separated by commas)"
+                ) from exc
         return value
 
     @field_validator(
