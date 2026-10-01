@@ -248,7 +248,7 @@ def test_chapter_scrape_failure_marks_status_and_keeps_pages():
 def test_ingestion_progress_endpoint(fastapi_client):
     session = SessionLocal()
     try:
-        mod_id = _user(session, UserRole.MODERATOR)
+        mod_id = _user(session, UserRole.SECONDARY)
         manga = Manga(
             title="Progress Series",
             source_url=f"https://prog-{uuid.uuid4().hex[:6]}.com/manga/p",
@@ -291,7 +291,7 @@ def test_scraping_job_records_submitter(fastapi_client):
     and the completion notification (1G.2.2) know who to credit."""
     session = SessionLocal()
     try:
-        mod_id = _user(session, UserRole.MODERATOR)
+        mod_id = _user(session, UserRole.SECONDARY)
         domain = f"sub-{uuid.uuid4().hex[:6]}.com"
         _approve(session, domain)
     finally:

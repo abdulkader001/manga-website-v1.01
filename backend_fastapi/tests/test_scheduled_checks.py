@@ -249,7 +249,7 @@ def test_admin_controls_endpoints(fastapi_client):
     session = SessionLocal()
     try:
         pa_id = _user(session, UserRole.ADMIN, main=True)
-        mod_id = _user(session, UserRole.MODERATOR)
+        mod_id = _user(session, UserRole.USER)
         domain = f"ctrl-{uuid.uuid4().hex[:6]}.com"
         entry = _approve(session, domain)
         manga = _series(session, domain)
@@ -325,7 +325,7 @@ def test_dashboard_reports_run_counts_and_per_website_visibility(fastapi_client)
 def test_series_ingestion_endpoint_shows_check_visibility(fastapi_client):
     session = SessionLocal()
     try:
-        mod_id = _user(session, UserRole.MODERATOR)
+        mod_id = _user(session, UserRole.SECONDARY)
         domain = f"iv-{uuid.uuid4().hex[:6]}.com"
         _approve(session, domain)
         manga = _series(

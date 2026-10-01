@@ -55,11 +55,11 @@ def test_apply_titular_strips_all_permissions(fastapi_client):
     session = SessionLocal()
     try:
         admin_id = _user(session, UserRole.ADMIN, main=True)
-        mod_id = _user(session, UserRole.MODERATOR)
+        mod_id = _user(session, UserRole.SECONDARY, secondary=True)
     finally:
         session.close()
 
-    # Moderator holds some defaults.
+    # A sub-admin holds some defaults.
     session = SessionLocal()
     try:
         mod = session.get(User, mod_id)
@@ -109,7 +109,7 @@ def test_create_and_apply_custom_preset(fastapi_client):
     session = SessionLocal()
     try:
         admin_id = _user(session, UserRole.ADMIN, main=True)
-        mod_id = _user(session, UserRole.MODERATOR)
+        mod_id = _user(session, UserRole.SECONDARY, secondary=True)
     finally:
         session.close()
 
@@ -146,8 +146,8 @@ def test_modified_only_filter(fastapi_client):
     session = SessionLocal()
     try:
         admin_id = _user(session, UserRole.ADMIN, main=True)
-        clean_id = _user(session, UserRole.MODERATOR)
-        modified_id = _user(session, UserRole.MODERATOR)
+        clean_id = _user(session, UserRole.SECONDARY, secondary=True)
+        modified_id = _user(session, UserRole.SECONDARY, secondary=True)
     finally:
         session.close()
 
@@ -176,7 +176,7 @@ def test_preset_endpoints_require_permanent_admin(fastapi_client):
     session = SessionLocal()
     try:
         sec_id = _user(session, UserRole.SECONDARY, secondary=True)
-        mod_id = _user(session, UserRole.MODERATOR)
+        mod_id = _user(session, UserRole.SECONDARY, secondary=True)
     finally:
         session.close()
 

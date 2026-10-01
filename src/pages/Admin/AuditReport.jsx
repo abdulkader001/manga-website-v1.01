@@ -13,15 +13,10 @@ const TIME_RANGES = [
 ];
 
 export default function AuditReport() {
-  const { user: currentUser } = useAuth();
+  const { isAdmin: isMainAdmin } = useAuth();
   const [selectedRange, setSelectedRange] = useState("1d");
   const [localSecondsRemaining, setLocalSecondsRemaining] = useState(null);
 
-  const isMainAdmin = Boolean(
-    currentUser?.is_main_admin ||
-    currentUser?.role === "admin" ||
-    currentUser?.email === "admin@mangareader.local"
-  );
 
   // Fetch audit report from backend
   const { data: reportData, isLoading, refetch } = useQuery({

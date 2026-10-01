@@ -116,7 +116,8 @@ def test_fix_dedupe_single_job_all_clickers_notified():
         assert len(jobs) == 1
         assert set(jobs[0].subscribers) == {admin_a, admin_b}
 
-        # Completion: ALL clickers are notified, not just the first.
+        # Completion is reported once, to the main admin's bell (operational
+        # notices are main-admin only), whoever clicked fix.
         rescrape_service.notify_fix_subscribers(session, chapter, success=True)
         notes = (
             session.query(Notification)
@@ -124,7 +125,7 @@ def test_fix_dedupe_single_job_all_clickers_notified():
             .all()
         )
         notified = {n.user_id for n in notes if n.data.get("chapter_id") == chapter.id}
-        assert {admin_a, admin_b} <= notified
+        assert notified == {None}
         session.refresh(jobs[0])
         assert jobs[0].status == "success"
     finally:
@@ -318,7 +319,8 @@ def test_staged_rescrape_replaces_and_preserves_history():
         completion_note = (
             session.query(Notification)
             .filter(Notification.type == "series.rescraped")
-            .filter(Notification.user_id == secondary_id)
+            # Operational notices go to the main admin's bell (user_id NULL).
+            .filter(Notification.user_id.is_(None))
             .order_by(Notification.id.desc())
             .first()
         )

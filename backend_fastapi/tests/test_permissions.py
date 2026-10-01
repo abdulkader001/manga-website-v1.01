@@ -234,21 +234,12 @@ def test_flag_only_admin_gets_matching_catalogue_permissions():
 
 
 def test_permanent_flag_without_role_is_treated_as_main_admin_everywhere():
-    """F-5: admin_service._is_main omitted the `permanent` flag that
-    dependencies.auth.is_main_admin checks, so a `permanent=True, role=USER`
-    account passed require_main_admin_user on every route but was treated as
-    a Secondary Administrator inside promote_to_moderator/demote_moderator
-    -- capped by the moderator limit and refused demoting moderators they
-    didn't personally assign, an unexplainable lockout for the one tier that
-    is supposed to have no limits. Both call sites now resolve through the
-    same effective_role used everywhere else.
-    """
+    """F-5: a ``permanent=True, role=USER`` account is the main admin for the
+    role-tier gates *and* the permission catalogue -- one resolver, no tier
+    where it is treated as anything less."""
+    from backend_fastapi.app.core.permissions import ALL_PERMISSIONS, effective_role
     from backend_fastapi.app.dependencies.auth import is_main_admin
-    from backend_fastapi.app.services.admin_service import (
-        DEFAULT_MODERATOR_LIMIT,
-        count_moderators_for,
-        promote_to_moderator,
-    )
+    from backend_fastapi.app.services.permissions_service import has_permission
 
     session = SessionLocal()
     try:
@@ -265,25 +256,41 @@ def test_permanent_flag_without_role_is_treated_as_main_admin_everywhere():
         session.refresh(permanent_flag_only)
 
         assert is_main_admin(permanent_flag_only) is True
+        assert effective_role(permanent_flag_only) == UserRole.PERMANENT
+        assert all(has_permission(session, permanent_flag_only, key) for key in ALL_PERMISSIONS)
+    finally:
+        session.close()
 
-        # Promote past DEFAULT_MODERATOR_LIMIT + 1 moderators -- a Secondary
-        # Administrator would hit MODERATOR_LIMIT_REACHED well before this;
-        # a genuine main admin must not.
-        for i in range(DEFAULT_MODERATOR_LIMIT + 1):
-            target = User(
-                email=f"modtarget-{uuid.uuid4().hex}@example.com",
-                is_active=True,
-                name=f"Mod{i}",
-                role=UserRole.USER,
-                provider="magic_link",
-            )
-            session.add(target)
-            session.commit()
-            session.refresh(target)
-            promote_to_moderator(session, target, permanent_flag_only)
 
-        assert (
-            count_moderators_for(session, permanent_flag_only.id) == 0
-        ), "a main admin's promotions must be unassigned, not counted against their own cap"
+def test_three_roles_only():
+    """A legacy moderator row is a plain user, and users can never be given
+    admin permissions through overrides."""
+    from backend_fastapi.app.core.api_errors import ApiError
+    from backend_fastapi.app.core.permissions import effective_role
+    from backend_fastapi.app.models import PermissionOverride
+    from backend_fastapi.app.services.permissions_service import has_permission, set_override
+
+    session = SessionLocal()
+    try:
+        legacy = User(
+            email=f"legacy-mod-{uuid.uuid4().hex}@example.com",
+            is_active=True,
+            role=UserRole.MODERATOR,
+            provider="magic_link",
+        )
+        plain = User(email=f"plain-{uuid.uuid4().hex}@example.com", is_active=True, provider="magic_link")
+        session.add_all([legacy, plain])
+        session.commit()
+
+        assert effective_role(legacy) == UserRole.USER
+        assert has_permission(session, legacy, "remove_comments") is False
+
+        with pytest.raises(ApiError):
+            set_override(session, plain, "edit_series", "granted", actor_id=plain.id)
+
+        # Even an override row written directly grants a user nothing.
+        session.add(PermissionOverride(user_id=plain.id, permission="edit_series", state="granted"))
+        session.commit()
+        assert has_permission(session, plain, "edit_series") is False
     finally:
         session.close()

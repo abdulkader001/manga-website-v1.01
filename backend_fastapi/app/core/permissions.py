@@ -28,67 +28,66 @@ class Group(str, Enum):
     OBSERVABILITY = "Observability"
 
 
-# key -> (group, admin_default, secondary_default, moderator_default)
-# The Permanent Administrator holds every catalogue permission by default.
-_CATALOGUE: dict[str, tuple[Group, bool, bool, bool]] = {
+# key -> (group, admin_default, sub_admin_default)
+# Three roles only: the main admin holds every catalogue permission, a
+# sub-admin holds their defaults (individually adjustable), and a regular
+# user holds none.
+_CATALOGUE: dict[str, tuple[Group, bool, bool]] = {
     # Content and series
-    "submit_manga_url": (Group.CONTENT, True, True, True),
-    "edit_series": (Group.CONTENT, True, True, True),
-    "delete_series": (Group.CONTENT, True, True, False),
-    "rescrape_chapter": (Group.CONTENT, True, True, True),
-    "rescrape_series": (Group.CONTENT, True, True, False),
-    "rollback_series": (Group.CONTENT, True, False, False),
-    "set_rights_records": (Group.CONTENT, True, True, True),
+    "submit_manga_url": (Group.CONTENT, True, True),
+    "edit_series": (Group.CONTENT, True, True),
+    "delete_series": (Group.CONTENT, True, True),
+    "rescrape_chapter": (Group.CONTENT, True, True),
+    "rescrape_series": (Group.CONTENT, True, True),
+    "rollback_series": (Group.CONTENT, True, False),
+    "set_rights_records": (Group.CONTENT, True, True),
     # Websites and scrapers
-    "view_websites": (Group.WEBSITES, True, True, True),
-    "approve_website": (Group.WEBSITES, True, False, False),
-    "modify_website": (Group.WEBSITES, True, False, False),
-    "remove_website": (Group.WEBSITES, True, False, False),
-    "trigger_scraper_ai": (Group.WEBSITES, True, False, False),
-    "approve_parser": (Group.WEBSITES, True, False, False),
-    "activate_parser": (Group.WEBSITES, True, False, False),
-    "rollback_parser": (Group.WEBSITES, True, False, False),
+    "view_websites": (Group.WEBSITES, True, True),
+    "approve_website": (Group.WEBSITES, True, False),
+    "modify_website": (Group.WEBSITES, True, False),
+    "remove_website": (Group.WEBSITES, True, False),
+    "trigger_scraper_ai": (Group.WEBSITES, True, False),
+    "approve_parser": (Group.WEBSITES, True, False),
+    "activate_parser": (Group.WEBSITES, True, False),
+    "rollback_parser": (Group.WEBSITES, True, False),
     # Providers and APIs
-    "view_providers": (Group.PROVIDERS, True, True, False),
-    "configure_ocr": (Group.PROVIDERS, True, True, False),
-    "configure_translation": (Group.PROVIDERS, True, True, False),
-    "configure_ai": (Group.PROVIDERS, True, True, False),
-    "configure_scraper_ai": (Group.PROVIDERS, True, False, False),
-    "set_provider_priority": (Group.PROVIDERS, True, True, False),
+    "view_providers": (Group.PROVIDERS, True, True),
+    "configure_ocr": (Group.PROVIDERS, True, True),
+    "configure_translation": (Group.PROVIDERS, True, True),
+    "configure_ai": (Group.PROVIDERS, True, True),
+    "configure_scraper_ai": (Group.PROVIDERS, True, False),
+    "set_provider_priority": (Group.PROVIDERS, True, True),
     # Translation quality
-    "correct_translation": (Group.TRANSLATION, True, True, True),
-    "force_regen_translation": (Group.TRANSLATION, True, True, False),
-    "review_quality_flags": (Group.TRANSLATION, True, True, True),
+    "correct_translation": (Group.TRANSLATION, True, True),
+    "force_regen_translation": (Group.TRANSLATION, True, True),
+    "review_quality_flags": (Group.TRANSLATION, True, True),
     # Community and moderation
-    "remove_comments": (Group.COMMUNITY, True, True, True),
-    "block_user": (Group.COMMUNITY, True, True, True),
-    "timeout_user": (Group.COMMUNITY, True, True, True),
-    "handle_reports": (Group.COMMUNITY, True, True, True),
-    "moderate_images": (Group.COMMUNITY, True, True, True),
+    "remove_comments": (Group.COMMUNITY, True, True),
+    "block_user": (Group.COMMUNITY, True, True),
+    "timeout_user": (Group.COMMUNITY, True, True),
+    "handle_reports": (Group.COMMUNITY, True, True),
+    "moderate_images": (Group.COMMUNITY, True, True),
     # User administration
-    "view_user_list": (Group.USER_ADMIN, True, True, False),
-    "view_user_detail": (Group.USER_ADMIN, True, True, False),
-    "suspend_account": (Group.USER_ADMIN, True, True, False),
-    "ban_account": (Group.USER_ADMIN, True, True, False),
-    "restore_account": (Group.USER_ADMIN, True, True, False),
-    "revoke_user_sessions": (Group.USER_ADMIN, True, True, False),
+    "view_user_list": (Group.USER_ADMIN, True, True),
+    "view_user_detail": (Group.USER_ADMIN, True, True),
+    "suspend_account": (Group.USER_ADMIN, True, True),
+    "ban_account": (Group.USER_ADMIN, True, True),
+    "restore_account": (Group.USER_ADMIN, True, True),
+    "revoke_user_sessions": (Group.USER_ADMIN, True, True),
     # Role management
-    "promote_moderator": (Group.ROLE_MGMT, True, True, False),
-    "demote_own_moderators": (Group.ROLE_MGMT, True, True, False),
-    "demote_any_moderator": (Group.ROLE_MGMT, True, False, False),
-    "promote_secondary": (Group.ROLE_MGMT, True, False, False),
-    "demote_secondary": (Group.ROLE_MGMT, True, False, False),
+    "promote_secondary": (Group.ROLE_MGMT, True, False),
+    "demote_secondary": (Group.ROLE_MGMT, True, False),
     # Platform configuration
-    "view_limits": (Group.PLATFORM, True, True, False),
-    "set_limits": (Group.PLATFORM, True, False, False),
-    "set_session_policy": (Group.PLATFORM, True, False, False),
-    "set_resource_policy": (Group.PLATFORM, True, False, False),
-    "configure_branding": (Group.PLATFORM, True, False, False),
+    "view_limits": (Group.PLATFORM, True, True),
+    "set_limits": (Group.PLATFORM, True, False),
+    "set_session_policy": (Group.PLATFORM, True, False),
+    "set_resource_policy": (Group.PLATFORM, True, False),
+    "configure_branding": (Group.PLATFORM, True, False),
     # Observability
-    "view_dashboard": (Group.OBSERVABILITY, True, True, True),
-    "view_scraper_health": (Group.OBSERVABILITY, True, True, False),
-    "view_scope_audit": (Group.OBSERVABILITY, True, True, False),
-    "view_full_audit": (Group.OBSERVABILITY, True, False, False),
+    "view_dashboard": (Group.OBSERVABILITY, True, True),
+    "view_scraper_health": (Group.OBSERVABILITY, True, True),
+    "view_scope_audit": (Group.OBSERVABILITY, True, True),
+    "view_full_audit": (Group.OBSERVABILITY, True, False),
 }
 
 
@@ -146,8 +145,8 @@ def effective_role(user) -> UserRole:
         return UserRole.ADMIN
     if getattr(user, "is_secondary_admin", False) or role == UserRole.SECONDARY:
         return UserRole.SECONDARY
-    if role is not None:
-        return role
+    # Three roles: anything else -- including legacy "moderator" rows -- is a
+    # regular user.
     return UserRole.USER
 
 
@@ -157,25 +156,23 @@ def role_default(key: str, role: UserRole) -> bool:
     entry = _CATALOGUE.get(key)
     if entry is None:
         return False
-    _group, admin_d, secondary_d, moderator_d = entry
+    _group, _admin_d, secondary_d = entry
     if role in (UserRole.PERMANENT, UserRole.ADMIN):
         # Main/permanent-admin accounts hold every catalogue permission.
         return True
     if role == UserRole.SECONDARY:
         return secondary_d
-    moderator_role = getattr(UserRole, "MODERATOR", None)
-    if moderator_role is not None and role == moderator_role:
-        return moderator_d
     # Registered users / guests hold no catalogue (admin) permissions.
     return False
 
 
-# SRS 1F.9.3 — built-in presets. Each is expressed as explicit grant/revoke
+# SRS 1F.9.3 — built-in presets: ready-made permission shapes for a
+# sub-admin (the only role with adjustable permissions). Each is expressed as explicit grant/revoke
 # lists; applying a preset resets the person to role defaults, then sets these
 # explicit overrides (which remain individually adjustable afterwards).
 BUILTIN_PRESETS: dict[str, dict] = {
     "community_moderator": {
-        "label": "Community Moderator",
+        "label": "Sub-admin: Community",
         "description": "Comments, blocks, timeouts, reports. No content or scraping.",
         "grant": [
             "remove_comments",
@@ -194,7 +191,7 @@ BUILTIN_PRESETS: dict[str, dict] = {
         ],
     },
     "content_moderator": {
-        "label": "Content Moderator",
+        "label": "Sub-admin: Content",
         "description": "Manga URLs, series edits, chapter rescrape, translation fixes.",
         "grant": [
             "submit_manga_url",
@@ -213,7 +210,7 @@ BUILTIN_PRESETS: dict[str, dict] = {
         ],
     },
     "translation_moderator": {
-        "label": "Translation Moderator",
+        "label": "Sub-admin: Translation",
         "description": "Translation corrections and quality review only.",
         "grant": ["correct_translation", "review_quality_flags"],
         "revoke": [
@@ -229,7 +226,7 @@ BUILTIN_PRESETS: dict[str, dict] = {
         ],
     },
     "operations_admin": {
-        "label": "Operations Admin",
+        "label": "Sub-admin: Operations",
         "description": "Providers, limits, users. No website approval.",
         "grant": [
             "view_providers",
@@ -245,7 +242,7 @@ BUILTIN_PRESETS: dict[str, dict] = {
         "revoke": ["approve_website", "modify_website", "remove_website"],
     },
     "titular": {
-        "label": "Titular",
+        "label": "Sub-admin: Titular",
         "description": "A recognition role with almost no operational power.",
         "grant": [],
         # Near-empty: revoke every catalogue permission.
@@ -274,7 +271,7 @@ def catalogue() -> list[dict]:
     """The full catalogue grouped for the toggle page (SRS 1F.9.2)."""
 
     out: list[dict] = []
-    for key, (group, admin_d, secondary_d, moderator_d) in _CATALOGUE.items():
+    for key, (group, admin_d, secondary_d) in _CATALOGUE.items():
         out.append(
             {
                 "key": key,
@@ -283,7 +280,6 @@ def catalogue() -> list[dict]:
                     "permanent_admin": True,
                     "admin": admin_d,
                     "secondary_admin": secondary_d,
-                    "moderator": moderator_d,
                 },
             }
         )

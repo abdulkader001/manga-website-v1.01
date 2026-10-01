@@ -40,7 +40,13 @@ from ..utils.email_crypto import (
 # Enum for user roles
 # ----------------
 class UserRole(enum.Enum):
+    """Three roles: main admin (ADMIN / PERMANENT, one merged owner tier),
+    sub-admin (SECONDARY) and user (USER)."""
+
     USER = "user"
+    # Retired: kept only because the Postgres enum type still has the value.
+    # Nothing assigns it, migration 20261007 converted existing rows to USER,
+    # and effective_role() resolves any leftover row to USER.
     MODERATOR = "moderator"
     SECONDARY = "secondary_admin"
     ADMIN = "admin"
@@ -72,15 +78,6 @@ class User(Base):
     is_secondary_admin = Column(
         Boolean, nullable=False, default=False, server_default="false"
     )
-    # Which administrator a moderator reports to (SRS 1E.1.5 / 1F.3). NULL for
-    # non-moderators and for moderators promoted directly by the Permanent
-    # Administrator without assignment.
-    assigned_to_admin_id = Column(
-        Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
-    )
-    # Per-person cap on how many moderators a Secondary Administrator may hold
-    # (SRS 1F.3.3 / Req 6: "10, adjustable per person"). NULL -> the default (10).
-    moderator_limit = Column(Integer, nullable=True)
     provider = Column(String(50), nullable=True)
     # Verified-email state (SRS 1D.2.4). The sole purpose of verification on this
     # platform is to confirm a genuine, reachable email — set True once the user

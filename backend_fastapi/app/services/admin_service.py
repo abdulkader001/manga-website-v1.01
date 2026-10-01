@@ -294,115 +294,6 @@ def token_to_dict(token: AdminPromotionToken) -> dict[str, Any]:
     }
 
 
-DEFAULT_MODERATOR_LIMIT = 10
-
-
-def effective_moderator_limit(admin: User) -> int:
-    """The per-person moderator cap (SRS 1F.3.3): default 10, adjustable."""
-
-    value = getattr(admin, "moderator_limit", None)
-    return int(value) if value else DEFAULT_MODERATOR_LIMIT
-
-
-def count_moderators_for(db: Session, admin_id: int) -> int:
-    return (
-        db.query(User)
-        .filter(
-            User.role == UserRole.MODERATOR,
-            User.assigned_to_admin_id == admin_id,
-        )
-        .count()
-    )
-
-
-def promote_to_moderator(db: Session, target: User, current_user: User) -> User:
-    """Promote ``target`` to moderator (SRS 1F.3.3 / 1F.4).
-
-    A Secondary Administrator's promotions are assigned to them and capped by
-    their effective limit; the eleventh raises MODERATOR_LIMIT_REACHED. The
-    Permanent Administrator promotes without limit (unassigned).
-    """
-
-    from ..core.api_errors import ApiError, ErrorCode
-
-    if getattr(target, "permanent", False):
-        raise AdminServiceError("cannot_modify_permanent_admin")
-
-    previous_role = role_to_string(target.role)
-    assigned_to = None
-    if effective_role(current_user) not in {UserRole.ADMIN, UserRole.PERMANENT}:
-        # A Secondary Administrator: enforce the per-person cap on their group.
-        current_count = count_moderators_for(db, current_user.id)
-        limit = effective_moderator_limit(current_user)
-        if current_count >= limit:
-            raise ApiError(
-                ErrorCode.MODERATOR_LIMIT_REACHED,
-                f"Moderator limit reached ({limit}). Demote one to free a slot.",
-                details={"limit": limit, "current": current_count},
-            )
-        assigned_to = current_user.id
-
-    target.role = UserRole.MODERATOR
-    target.assigned_to_admin_id = assigned_to
-    db.commit()
-    log_role_change(
-        db,
-        actor=current_user,
-        target=target,
-        action="admin.promote",
-        method="promote-moderator",
-        from_role=previous_role,
-        to_role="moderator",
-    )
-    return target
-
-
-def _assert_moderator_in_scope(current_user: User | None, target: User) -> None:
-    """A Secondary Administrator may only act on moderators assigned to them."""
-
-    from ..core.api_errors import ApiError, ErrorCode
-
-    if effective_role(current_user) in {UserRole.ADMIN, UserRole.PERMANENT}:
-        return
-    if target.assigned_to_admin_id != getattr(current_user, "id", None):
-        raise ApiError(
-            ErrorCode.FORBIDDEN,
-            "You can only demote moderators assigned to you.",
-            details={"reason": "out_of_scope"},
-        )
-
-
-def demote_moderator(db: Session, target: User, current_user: User) -> User:
-    """Demote a moderator to registered user (SRS 1F.3.1 / 1F.2.2).
-
-    The Permanent Administrator can demote ANY moderator, including those
-    assigned to a Secondary Administrator. A Secondary Administrator may only
-    demote their own moderators.
-    """
-
-    if getattr(target, "permanent", False):
-        raise AdminServiceError("cannot_modify_permanent_admin")
-    if target.role != UserRole.MODERATOR:
-        raise AdminServiceError("not_a_moderator")
-
-    _assert_moderator_in_scope(current_user, target)
-
-    previous_role = role_to_string(target.role)
-    target.role = UserRole.USER
-    target.assigned_to_admin_id = None
-    db.commit()
-    log_role_change(
-        db,
-        actor=current_user,
-        target=target,
-        action="admin.demote",
-        method="demote-moderator",
-        from_role=previous_role,
-        to_role="user",
-    )
-    return target
-
-
 def _is_admin_tier(role: UserRole | None) -> bool:
     """True when ``role`` is Secondary Administrator or above."""
 
@@ -596,14 +487,8 @@ def demote_user_role(
         raise AdminServiceError("cannot_demote_permanent_admin")
 
     # F-70: demoting a peer admin is the Permanent Administrator's call.
-    # Demoting an ordinary user stays available to every principal this route
-    # already admits; demoting a moderator honours the same assignment scoping
-    # the dedicated demote_moderator route enforces, so this generic route
-    # cannot be used to step around it.
     if _is_admin_tier(effective_role(user)):
         assert_may_change_admin_tier(db, current_user, user, grant=False)
-    elif getattr(user, "role", None) == UserRole.MODERATOR:
-        _assert_moderator_in_scope(current_user, user)
 
     previous_role = role_to_string(user.role)
     user.role = UserRole.USER

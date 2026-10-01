@@ -49,6 +49,15 @@ def has_permission(db: Session, user: User, permission: str) -> bool:
         )
         .first()
     )
+    role = effective_role(user)
+    # Three roles: a regular user never holds a catalogue (admin) permission,
+    # whatever overrides exist, and the main admin always holds all of them.
+    # Overrides only ever refine a sub-admin.
+    if role == UserRole.USER:
+        return False
+    if role in (UserRole.ADMIN, UserRole.PERMANENT):
+        return True
+
     if override is not None:
         return override.state == "granted"
 
@@ -56,14 +65,15 @@ def has_permission(db: Session, user: User, permission: str) -> bool:
     # admin (is_main_admin/is_secondary_admin/permanent set without a
     # matching role) gets the same catalogue access require_admin_user's
     # role-tier gate already grants them.
-    return role_default(permission, effective_role(user))
+    return role_default(permission, role)
 
 
 def resolve_effective(db: Session, user: User) -> list[dict]:
     """The person's full effective permission set with state (1F.9.2)."""
 
-    overrides = _overrides_for(db, user.id)
     role = effective_role(user)
+    # Same rule as has_permission: overrides only refine a sub-admin.
+    overrides = _overrides_for(db, user.id) if role == UserRole.SECONDARY else {}
     out: list[dict] = []
     for key in ALL_PERMISSIONS:
         default = role_default(key, role)
@@ -93,14 +103,26 @@ def modified_count(db: Session, user: User) -> int:
     )
 
 
+def _assert_sub_admin(target: User) -> None:
+    if effective_role(target) != UserRole.SECONDARY:
+        raise ApiError(
+            ErrorCode.FORBIDDEN,
+            "Only a sub-admin's permissions can be adjusted. Make the person a sub-admin first.",
+            details={"reason": "not_a_sub_admin"},
+        )
+
+
 def set_override(
     db: Session, target: User, permission: str, state: str, actor_id: int
 ) -> None:
     """Set or clear a single override (1F.6.2).
 
     ``state`` is 'granted', 'revoked', or 'inherited' (clears the override).
-    Never-grantable permissions (1F.8) are refused.
+    Never-grantable permissions (1F.8) are refused, and only a sub-admin's
+    permissions are adjustable (users hold none, the main admin holds all).
     """
+
+    _assert_sub_admin(target)
 
     if permission in NEVER_GRANTABLE or not is_valid_permission(permission):
         raise ApiError(
@@ -260,7 +282,7 @@ def create_custom_preset(
 
 
 def list_managed_people(db: Session, *, modified_only: bool = False) -> list[dict]:
-    """Secondary Administrators and Moderators with their modified count.
+    """Sub-admins with their modified count.
 
     Powers the Role & Permission Management list and its "Modified only" filter
     (SRS 1F.9.1).
@@ -268,7 +290,7 @@ def list_managed_people(db: Session, *, modified_only: bool = False) -> list[dic
 
     rows = (
         db.query(User)
-        .filter(User.role.in_([UserRole.SECONDARY, UserRole.MODERATOR]))
+        .filter(User.role == UserRole.SECONDARY)
         .order_by(User.id.asc())
         .all()
     )
@@ -282,7 +304,6 @@ def list_managed_people(db: Session, *, modified_only: bool = False) -> list[dic
                 "user_id": user.id,
                 "name": getattr(user, "name", None),
                 "role": user.role.value if user.role else None,
-                "assigned_to_admin_id": getattr(user, "assigned_to_admin_id", None),
                 "modified_count": count,
             }
         )

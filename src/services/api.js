@@ -418,6 +418,10 @@ const api = {
       effective: (userId) => api.get(`/admin/users/${userId}/permissions`),
       setOverrides: (userId, overrides) =>
         api.put(`/admin/users/${userId}/permissions`, { overrides }),
+      reset: (userId) => api.post(`/admin/users/${userId}/permissions/reset`),
+      presets: () => api.get("/admin/permissions/presets"),
+      applyPreset: (userId, preset) =>
+        api.post(`/admin/users/${userId}/permissions/apply-preset`, { preset }),
     },
 
     footer: (payload) => api.footer.update(payload),
