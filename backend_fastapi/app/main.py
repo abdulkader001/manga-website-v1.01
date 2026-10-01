@@ -27,6 +27,7 @@ from .bootstrap.routers import register_api_routes
 from .core.celery_app import celery_app
 from .core.settings import get_settings
 from .core.test_mode import is_production
+from .services import secret_vault
 from .utils.alembic_check import AlembicSchemaStatus, capture_alembic_status
 from .utils.crypto_utils import ensure_encrypted_env_loaded
 from .utils.structured_logging import configure_logging
@@ -79,6 +80,14 @@ def create_app() -> FastAPI:
             "translation": feature_flags["translation"],
         }
         lifespan_app.state.subsystems = subsystem_status
+
+        async def _vault_refresher() -> None:
+            # Picks up vault edits made through another worker process.
+            while True:
+                await asyncio.sleep(secret_vault.REFRESH_INTERVAL_SECONDS)
+                await asyncio.to_thread(secret_vault.refresh_if_stale)
+
+        vault_task = asyncio.create_task(_vault_refresher())
         logger.info("Subsystem availability", subsystems=subsystem_status)
 
         if getattr(settings, "alembic_check_on_startup", False):
@@ -129,6 +138,7 @@ def create_app() -> FastAPI:
             yield
         finally:
             logger.info("app_shutdown_begin")
+            vault_task.cancel()
             await shutdown_http_client(lifespan_app)
             await shutdown_celery(lifespan_app)
             await shutdown_redis(lifespan_app)
@@ -151,6 +161,10 @@ def create_app() -> FastAPI:
     app.state.alembic_status: AlembicSchemaStatus | None = None
 
     initialize_integration_vault(app)
+    # Admin-panel overrides for allow-listed .env keys. Applied before Sentry
+    # and the providers read their settings; a missing table (before the
+    # migration runs) or an unreachable DB just leaves .env in charge.
+    secret_vault.refresh_if_stale()
     feature_flags = initialize_provider_state(app, settings)
     app.state.features = feature_flags
 

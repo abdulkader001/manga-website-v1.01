@@ -38,6 +38,7 @@ import ApiManagement from "./pages/Admin/ApiManagement";
 import AuditReport from "./pages/Admin/AuditReport";
 import ChapterReports from "./pages/Admin/ChapterReports";
 import AdminSecurity from "./pages/Admin/AdminSecurity";
+import SecretVault from "./pages/Admin/SecretVault";
 
 function AppShell({ children }) {
   const location = useLocation();
@@ -157,6 +158,14 @@ function AppRoutes() {
           element={
             <AuthGuard requireAdmin allowSecondaryAdmins>
               <AdminSecurity />
+            </AuthGuard>
+          }
+        />
+        <Route
+          path="/admin/vault"
+          element={
+            <AuthGuard requireAdmin requireMainAdmin>
+              <SecretVault />
             </AuthGuard>
           }
         />

@@ -63,6 +63,14 @@ export const ADMIN_FEATURE_LINKS = [
     description: "Edit site branding, default reader settings, maintenance, footer, and navigation.",
     minRole: "admin",
   },
+  {
+    key: "vault",
+    label: "Secret Vault",
+    to: "/admin/vault",
+    description:
+      "Google/Microsoft sign-in, SMTP and API keys, encrypted. Main admin only; cannot be delegated.",
+    minRole: "admin",
+  },
 ];
 
 export const ADMIN_NAV_LINKS = ADMIN_FEATURE_LINKS.map((item) => ({ ...item }));
