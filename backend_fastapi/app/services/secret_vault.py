@@ -23,7 +23,6 @@ from __future__ import annotations
 import os
 import threading
 import time
-from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Dict, Optional
 from urllib.parse import urlparse
@@ -33,7 +32,9 @@ from pydantic import TypeAdapter, ValidationError
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
+from .. import vault_preload
 from ..models import VaultSecret
+from ..vault_keys import MANAGED_KEYS, SPECS, SecretSpec
 from .integration_key_vault import IntegrationKeyVault
 
 logger = structlog.get_logger(__name__)
@@ -42,109 +43,9 @@ REFRESH_INTERVAL_SECONDS = 30
 MAX_VALUE_LENGTH = 4096
 
 
-@dataclass(frozen=True)
-class SecretSpec:
-    key: str
-    group: str
-    label: str
-    secret: bool = False  # masked in listings; plaintext only via an explicit reveal
-    kind: str = "text"  # text | url | int | bool | email
-    restart_required: bool = False  # read once at startup rather than per use
-    help: str = ""
-
-
-_SPECS = (
-    # Google sign-in
-    SecretSpec("GOOGLE_OAUTH_CLIENT_ID", "Google sign-in", "Client ID"),
-    SecretSpec("GOOGLE_OAUTH_CLIENT_SECRET", "Google sign-in", "Client secret", secret=True),
-    SecretSpec("GOOGLE_OAUTH_REDIRECT_URI", "Google sign-in", "Redirect URI", kind="url"),
-    SecretSpec(
-        "GOOGLE_OAUTH_HOSTED_DOMAIN",
-        "Google sign-in",
-        "Hosted domain",
-        help="Restrict Google sign-in to one Workspace domain. Leave unset for any account.",
-    ),
-    SecretSpec("GOOGLE_PROJECT_ID", "Google sign-in", "Project ID"),
-    # Microsoft sign-in
-    SecretSpec("MICROSOFT_OAUTH_CLIENT_ID", "Microsoft sign-in", "Client ID"),
-    SecretSpec(
-        "MICROSOFT_OAUTH_CLIENT_SECRET", "Microsoft sign-in", "Client secret", secret=True
-    ),
-    SecretSpec("MICROSOFT_OAUTH_REDIRECT_URI", "Microsoft sign-in", "Redirect URI", kind="url"),
-    SecretSpec(
-        "MICROSOFT_OAUTH_TENANT",
-        "Microsoft sign-in",
-        "Tenant",
-        help="'common', 'organizations', 'consumers' or a tenant ID.",
-    ),
-    # Email & magic links
-    SecretSpec(
-        "EMAIL_BACKEND", "Email & magic links", "Email backend", help="'smtp' or 'console'."
-    ),
-    SecretSpec("EMAIL_FROM_ADDRESS", "Email & magic links", "From address", kind="email"),
-    SecretSpec("EMAIL_MAGIC_LINK_SUBJECT", "Email & magic links", "Magic-link subject"),
-    SecretSpec(
-        "MAGIC_LINK_REDIRECT_URL", "Email & magic links", "Magic-link redirect URL", kind="url"
-    ),
-    SecretSpec("SMTP_HOST", "Email & magic links", "SMTP host"),
-    SecretSpec("SMTP_PORT", "Email & magic links", "SMTP port", kind="int"),
-    SecretSpec("SMTP_USERNAME", "Email & magic links", "SMTP username"),
-    SecretSpec("SMTP_PASSWORD", "Email & magic links", "SMTP password", secret=True),
-    SecretSpec("SMTP_USE_TLS", "Email & magic links", "Use STARTTLS", kind="bool"),
-    SecretSpec("SMTP_USE_SSL", "Email & magic links", "Use SSL", kind="bool"),
-    SecretSpec("SMTP_TIMEOUT", "Email & magic links", "SMTP timeout (s)", kind="int"),
-    SecretSpec("SMTP_FROM_ADDRESS", "Email & magic links", "SMTP from address", kind="email"),
-    # Translation & OCR
-    SecretSpec("TRANSLATION_API_URL", "Translation & OCR", "Translation API URL", kind="url"),
-    SecretSpec("TRANSLATION_API_KEY", "Translation & OCR", "Translation API key", secret=True),
-    SecretSpec("LIBRETRANSLATE_URL", "Translation & OCR", "LibreTranslate URL", kind="url"),
-    SecretSpec(
-        "LIBRETRANSLATE_API_KEY", "Translation & OCR", "LibreTranslate API key", secret=True
-    ),
-    SecretSpec(
-        "DEFAULT_TRANSLATION_API_URL", "Translation & OCR", "Fallback translation URL", kind="url"
-    ),
-    SecretSpec(
-        "DEFAULT_TRANSLATION_API_KEY",
-        "Translation & OCR",
-        "Fallback translation key",
-        secret=True,
-    ),
-    SecretSpec(
-        "REMOTE_OCR_URL", "Translation & OCR", "Remote OCR URL", kind="url", restart_required=True
-    ),
-    SecretSpec(
-        "OCR_ENABLED",
-        "Translation & OCR",
-        "Server OCR enabled",
-        kind="bool",
-        restart_required=True,
-        help="Turns on the built-in Tesseract engine for readers without their own OCR API.",
-    ),
-    SecretSpec(
-        "TRANSLATION_ENABLED",
-        "Translation & OCR",
-        "Server translation enabled",
-        kind="bool",
-        restart_required=True,
-    ),
-    # Third-party services
-    SecretSpec("TENOR_API_KEY", "Third-party services", "Tenor API key", secret=True),
-    SecretSpec("GIF_PROVIDER_API_KEY", "Third-party services", "GIF provider API key", secret=True),
-    SecretSpec("IMAGE_CDN_BASE_URL", "Third-party services", "Image CDN base URL", kind="url"),
-    # Error monitoring
-    SecretSpec(
-        "SENTRY_DSN", "Error monitoring", "Sentry DSN", secret=True, kind="url", restart_required=True
-    ),
-    SecretSpec(
-        "SENTRY_ENVIRONMENT", "Error monitoring", "Sentry environment", restart_required=True
-    ),
-    SecretSpec(
-        "ENABLE_SENTRY", "Error monitoring", "Enable Sentry", kind="bool", restart_required=True
-    ),
-)
-
-MANAGED_KEYS: Dict[str, SecretSpec] = {spec.key: spec for spec in _SPECS}
+# The allow-list lives in a dependency-free module so the startup loader
+# (``vault_preload``) can use it before the rest of the app is imported.
+_SPECS = SPECS
 
 _TRUE = {"1", "true", "yes", "on"}
 _FALSE = {"0", "false", "no", "off"}
@@ -189,9 +90,18 @@ def normalize_value(key: str, raw: Any) -> str:
         raise VaultError("Value contains control characters or line breaks.")
 
     if spec.kind == "int":
-        if not value.isdigit() or not 0 < int(value) <= 65535:
-            raise VaultError("Value must be a whole number between 1 and 65535.")
+        upper = 65535 if key.endswith("_PORT") else 1_000_000_000
+        if not value.isdigit() or not 0 < int(value) <= upper:
+            raise VaultError(f"Value must be a whole number between 1 and {upper}.")
         return str(int(value))
+    if spec.kind == "number":
+        try:
+            number = float(value)
+        except ValueError:
+            raise VaultError("Value must be a number.") from None
+        if not 0 <= number <= 1e12:
+            raise VaultError("Value must be between 0 and 1000000000000.")
+        return str(int(number)) if number.is_integer() else str(number)
     if spec.kind == "bool":
         lowered = value.lower()
         if lowered in _TRUE:
@@ -227,11 +137,12 @@ def mask(value: Optional[str], *, secret: bool) -> Optional[str]:
 # ---------------------------------------------------------------------------
 
 _lock = threading.RLock()
-_UNSET = object()
-# What .env provided for a key before the vault first overrode it.
-_boot_env: Dict[str, Optional[str]] = {}
+# What .env provided for a key before the vault first overrode it. Values the
+# startup loader already applied are taken over from it, so removing them
+# later still restores the real .env value.
+_boot_env: Dict[str, Optional[str]] = dict(vault_preload.ORIGINALS)
 _boot_settings: Dict[str, Any] = {}
-_applied: Dict[str, str] = {}
+_applied: Dict[str, str] = dict(vault_preload.APPLIED)
 _fingerprint: Optional[tuple] = None
 _last_check = 0.0
 
@@ -261,6 +172,17 @@ def _set_setting(key: str, value: Optional[str]) -> None:
     setattr(settings, field_name, coerced)
 
 
+def _restore_setting_from_env(settings, key: str, field, original: Optional[str]) -> None:
+    if original is None:
+        value = field.get_default(call_default_factory=True)
+    else:
+        try:
+            value = TypeAdapter(field.annotation).validate_python(original)
+        except ValidationError:
+            return
+    setattr(settings, key.lower(), value)
+
+
 def _apply(values: Dict[str, str]) -> None:
     """Make ``values`` the live overrides, restoring .env for keys dropped since last time."""
 
@@ -274,8 +196,14 @@ def _apply(values: Dict[str, str]) -> None:
             else:
                 os.environ[key] = original
             settings = _settings_obj()
-            if key in _boot_settings and key.lower() in type(settings).model_fields:
-                setattr(settings, key.lower(), _boot_settings[key])
+            field = type(settings).model_fields.get(key.lower())
+            if field is not None:
+                if key in _boot_settings:
+                    setattr(settings, key.lower(), _boot_settings[key])
+                else:
+                    # Applied at startup, before Settings existed: rebuild the
+                    # .env value (or the field default when .env had none).
+                    _restore_setting_from_env(settings, key, field, original)
             del _applied[key]
 
         for key, value in values.items():
@@ -449,6 +377,8 @@ def _reset_for_tests() -> None:
 
     global _fingerprint, _last_check
     _apply({})
+    vault_preload.ORIGINALS.clear()
+    vault_preload.APPLIED.clear()
     _boot_env.clear()
     _boot_settings.clear()
     _fingerprint = None
