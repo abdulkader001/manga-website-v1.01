@@ -26,8 +26,13 @@ from . import notification_service, parser_versions_service, scraper_ai_service
 
 logger = structlog.get_logger(__name__)
 
-# Path fragments that usually identify a series page on manga sites.
-_SERIES_HINTS = ("/manga/", "/series/", "/comic/", "/title/", "/book/")
+# Path fragments that usually identify a series page on manga sites
+# (English, Chinese pinyin, Korean/Japanese webtoon sites).
+_SERIES_HINTS = (
+    "/manga/", "/series/", "/comic/", "/comics/", "/title/", "/book/", "/manhua/",
+    "/webtoon/list", "/toon/", "/work/", "/serial/",
+    "titleid=", "toon=", "comic_id=",
+)
 
 
 def _fetch_html(url: str) -> Optional[str]:
@@ -60,23 +65,51 @@ def _soup(html: str):
 def _find_series_links(
     base_url: str, listing_html: str, *, limit: int = 5
 ) -> List[str]:
-    host = urlparse(base_url).netloc
+    """Links to series pages found on a homepage or a list of series.
+
+    First by well-known URL fragments (``/manga/``, ``/comic/``...). When none
+    match, the biggest group of same-shaped links that wrap a cover image
+    (``/12345/``, ``/b/slug.html`` with an <img>) is taken: that is what a
+    grid of series covers looks like on any site, whatever its URLs.
+    """
+
+    import re
+
+    from ..scrapers.definition_guard import site_of
+
+    host = urlparse(base_url).hostname or ""
     links: List[str] = []
+    shapes: Dict[str, List[str]] = {}
     for a in _soup(listing_html).find_all("a", href=True):
         href = urljoin(base_url, a["href"])
         parsed = urlparse(href)
-        if parsed.netloc != host:
+        if parsed.scheme not in ("http", "https") or site_of(parsed.hostname or "") != site_of(host):
             continue
-        if any(hint in parsed.path.lower() for hint in _SERIES_HINTS):
+        if parsed.path in ("", "/") and not parsed.query:
+            continue
+        target = (parsed.path + ("?" + parsed.query if parsed.query else "")).lower()
+        if any(hint in target for hint in _SERIES_HINTS):
             if href not in links:
                 links.append(href)
-        if len(links) >= limit:
-            break
-    return links
+            if len(links) >= limit:
+                break
+            continue
+        if a.find(["img", "amp-img"]) is not None:
+            shape = re.sub(r"[^/?=&]+", lambda m: "#" if m.group(0).isdigit() else "*", target)
+            shapes.setdefault(shape, [])
+            if href not in shapes[shape]:
+                shapes[shape].append(href)
+    if links:
+        return links
+    groups = sorted(shapes.values(), key=len, reverse=True)
+    if groups and len(groups[0]) >= 3:
+        return groups[0][:limit]
+    return []
 
 
 def _test_series_selectors(html: str, selectors: Dict[str, str]) -> Dict[str, Any]:
     from ..scrapers import parsing
+    from ..scrapers.base_scraper import link_target
 
     soup = _soup(html)
     selectors = selectors or {}
@@ -87,7 +120,7 @@ def _test_series_selectors(html: str, selectors: Dict[str, str]) -> Dict[str, An
         a = parsing.select_one(el, selectors.get("chapter_url", "a") or "a")
         if a is None and getattr(el, "name", None) == "a":
             a = el
-        href = a.get("href") if a is not None else None
+        href = link_target(a)
         if href:
             chapter_urls.append(href)
     title = parsing.text_of(title_el) if title_el is not None else ""

@@ -271,6 +271,11 @@ def detect_reader_definition(html: str, base_url: str = _BASE) -> Optional[Dict[
                 break
 
     if not groups:
+        # No usable <img>: the page list may live in a script instead.
+        from . import script_images
+
+        if script_images.auto_images(soup, base_url):
+            return {"image_source": {"decoder": "auto_script"}}
         return None
     signature, members = max(groups.items(), key=lambda item: len(item[1]))
     selector = _pick_selector(soup, members, members[0].name)

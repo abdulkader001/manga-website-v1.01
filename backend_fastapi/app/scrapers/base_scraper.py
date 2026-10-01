@@ -38,6 +38,87 @@ class ScraperError(Exception):
     pass
 
 
+_CHALLENGE_MARKERS = (
+    b"cf-chl",
+    b"challenge-platform",
+    b"cf_chl_opt",
+    b"<title>just a moment",
+    b"checking your browser",
+    b"ddos-guard",
+    b"g-recaptcha",
+    b"h-captcha",
+    b"cf-turnstile",
+)
+
+
+def is_bot_challenge(status_code: int, body: Optional[bytes]) -> bool:
+    """True for a CAPTCHA / "checking your browser" page instead of content.
+
+    Such a page cannot be scraped by fetching HTML; it is reported as such so
+    the admin is not told the selectors are wrong.
+    """
+
+    head = (body or b"")[:20000].lower()
+    if status_code in (403, 429, 503) and any(marker in head for marker in _CHALLENGE_MARKERS):
+        return True
+    # Some challenges answer 200 with a tiny interstitial page.
+    return status_code == 200 and len(body or b"") < 20000 and (
+        b"<title>just a moment" in head or b"cf-chl" in head or b"challenge-platform" in head
+    )
+
+
+def expand_page_template(template: str, chapter_url: str, number: int) -> str:
+    """Build page ``number`` of a chapter from ``page_url_template``.
+
+    ``{url}`` chapter URL (no trailing slash), ``{base}`` site root,
+    ``{stem}`` chapter URL without query and file extension, ``{ext}`` that
+    extension (``.html``), ``{n}`` the page number (2, 3, ...).
+    """
+
+    parsed = urlparse(chapter_url)
+    path = parsed.path
+    match = re.search(r"(\.[A-Za-z0-9]{2,5})$", path)
+    ext = match.group(1) if match else ""
+    stem_path = path[: -len(ext)] if ext else path.rstrip("/")
+    return (
+        template.replace("{url}", chapter_url.rstrip("/"))
+        .replace("{base}", f"{parsed.scheme}://{parsed.netloc}")
+        .replace("{stem}", f"{parsed.scheme}://{parsed.netloc}{stem_path}")
+        .replace("{ext}", ext)
+        .replace("{n}", str(number))
+    )
+
+
+_LINK_ATTRS = ("href", "data-href", "data-hreflink", "data-url", "data-link")
+
+
+def link_target(link: Any) -> Optional[str]:
+    """Where a chapter link really goes. Some sites put ``javascript:`` in
+    ``href`` and the real address in a ``data-*`` attribute."""
+
+    if link is None:
+        return None
+    for attr in _LINK_ATTRS:
+        value = link.get(attr)
+        if isinstance(value, str) and value.strip() and not value.strip().lower().startswith(("javascript:", "#")):
+            return value.strip()
+    return None
+
+
+def hidden_chapter_soup(soup: BeautifulSoup, selector: str) -> Optional[BeautifulSoup]:
+    """A chapter list hidden in a form field as LZString-compressed HTML
+    (manhuagui's ``#__VIEWSTATE`` on age-gated series)."""
+
+    from . import packed_scripts
+
+    field = parsing.select_one(soup, selector)
+    value = field.get("value") if field is not None else None
+    if not value:
+        return None
+    html = packed_scripts.lz_decompress_base64(str(value))
+    return BeautifulSoup(html, "html.parser") if html else None
+
+
 class BaseScraper:
     """
     Base scraper architecture with rate limiting, retries, and dynamic config.
@@ -48,6 +129,12 @@ class BaseScraper:
         self.delay = delay
         self.retries = retries
         self.config = ConfigManager.get_config(domain)
+        # Final URL of the last successful page fetch (after redirects), and
+        # why the last fetch failed when the site answered with a bot check.
+        self.last_url: Optional[str] = None
+        self.last_problem: Optional[str] = None
+        # The Scraper AI's reason when it declined a site (bot check, paywall).
+        self.ai_verdict: Optional[str] = None
 
     @property
     def module_id(self) -> str:
@@ -96,6 +183,7 @@ class BaseScraper:
         import random
 
         headers = self._request_headers()
+        self.last_problem = None
         for attempt in range(self.retries):
             start_time = time.time()
 
@@ -110,10 +198,18 @@ class BaseScraper:
                 time.sleep(delay)
 
                 response = RequestWrapper.get(url, timeout=10, headers=dict(headers))
+                if is_bot_challenge(response.status_code, response.content):
+                    # A CAPTCHA / "checking your browser" page. Retrying only
+                    # hammers the site; report it plainly instead.
+                    self.last_problem = "bot_challenge"
+                    logger.warning("bot_challenge_page", domain=self.domain, url=url)
+                    ScraperMetrics.record_failure(self.domain)
+                    return None
                 response.raise_for_status()
 
                 latency_ms = int((time.time() - start_time) * 1000)
                 ScraperMetrics.record_success(self.domain, latency_ms)
+                self.last_url = str(getattr(response, "url", None) or url)
 
                 encoding = (self.config or {}).get("encoding")
                 if encoding:
@@ -127,6 +223,9 @@ class BaseScraper:
                 status_code = None
                 if hasattr(e, "response") and e.response is not None:
                     status_code = e.response.status_code
+                if status_code in {404, 410}:
+                    self.last_problem = "not_found"
+                    break  # the page does not exist; retrying cannot help
                 if status_code in {403, 429}:
                     logger.warning(
                         f"Possible block on {self.domain}. Increasing backoff."
@@ -142,19 +241,53 @@ class BaseScraper:
     def _fetch_json(self, url: str) -> Any:
         """GET a JSON document (chapter-list APIs) through the same SSRF-safe
         client and headers as page fetches."""
-        from .http_client import RequestWrapper
         import json as _json
 
+        body = self._fetch_body(url, accept="application/json")
+        if body is None:
+            return None
+        try:
+            return _json.loads(body)
+        except ValueError:
+            logger.warning(f"JSON fetch for {url} did not return JSON")
+            return None
+
+    def _fetch_body(
+        self,
+        url: str,
+        *,
+        method: str = "GET",
+        data: Optional[Dict[str, str]] = None,
+        accept: Optional[str] = None,
+        referer: Optional[str] = None,
+    ) -> Optional[bytes]:
+        """Raw body of a GET/POST through the SSRF-safe client (APIs, AJAX
+        chapter lists). Same headers, retries and polite delay as pages."""
+        from .http_client import RequestWrapper
+
         headers = self._request_headers()
-        headers.setdefault("Accept", "application/json")
-        for attempt in range(self.retries):
+        if accept:
+            headers.setdefault("Accept", accept)
+        if referer:
+            headers.setdefault("Referer", referer)
+        if method == "POST":
+            headers.setdefault("X-Requested-With", "XMLHttpRequest")
+        retries = int(getattr(self, "retries", 1) or 1)
+        delay = float(getattr(self, "delay", 0) or 0)
+        for attempt in range(retries):
             try:
-                time.sleep(self.delay * (attempt + 1))
-                response = RequestWrapper.get(url, timeout=10, headers=dict(headers))
+                time.sleep(delay * (attempt + 1))
+                if method == "POST":
+                    response = RequestWrapper.post(url, timeout=10, headers=dict(headers), data=data or {})
+                else:
+                    response = RequestWrapper.get(url, timeout=10, headers=dict(headers))
                 response.raise_for_status()
-                return _json.loads(response.content)
-            except (requests.RequestException, ValueError) as e:
-                logger.warning(f"JSON fetch attempt {attempt + 1} failed for {url}: {e}")
+                return response.content
+            except requests.RequestException as e:
+                logger.warning(f"{method} attempt {attempt + 1} failed for {url}: {e}")
+                status = getattr(getattr(e, "response", None), "status_code", None)
+                if status in {400, 401, 403, 404, 405, 410}:
+                    break
         return None
 
     def get_existing_chapters(self, manga_id: int, db_session) -> List[float]:
@@ -358,6 +491,9 @@ class BaseScraper:
             )
             page_list_urls = set(queued_urls)
             template_number = 2
+            # Numbered pages are built from where the chapter link really
+            # landed (sites often link a redirector, e.g. ?chapter_slot=3).
+            template_root = getattr(self, "last_url", None) or url
 
             current_url = url
             current_soup = soup
@@ -402,13 +538,7 @@ class BaseScraper:
                 elif template:
                     if fetched_pages > 1 and new_on_page == 0:
                         break  # ran past the last numbered page
-                    root = url.rstrip("/")
-                    parsed_root = urlparse(url)
-                    next_url = (
-                        template.replace("{url}", root)
-                        .replace("{base}", f"{parsed_root.scheme}://{parsed_root.netloc}")
-                        .replace("{n}", str(template_number))
-                    )
+                    next_url = expand_page_template(template, template_root, template_number)
                     template_number += 1
                 elif next_selector:
                     next_tag = current_soup.select_one(next_selector)
@@ -420,6 +550,17 @@ class BaseScraper:
                 visited_urls.add(next_url)
 
                 current_soup = self._fetch_html(next_url)
+                landed = getattr(self, "last_url", None)
+                if (
+                    current_soup is not None
+                    and template
+                    and not queued_urls
+                    and landed
+                    and landed.rstrip("/") != next_url.rstrip("/")
+                ):
+                    # A numbered page past the end redirected somewhere else
+                    # (usually the next chapter): do not mix its images in.
+                    break
                 if not current_soup:
                     logger.warning(
                         "Failed to fetch paginated page %s for chapter %s",
@@ -523,21 +664,32 @@ class BaseScraper:
         single-URL and paginated (``next_page``) chapter paths.
         """
 
+        from . import script_images
+
         config = config or self.config or {}
         images: List[str] = []
         source = config.get("image_source")
-        if isinstance(source, dict) and source.get("decoder") == "manhuagui":
+        decoder = source.get("decoder") if isinstance(source, dict) else None
+        if decoder == "manhuagui":
             from . import packed_scripts
 
             images.extend(packed_scripts.manhuagui_images(soup, source.get("host") or "https://i.hamreus.com"))
+        elif decoder:
+            images.extend(script_images.decode(decoder, soup, base_url))
         elif isinstance(source, dict):
             images.extend(self._images_from_json(soup, source, base_url))
+        if not images and isinstance(config.get("image_api"), dict):
+            images.extend(self._images_from_api(config["image_api"], base_url))
         if not images:
             preferred = config.get("image_attr")
             for tag in parsing.select(soup, selector):
                 url = parsing.image_url(tag, base_url, preferred)
                 if url:
                     images.append(url)
+        if not images:
+            # The page has no <img> for its pages: many CMSes keep the list
+            # in a script and build the tags with JavaScript.
+            images.extend(script_images.auto_images(soup, base_url))
         images = parsing.dedupe(images)
         skip = int(config.get("skip_first_images") or 0)
         return images[skip:] if skip > 0 else images
@@ -563,6 +715,54 @@ class BaseScraper:
             if template:
                 value = template.replace("{value}", value)
             url = parsing.absolute(base_url, value)
+            if url:
+                urls.append(url)
+        return urls
+
+    def _images_from_api(self, api: Dict[str, Any], page_url: str) -> List[str]:
+        """Page images served by a JSON API keyed by ids in the chapter URL
+        (``params_regex`` named groups fill ``{name}`` in ``url``)."""
+        from .definition_guard import same_site
+
+        values: Dict[str, str] = {}
+        pattern = api.get("params_regex")
+        if pattern:
+            try:
+                match = re.search(str(pattern), page_url)
+            except re.error:
+                match = None
+            if not match:
+                return []
+            values = {k: v for k, v in match.groupdict().items() if v is not None}
+        target = str(api.get("url") or "")
+        for name, value in values.items():
+            target = target.replace("{" + name + "}", value)
+        target = target.replace("{url}", page_url)
+        if "{" in target or not same_site(target, page_url):
+            return []
+        absolute = parsing.absolute(page_url, target)
+        if not absolute:
+            return []
+        import json as _json
+
+        body = self._fetch_body(absolute, method=str(api.get("method") or "GET"), accept="application/json", referer=page_url)
+        try:
+            data = _json.loads(body) if body else None
+        except ValueError:
+            return []
+        found = parsing.dig(data, api.get("path"))
+        field = api.get("field")
+        template = api.get("url_template")
+        urls: List[str] = []
+        for entry in found if isinstance(found, list) else []:
+            value = entry.get(field) if isinstance(entry, dict) and field else entry
+            if isinstance(value, dict):
+                value = value.get("url") or value.get("src") or value.get("image")
+            if not isinstance(value, str):
+                continue
+            if template:
+                value = str(template).replace("{value}", value)
+            url = parsing.absolute(page_url, value)
             if url:
                 urls.append(url)
         return urls
@@ -610,8 +810,7 @@ class BaseScraper:
         link = parsing.select_one(item, link_selector)
         if link is None and getattr(item, "name", None) == "a":
             link = item  # the list selector already points at the <a> itself
-        href = link.get("href") if link is not None else None
-        chapter_url = parsing.absolute(base_url, href)
+        chapter_url = parsing.absolute(base_url, link_target(link))
         if not chapter_url:
             return None
 
@@ -711,11 +910,13 @@ class BaseScraper:
         series_id = self._series_id(page_url, config)
         if series_id is None and "{series_id}" in str(api.get("url", "")):
             return []
+        from .definition_guard import same_site
+
         first_url = parsing.absolute(
             page_url, str(api["url"]).replace("{series_id}", series_id or "")
         )
-        if not first_url:
-            return []
+        if not first_url or not same_site(first_url, page_url):
+            return []  # a chapter API is always on the series' own site
         data = self._fetch_json(first_url)
         chapters = self._chapters_from_json(data, page_url, api, series_id)
         paginate = api.get("paginate")
@@ -751,8 +952,10 @@ class BaseScraper:
         self, soup: BeautifulSoup, url: str, config: Dict[str, Any]
     ) -> List[Dict[str, Any]]:
         """Every chapter the source lists, de-duplicated and ordered oldest
-        first: DOM list (following ``chapter_list_next`` pagination), embedded
-        JSON (``chapter_source``) or a JSON API (``chapter_api``)."""
+        first: embedded JSON (``chapter_source``), a JSON API
+        (``chapter_api``), a compressed hidden list (``hidden_chapter_list``),
+        the DOM list (following ``chapter_list_next`` pagination), or an AJAX
+        fragment the page loads later (``chapter_ajax``)."""
 
         chapters: List[Dict[str, Any]] = []
         source = config.get("chapter_source")
@@ -768,8 +971,21 @@ class BaseScraper:
         if not chapters and isinstance(api, dict) and api.get("url"):
             chapters = self._chapters_from_api(api, url, config)
 
+        if not chapters and config.get("hidden_chapter_list"):
+            hidden = hidden_chapter_soup(soup, config["hidden_chapter_list"])
+            if hidden is not None:
+                chapters = self._chapters_from_html(hidden, url, config)
+
+        from_page_dom = False
         if not chapters:
             chapters = self._chapters_from_html(soup, url, config)
+            from_page_dom = bool(chapters)
+
+        ajax = config.get("chapter_ajax")
+        if not chapters and ajax:
+            chapters = self._chapters_from_ajax(ajax, soup, url, config)
+
+        if from_page_dom:
             next_selector = (config.get("chapter_list_next") or "").strip()
             current_soup, current_url = soup, url
             visited = {url}
@@ -791,6 +1007,62 @@ class BaseScraper:
                 chapters.extend(more)
 
         return self._normalise_chapters(chapters)
+
+    def _chapters_from_ajax(
+        self, ajax: Any, soup: BeautifulSoup, url: str, config: Dict[str, Any]
+    ) -> List[Dict[str, Any]]:
+        """Chapter lists a page loads with AJAX after it opens.
+
+        ``{"kind": "madara"}`` covers the WordPress Madara theme (thousands of
+        manga sites): ``POST <series>/ajax/chapters/``, or on older installs
+        ``admin-ajax.php`` with ``action=manga_get_chapters``. A generic
+        ``{"url", "method", "data"}`` fetches any same-site HTML fragment.
+        The answer is parsed with the definition's chapter selectors.
+        """
+        from .definition_guard import same_site
+
+        if isinstance(ajax, str):
+            ajax = {"kind": ajax}
+        if not isinstance(ajax, dict):
+            return []
+        requests_to_try: List[tuple] = []
+        if ajax.get("kind") == "madara":
+            series = url if url.endswith("/") else url + "/"
+            requests_to_try.append((series + "ajax/chapters/", "POST", {}))
+            holder = soup.select_one("#manga-chapters-holder[data-id], [data-post-id], .rating-post-id")
+            manga_id = None
+            if holder is not None:
+                manga_id = holder.get("data-id") or holder.get("data-post-id") or holder.get("value")
+            if manga_id and str(manga_id).isdigit():
+                parsed = urlparse(url)
+                requests_to_try.append(
+                    (
+                        f"{parsed.scheme}://{parsed.netloc}/wp-admin/admin-ajax.php",
+                        "POST",
+                        {"action": "manga_get_chapters", "manga": str(manga_id)},
+                    )
+                )
+        elif ajax.get("url"):
+            parsed = urlparse(url)
+            target = (
+                str(ajax["url"])
+                .replace("{url}", url.rstrip("/"))
+                .replace("{base}", f"{parsed.scheme}://{parsed.netloc}")
+            )
+            data = ajax.get("data") if isinstance(ajax.get("data"), dict) else {}
+            requests_to_try.append((parsing.absolute(url, target), str(ajax.get("method") or "GET").upper(), data))
+
+        for target, method, data in requests_to_try:
+            if not target or not same_site(target, url):
+                continue
+            body = self._fetch_body(target, method=method, data=data, accept="text/html, */*", referer=url)
+            if not body:
+                continue
+            fragment = BeautifulSoup(body, "html.parser")
+            chapters = self._chapters_from_html(fragment, url, config)
+            if chapters:
+                return chapters
+        return []
 
     @staticmethod
     def _normalise_chapters(chapters: List[Dict[str, Any]]) -> List[Dict[str, Any]]:

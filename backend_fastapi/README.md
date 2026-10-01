@@ -105,18 +105,62 @@ image on two sample chapters; hotlink protection is detected and handled with
 a signed image proxy. Changing a series' source URL queues a job that re-maps
 its existing chapters onto the new domain instead of re-importing.
 
-### Built-in parsers
+### What the engine can read
 
-`baozimh`/`twmanga`/`webmota`, `comic.naver.com`, `wujinmh`, `yueman1`,
-`mkzhan`, `manhuagui` (packed image list decoded server-side), `51manga`,
-`zymk`, `mh03`, `mh160mh`, `senmanga`, `mangaz`, `rawkuma`, `wfwf`, plus the
-Madara, MangaStream and Manganato CMS families.
+Besides plain `<img>`/`<a>` tags (lazy-load attributes, `srcset`, `amp-img`
+included), a parser can use:
+
+| Obstacle on the site | Handled by |
+| --- | --- |
+| Page images kept in a script (SinMH `chapterImages`, qTcms base64, packed `eval`, any image array) | `image_source: {"decoder": "sinmh" / "qtcms" / "script_array" / "auto_script" / "manhuagui"}`; also tried automatically when a reader page has no page `<img>` |
+| Page images from a JSON API keyed by ids in the chapter URL | `image_api` (same-site only) |
+| Chapter list loaded by AJAX after the page opens (WordPress Madara) | `chapter_ajax: {"kind": "madara"}` (part of the Madara family) or a generic same-site `{url, method, data}` |
+| Chapter list hidden LZString-compressed in a form field (manhuagui age gate) | `hidden_chapter_list` |
+| `href="javascript:…"` with the real address in `data-href` / `data-hreflink` | automatic |
+| Chapter links through a redirector | automatic; numbered pages use where the link landed |
+| One chapter split over several URLs | `next_page`, `page_list`, `page_url_template` (`{url}`, `{stem}`, `{ext}`, `{base}`, `{n}`); a page that redirects away ends the chapter |
+| Hotlink protection | `image_referer` (tested automatically) |
+| Cloudflare / CAPTCHA check page | detected and reported as such (not bypassed) |
+
+### Built-in parsers (per requested site)
+
+| Site | How it is read |
+| --- | --- |
+| baozimh / twmanga / webmota | HTML list; split chapters via `{stem}_{n}{ext}` |
+| comic.naver.com | JSON episode API (paid episodes skipped); `naver.com` itself is answered with "use comic.naver.com" |
+| manhuagui (www / m / tw) | packed + LZString image list; hidden age-gate chapter list |
+| mkzhan | HTML list (`data-hreflink` links); page images from its chapter JSON API |
+| wujinmh, yueman1, 51manga, zymk, mh03, mh160mh | HTML list; page images from `<img>` or, if none, from the script decoders |
+| raw.senmanga | HTML list; one page per URL via `{url}/{n}` |
+| rawkuma (any TLD) | MangaStream family (`ts_reader.run` JSON) |
+| wfwf<number>.com | HTML list + lazy images; any `wfwf<n>` domain |
+| mangaz | HTML selectors (may be a protected viewer; reported if no images) |
+| mangaraw4u and other WordPress manga sites | recognised by family (Madara / MangaStream), no preset needed |
+
+A list page (`m.manhuagui.com/list/lianzai/`, `m.yueman1.cc/.../m_waplistindex.html`)
+pasted into **Custom Parser** is handled: the first series it links to is used.
 
 ### Not scrapable (reported, never faked)
 
 `tonarinoyj`, `comic-days`, `sunday-webry`, `pocket.shonenmagazine`,
 `shonenjumpplus` (scrambled GigaViewer images), `comic-walker` (encrypted
-viewer API) and `kuaikanmanhua` (signed app API).
+viewer API) and `kuaikanmanhua` (signed app API). The scraper does not try to
+get past bot checks, logins, paywalls or image scrambling.
+
+### Scraper AI
+
+The AI receives `app/scrapers/ai_playbook.py`: every key the engine runs, the
+known site families, each common obstacle with the key that handles it, the
+hard stops (bot check, login/paywall, scrambled images, signed APIs) where it
+must answer `{"unsupported": "…"}`, worked examples, plus measured *site
+signals* for the page (family, lazy attributes, script-hidden images, AJAX
+holder, bot check). Every answer passes `app/scrapers/definition_guard.py`
+before use: unknown keys dropped, selectors must compile and avoid
+`:nth-child`, fetch URLs must stay on the same site, only `Accept`,
+`Accept-Language` and same-site `Referer` headers. What it removes is sent
+back to the AI on the next attempt; extracted results are checked too
+(chapter links mostly on-site and distinct, page images not logos/icons).
+Failures carry `next_steps` (shown under the error in Custom Parser).
 
 ## Known limits
 

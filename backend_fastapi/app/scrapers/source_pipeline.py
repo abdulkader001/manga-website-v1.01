@@ -25,13 +25,15 @@ from urllib.parse import urlparse
 import structlog
 from sqlalchemy.orm import Session
 
+from bs4 import BeautifulSoup
+
 from ..models import ApprovedSourceDomain, ParserVersion, User
 from ..services import (
     parser_generation_service,
     parser_versions_service,
     scraper_ai_service,
 )
-from . import autodetect, presets
+from . import autodetect, definition_guard, parsing, presets
 from .base_scraper import BaseScraper
 
 logger = structlog.get_logger(__name__)
@@ -156,16 +158,39 @@ def _series_candidates(
     feedback: Optional[str] = None
     hints = _series_hints(html, structural)
     for attempt in range(AI_ATTEMPTS):
-        selectors = scraper_ai_service.generate_selectors(
-            html, "manga", feedback=feedback, hints=hints
+        answer = scraper_ai_service.generate_definition(
+            html, "manga", feedback=feedback, hints=hints, page_url=url
         )
-        if not selectors:
+        if answer.get("unsupported"):
+            scraper.ai_verdict = answer["unsupported"]
             return
+        selectors = answer.get("definition")
+        if not selectors:
+            if not answer.get("problems"):
+                return
+            feedback = _guard_feedback(answer["problems"])
+            continue
         test = parser_generation_service._test_series_selectors(html, selectors)
+        problem = None
         if test["passed"]:
+            absolute = [parsing.absolute(url, u) or u for u in test["chapter_urls"]]
+            problem = definition_guard.check_chapter_urls(absolute, url)
+            if problem is None:
+                yield "AI-generated parser", selectors, {"attempt": attempt + 1, "series_page": test}
+                return
+        elif selectors.get("chapter_ajax") or selectors.get("chapter_api") or selectors.get("chapter_source"):
+            # The list is fetched separately; _try_series runs the real scrape.
             yield "AI-generated parser", selectors, {"attempt": attempt + 1, "series_page": test}
             return
-        feedback = _series_feedback(selectors, test)
+        feedback = _series_feedback(selectors, test, problem, answer.get("problems"))
+
+
+def _guard_feedback(problems: List[str]) -> str:
+    return (
+        "Your previous answer broke these rules and the affected keys were removed: "
+        + "; ".join(problems[:12])
+        + ". Fix them and return the full JSON object again."
+    )
 
 
 def _series_hints(html: str, structural: Optional[Definition]) -> str:
@@ -179,13 +204,20 @@ def _series_hints(html: str, structural: Optional[Definition]) -> str:
     return "\n".join(lines)
 
 
-def _series_feedback(selectors: Definition, test: Dict[str, Any]) -> str:
-    problems = []
+def _series_feedback(
+    selectors: Definition,
+    test: Dict[str, Any],
+    result_problem: Optional[str] = None,
+    guard_problems: Optional[List[str]] = None,
+) -> str:
+    problems = list(guard_problems or [])
+    if result_problem:
+        problems.append(f"the chapter list is wrong: {result_problem}")
     if not test.get("title"):
         problems.append(
             f"manga_title {selectors.get('manga_title')!r} matched no non-empty element"
         )
-    if not test.get("chapter_urls"):
+    if not test.get("chapter_urls") and not result_problem:
         problems.append(
             f"chapter_list {selectors.get('chapter_list')!r} with chapter_url "
             f"{selectors.get('chapter_url', 'a')!r} produced no chapter links "
@@ -216,13 +248,27 @@ def _reader_candidates(
         return
     feedback: Optional[str] = None
     for _attempt in range(AI_ATTEMPTS):
-        selectors = scraper_ai_service.generate_selectors(html, "chapter", feedback=feedback)
-        if not selectors:
+        answer = scraper_ai_service.generate_definition(
+            html, "chapter", feedback=feedback, page_url=chapter_url
+        )
+        if answer.get("unsupported"):
+            scraper.ai_verdict = answer["unsupported"]
             return
+        selectors = answer.get("definition")
+        if not selectors:
+            if not answer.get("problems"):
+                return
+            feedback = _guard_feedback(answer["problems"])
+            continue
         yield "AI-generated parser", selectors
+        found = _images_on(scraper, BeautifulSoup(html, "html.parser"), chapter_url, {**series_def, **selectors})
+        problem = definition_guard.check_page_images(found)
         feedback = (
-            f"page_images {selectors.get('page_images')!r} matched no images on this page. "
-            "Return a corrected selector as JSON."
+            f"Tested on this exact page: page_images {selectors.get('page_images')!r}"
+            + (f" / image_source {selectors.get('image_source')!r}" if selectors.get("image_source") else "")
+            + f" -> {len(found)} images ({problem or 'images found on this page but not on the second chapter tested'}). "
+            + ("Guard notes: " + "; ".join(answer["problems"][:8]) + ". " if answer.get("problems") else "")
+            + "Return a corrected JSON object."
         )
 
 
@@ -250,15 +296,16 @@ def build_parser(
         for chapter_url in samples:
             soup = scraper._fetch_html(chapter_url)
             if soup is None:
-                return _failure("fetch_chapter_page")
+                return _failure("bot_challenge" if scraper.last_problem == "bot_challenge" else "fetch_chapter_page")
             soups.append((chapter_url, soup))
         first_url, first_soup = soups[0]
         for reader_label, reader_def in _reader_candidates(
             db, scraper, series_def, first_url, str(first_soup)
         ):
             merged = {**series_def, **reader_def}
-            counts = [len(_images_on(scraper, soup, url, merged)) for url, soup in soups]
-            if all(counts):
+            found = [_images_on(scraper, soup, url, merged) for url, soup in soups]
+            counts = [len(images) for images in found]
+            if all(counts) and not any(definition_guard.check_page_images(images) for images in found):
                 sample_image = _images_on(scraper, first_soup, first_url, merged)[0]
                 referer = _hotlink_referer(scraper, sample_image, first_url)
                 if referer:
@@ -282,14 +329,39 @@ def build_parser(
                         ],
                     },
                 }
-        return _failure("test_chapter_pages")
-    return _failure("test_series_page")
+        return _failure("test_chapter_pages", verdict=getattr(scraper, "ai_verdict", None))
+    return _failure("test_series_page", verdict=getattr(scraper, "ai_verdict", None))
 
 
-def _failure(step: str) -> Dict[str, Any]:
+# One plain sentence per failed step; ``ai_playbook.NEXT_STEPS`` says what to do.
+STEP_MESSAGES = {
+    "fetch_chapter_page": "A chapter page of this series could not be loaded.",
+    "bot_challenge": (
+        "This website answered with a bot check (Cloudflare / CAPTCHA) instead of the page, "
+        "so it cannot be read by this server."
+    ),
+    "test_series_page": (
+        "No parser could read a title and a chapter list from this page (known site layouts, "
+        "structure detection and the Scraper AI were all tried)."
+    ),
+    "test_chapter_pages": (
+        "The chapter list was found, but no parser could read the page images of two "
+        "chapters (known layouts, script decoders and the Scraper AI were all tried)."
+    ),
+}
+
+
+def _failure(step: str, verdict: Optional[str] = None) -> Dict[str, Any]:
+    from . import ai_playbook
+
     report = scraper_ai_service.honest_failure_report("")
     report["ok"] = False
     report["failed_step"] = step
+    report["next_steps"] = ai_playbook.next_steps(step)
+    if step in STEP_MESSAGES:
+        report["message"] = STEP_MESSAGES[step]
+    if verdict:
+        report["message"] = f"The Scraper AI judged this site cannot be scraped: {verdict}"
     return report
 
 
@@ -350,6 +422,10 @@ def resolve_parser(
     if not host:
         return {"ok": False, "reason": "invalid_url", "message": "The series URL is not valid."}
 
+    wrong_host = presets.wrong_host_hint(host)
+    if wrong_host:
+        return {"ok": False, "reason": "wrong_site", "message": wrong_host}
+
     blocked = presets.unsupported_reason(host)
     if blocked:
         return {
@@ -376,13 +452,22 @@ def resolve_parser(
 
     soup = scraper._fetch_html(series_url)
     if soup is None:
+        from . import ai_playbook
+
+        if scraper.last_problem == "bot_challenge":
+            failure = _failure("bot_challenge")
+            failure["reason"] = "bot_challenge"
+            return failure
         return {
             "ok": False,
             "reason": "fetch_failed",
             "message": (
-                "The source page could not be loaded (blocked, offline, or not a public "
+                "The page was not found (404). Check the series URL."
+                if scraper.last_problem == "not_found"
+                else "The source page could not be loaded (blocked, offline, or not a public "
                 "address). Check the series URL."
             ),
+            "next_steps": ai_playbook.next_steps("fetch_series_page"),
         }
 
     # 2-4. Known parsers on this page, structure detection, AI.
@@ -404,12 +489,22 @@ def resolve_parser(
         }
 
     built["reason"] = "no_parser"
+    built["site_signals"] = _signals(str(soup), series_url)
     if not scraper_ai_service.is_configured():
         built["message"] = (
             "Structure analysis could not read this website, and no Scraper AI key is "
             "configured. Add one in Scraper AI API so a parser can be generated."
         )
     return built
+
+
+def _signals(html: str, url: str) -> List[str]:
+    from . import ai_playbook
+
+    try:
+        return ai_playbook.site_signals(html, url)
+    except Exception:  # diagnostics only
+        return []
 
 
 # ---------------------------------------------------------------------------
@@ -596,6 +691,20 @@ def run_generate_parser(db: Session, payload: Dict[str, Any], actor: Optional[Us
         series_url = links[0]
 
     result = resolve_parser(db, series_url, base_url=base, actor=actor, activate=True)
+    if not result.get("ok") and result.get("failed_step") == "test_series_page" and series_url == url:
+        # The address may be a list of series (a ranking / "ongoing" page)
+        # rather than one series: try the first series it links to.
+        listing = parser_generation_service._fetch_html(url)
+        links = [
+            link
+            for link in (parser_generation_service._find_series_links(url, listing) if listing else [])
+            if link.rstrip("/") != url.rstrip("/")
+        ]
+        if links:
+            series_url = links[0]
+            retry = resolve_parser(db, series_url, base_url=base, actor=actor, activate=True)
+            if retry.get("ok"):
+                result = retry
     if not result.get("ok"):
         return result
 
