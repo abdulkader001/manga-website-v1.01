@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import useAuth from "../hooks/useAuth";
 import api, { apiFetch } from "../services/api";
-import OverlayFontPicker from "../components/OverlayFontPicker";
+import ReadingSettings from "./ReadingSettings";
 import ProviderSection from "./ProviderSection";
 import type { SavedIntegration, ServiceKind } from "./ProviderSection";
 
@@ -490,7 +490,13 @@ function ProvidersTab() {
 
 export default function SettingsPage() {
 
-  const [activeTab, setActiveTab] = useState<"profile" | "api" | "typography" | "security">("profile");
+  type Tab = "profile" | "api" | "reading" | "security";
+  const [activeTab, setActiveTab] = useState<Tab>(() => {
+    const requested = new URLSearchParams(window.location.search).get("tab");
+    return (["profile", "api", "reading", "security"] as const).includes(requested as Tab)
+      ? (requested as Tab)
+      : "profile";
+  });
 
   return (
     <div className="max-w-5xl mx-auto px-4 py-6 sm:py-8 space-y-6">
@@ -500,7 +506,7 @@ export default function SettingsPage() {
           <span>User Account &amp; Translation Settings</span>
         </h1>
         <p className="text-xs sm:text-sm text-[#8b93a3] mt-1">
-          Customize your profile avatar, age verification, custom AI engines, and font zoom scaling.
+          Your profile, translation engines, and how translated pages look.
         </p>
       </header>
 
@@ -530,13 +536,13 @@ export default function SettingsPage() {
 
         <button
           type="button"
-          onClick={() => setActiveTab("typography")}
+          onClick={() => setActiveTab("reading")}
           className={`px-4 py-2 rounded-xl transition flex items-center gap-2 ${
-            activeTab === "typography" ? "bg-[#00AEF0] text-white shadow-md" : "bg-[#15171c] text-[#8b93a3] hover:text-white"
+            activeTab === "reading" ? "bg-[#00AEF0] text-white shadow-md" : "bg-[#15171c] text-[#8b93a3] hover:text-white"
           }`}
         >
-          <i className="fas fa-font text-xs"></i>
-          <span>Language &amp; Font Zoom</span>
+          <i className="fas fa-language text-xs"></i>
+          <span>Reading &amp; Translation</span>
         </button>
 
         <button
@@ -557,12 +563,8 @@ export default function SettingsPage() {
       {/* Tab 2: Custom AI & OCR Providers */}
       {activeTab === "api" && <ProvidersTab />}
 
-      {/* Tab 3: Language & Font Zoom Controls with Live Bubble Preview */}
-      {activeTab === "typography" && (
-        <div className="space-y-6">
-          <OverlayFontPicker />
-        </div>
-      )}
+      {/* Tab 3: automatic translation, overlay look, AI help, limits */}
+      {activeTab === "reading" && <ReadingSettings />}
 
       {/* Tab 4: Security */}
       {activeTab === "security" && <SecuritySection />}

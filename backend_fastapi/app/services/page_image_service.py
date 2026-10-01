@@ -5,7 +5,7 @@ client, decoded with Pillow (decompression-bomb safe), and re-encoded as WebP:
 
 * one format for everything the site serves (JPEG/PNG/GIF/AVIF/... sources all
   become WebP), which every browser, CDN and image host handles;
-* width capped (``PAGE_MAX_WIDTH``, default 1280px) -- wide enough for OCR to
+* width capped (``PAGE_MAX_WIDTH``, default 1440px) -- wide enough for OCR to
   read small lettering, and small enough that AI-vision models (which shrink
   anything much bigger) still see the text at close to full detail;
 * quality chosen per image against a bytes-per-pixel budget, but never below a
@@ -57,17 +57,17 @@ MAX_SLICE_HEIGHT = 3000
 CUT_SEARCH_WINDOW = 320
 # Quality ladder tried in order until the slice fits its byte budget. The
 # floor keeps text edges clean for OCR and for erasing the original lettering.
-QUALITY_LADDER = (84, 78, 72)
-BYTES_PER_PIXEL_BUDGET = 0.22
+QUALITY_LADDER = (90, 86, 82)
+BYTES_PER_PIXEL_BUDGET = 0.32
 DOWNLOAD_WORKERS = 4
 _FILENAME_RE = re.compile(r"^\d{4}-[a-f0-9]{10}\.webp$")
 
 
 def max_width() -> int:
     try:
-        return max(600, int(os.getenv("PAGE_MAX_WIDTH", "1280")))
+        return max(600, int(os.getenv("PAGE_MAX_WIDTH", "1440")))
     except ValueError:
-        return 1280
+        return 1440
 
 
 def mirroring_enabled() -> bool:

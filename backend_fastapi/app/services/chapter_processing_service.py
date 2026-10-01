@@ -361,6 +361,7 @@ def process_page(
         ),
         chapter_summary=_chapter_summary(series_title, genres, context_lines),
         coherence_outcome=coherence_outcome,
+        context_aware=bool(getattr(processing_settings, "context_translation", True)),
     )
 
     translated_regions: List[Dict[str, Any]] = []
@@ -379,7 +380,11 @@ def process_page(
         bool(processing_settings.share_translations)
         and plan.translation_source == "user"
     )
-    should_write_shared = plan.translation_source == "platform_default" or should_share
+    should_write_shared = (
+        plan.translation_source == "platform_default" or should_share
+    ) and coherence_outcome.get("reason") != "disabled_by_user"
+    # ^ A reader who turned the context pass off gets a literal draft; that
+    # must not become the shared copy other readers are served.
 
     # What follows is written from ``translated_regions``, i.e. Stage B's
     # output whenever the coherence pass ran -- the literal Stage A draft is

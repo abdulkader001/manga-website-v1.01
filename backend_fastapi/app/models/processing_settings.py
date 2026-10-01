@@ -47,6 +47,10 @@ DEFAULT_OVERLAY_SCALE = 20
 MIN_OVERLAY_SCALE = 10
 MAX_OVERLAY_SCALE = 40
 
+# Language the overlay translates into unless the reader picks another.
+DEFAULT_TARGET_LANGUAGE = "en"
+TARGET_LANGUAGES = ("en", "es", "fr", "de", "pt", "it", "ru", "ar", "hi", "bn", "id", "vi", "th", "tr", "ja", "ko", "zh")
+
 # D12: default confidence threshold that triggers AI assistance. Chosen as a
 # moderate midpoint -- low enough to catch genuinely weak OCR, high enough
 # that most successful recognitions never wake the AI path (2A.3's "AI must
@@ -134,6 +138,20 @@ class UserProcessingSettings(Base):
     auto_translate_comments = Column(
         Boolean, nullable=False, default=True, server_default="true"
     )
+
+    # ---- Reader overlay, set once in Settings (no per-chapter toggle) ----
+    # Translate pages automatically when a chapter opens.
+    overlay_enabled = Column(Boolean, nullable=False, default=True, server_default="true")
+    target_language = Column(
+        String(8), nullable=False, default=DEFAULT_TARGET_LANGUAGE, server_default=DEFAULT_TARGET_LANGUAGE
+    )
+    # "#rrggbb"; NULL = automatic (sampled from the bubble / readable contrast).
+    overlay_text_color = Column(String(7), nullable=True)
+    overlay_box_color = Column(String(7), nullable=True)
+    overlay_box_opacity = Column(Integer, nullable=False, default=100, server_default="100")
+    # Context-aware AI pass over the whole page (reads the conversation,
+    # keeps names/pronouns consistent). Off = literal line-by-line only.
+    context_translation = Column(Boolean, nullable=False, default=True, server_default="true")
 
     created_at = Column(DateTime, nullable=False, server_default=func.now())
     updated_at = Column(

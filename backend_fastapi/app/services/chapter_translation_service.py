@@ -237,6 +237,7 @@ def translate_chapter_texts(
     previous_page_last_lines: Optional[Sequence[str]] = None,
     chapter_summary: Optional[str] = None,
     coherence_outcome: Optional[Dict[str, Any]] = None,
+    context_aware: bool = True,
 ) -> List[str]:
     """Translate every entry in ``texts`` (already in reading order) as one
     page-sized unit, in two stages. Returns a list the same length as
@@ -280,6 +281,13 @@ def translate_chapter_texts(
         prompt=prompt,
         draft_translations=draft_translations,
     )
+
+    if not context_aware:
+        # The reader chose literal line-by-line translation (Settings).
+        if coherence_outcome is not None:
+            coherence_outcome["applied"] = False
+            coherence_outcome["reason"] = "disabled_by_user"
+        return drafts
 
     return _stage_b_coherence_pass(
         texts,

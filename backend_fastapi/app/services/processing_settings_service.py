@@ -12,8 +12,11 @@ from typing import Any, Dict
 
 from sqlalchemy.orm import Session
 
+import re
+
 from ..models.processing_settings import (
     DEFAULT_AI_CONFIDENCE_THRESHOLD,
+    TARGET_LANGUAGES,
     MAX_OVERLAY_SCALE,
     MIN_OVERLAY_SCALE,
     OVERLAY_STYLES,
@@ -26,6 +29,20 @@ from .overlay_fonts import is_known_font
 
 class ProcessingSettingsError(ValueError):
     """Raised when a settings update payload fails validation."""
+
+
+_HEX_COLOR = re.compile(r"^#[0-9a-fA-F]{6}$")
+
+
+def _validate_color(field: str, value: Any):
+    """'#rrggbb', or ''/None for automatic."""
+
+    if value is None or value == "":
+        return None
+    text = str(value).strip()
+    if not _HEX_COLOR.match(text):
+        raise ProcessingSettingsError(f"{field} must be a #rrggbb colour")
+    return text.lower()
 
 
 def get_or_create(db: Session, user_id: int) -> UserProcessingSettings:
@@ -87,6 +104,9 @@ def update(
             )
         record.usage_limit_window = window
 
+    if updates.get("clear_usage_limit"):
+        record.usage_limit_value = None
+
     if "usage_limit_value" in updates:
         raw = updates["usage_limit_value"]
         if raw is None:
@@ -143,6 +163,31 @@ def update(
     ):
         record.auto_translate_comments = bool(updates["auto_translate_comments"])
 
+    if "overlay_enabled" in updates and updates["overlay_enabled"] is not None:
+        record.overlay_enabled = bool(updates["overlay_enabled"])
+
+    if "target_language" in updates and updates["target_language"] is not None:
+        lang = str(updates["target_language"]).strip().lower()
+        if lang not in TARGET_LANGUAGES:
+            raise ProcessingSettingsError(f"target_language must be one of {TARGET_LANGUAGES}")
+        record.target_language = lang
+
+    for field in ("overlay_text_color", "overlay_box_color"):
+        if field in updates:
+            setattr(record, field, _validate_color(field, updates[field]))
+
+    if "overlay_box_opacity" in updates and updates["overlay_box_opacity"] is not None:
+        try:
+            opacity = int(updates["overlay_box_opacity"])
+        except (TypeError, ValueError):
+            raise ProcessingSettingsError("overlay_box_opacity must be an integer")
+        if not 0 <= opacity <= 100:
+            raise ProcessingSettingsError("overlay_box_opacity must be between 0 and 100")
+        record.overlay_box_opacity = opacity
+
+    if "context_translation" in updates and updates["context_translation"] is not None:
+        record.context_translation = bool(updates["context_translation"])
+
     db.commit()
     db.refresh(record)
     return record
@@ -170,6 +215,12 @@ def to_dict(record: UserProcessingSettings) -> Dict[str, Any]:
         "overlay_font_size": record.overlay_font_size,
         "translate_sound_effects": bool(record.translate_sound_effects),
         "auto_translate_comments": bool(record.auto_translate_comments),
+        "overlay_enabled": bool(record.overlay_enabled),
+        "target_language": record.target_language,
+        "overlay_text_color": record.overlay_text_color,
+        "overlay_box_color": record.overlay_box_color,
+        "overlay_box_opacity": record.overlay_box_opacity,
+        "context_translation": bool(record.context_translation),
     }
 
 
