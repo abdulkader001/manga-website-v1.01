@@ -30,7 +30,7 @@ import sys
 from pathlib import Path
 from typing import Dict, MutableMapping, Optional
 
-from .vault_keys import MANAGED_KEYS
+from .vault_keys import MANAGED_KEYS, with_domain
 
 logger = logging.getLogger("backend_fastapi.vault_preload")
 
@@ -100,15 +100,16 @@ def preload(
         return {}
 
     cipher = _fernet(secret, previous)
-    applied: Dict[str, str] = {}
+    stored: Dict[str, str] = {}
     for key, token in rows:
         if key not in MANAGED_KEYS or not token:
             continue
         try:
-            value = cipher.decrypt(str(token).encode("utf-8")).decode("utf-8")
+            stored[key] = cipher.decrypt(str(token).encode("utf-8")).decode("utf-8")
         except InvalidToken:
             logger.warning("vault_preload_undecryptable key=%s", key)
-            continue
+    applied: Dict[str, str] = {}
+    for key, value in with_domain(stored).items():  # SITE_DOMAIN fills in the addresses
         if key not in ORIGINALS:
             ORIGINALS[key] = environ.get(key)
         environ[key] = value

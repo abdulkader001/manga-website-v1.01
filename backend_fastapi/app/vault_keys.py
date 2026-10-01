@@ -39,6 +39,7 @@ class SecretSpec:
     help: str = ""
 
 
+_G_DOMAIN = "Website domain"
 _G_GOOGLE = "Google sign-in"
 _G_MS = "Microsoft sign-in"
 _G_EMAIL = "Email & magic links"
@@ -50,6 +51,18 @@ _G_IMG = "Images, uploads & storage"
 _G_SEC = "Sign-in sessions & scanning"
 
 SPECS = (
+    # Website domain: one value drives every address below (see derived_from_domain)
+    SecretSpec(
+        "SITE_DOMAIN",
+        _G_DOMAIN,
+        "Website domain",
+        kind="domain",
+        help="The public domain of the site, e.g. example.com. Changing it re-points the site address, "
+        "allowed origins, e-mail login links and sign-in callbacks without a restart.",
+    ),
+    SecretSpec("FRONTEND_URL", _G_DOMAIN, "Site address override", kind="url", help="Advanced: normally derived from the domain."),
+    SecretSpec("ALLOWED_ORIGINS", _G_DOMAIN, "Allowed origins override", help="Advanced: comma-separated."),
+    SecretSpec("CORS_ALLOWED_ORIGINS", _G_DOMAIN, "CORS origins override", help="Advanced: JSON list or comma-separated."),
     # Google sign-in
     SecretSpec("GOOGLE_OAUTH_CLIENT_ID", _G_GOOGLE, "Client ID"),
     SecretSpec("GOOGLE_OAUTH_CLIENT_SECRET", _G_GOOGLE, "Client secret", secret=True),
@@ -198,4 +211,44 @@ SPECS = (
 
 MANAGED_KEYS: Dict[str, SecretSpec] = {spec.key: spec for spec in SPECS}
 
-__all__ = ["MANAGED_KEYS", "SPECS", "SecretSpec"]
+# Keys SITE_DOMAIN fills in. A value saved explicitly for one of these wins.
+DOMAIN_DERIVED_KEYS = (
+    "FRONTEND_URL",
+    "ALLOWED_ORIGINS",
+    "CORS_ALLOWED_ORIGINS",
+    "MAGIC_LINK_REDIRECT_URL",
+    "GOOGLE_OAUTH_REDIRECT_URI",
+    "MICROSOFT_OAUTH_REDIRECT_URI",
+)
+
+
+def derived_from_domain(domain: str) -> Dict[str, str]:
+    """Every address the app builds from the site's public domain.
+
+    ``domain`` is a bare hostname (already validated). The site is served over
+    HTTPS on the bare domain, with ``www.`` accepted as an extra origin.
+    """
+
+    import json
+
+    base = f"https://{domain}"
+    origins = [base] if domain.startswith("www.") else [base, f"https://www.{domain}"]
+    return {
+        "FRONTEND_URL": base,
+        "ALLOWED_ORIGINS": ",".join(origins),
+        "CORS_ALLOWED_ORIGINS": json.dumps(origins),
+        "MAGIC_LINK_REDIRECT_URL": f"{base}/auth/magic-complete",
+        "GOOGLE_OAUTH_REDIRECT_URI": f"{base}/api/auth/google/callback",
+        "MICROSOFT_OAUTH_REDIRECT_URI": f"{base}/api/v1/auth/microsoft/callback",
+    }
+
+
+def with_domain(values: Dict[str, str]) -> Dict[str, str]:
+    """``values`` plus whatever SITE_DOMAIN implies for keys not set explicitly."""
+
+    domain = values.get("SITE_DOMAIN")
+    if not domain:
+        return values
+    return {**derived_from_domain(domain), **values}
+
+__all__ = ["DOMAIN_DERIVED_KEYS", "MANAGED_KEYS", "SPECS", "SecretSpec", "derived_from_domain", "with_domain"]

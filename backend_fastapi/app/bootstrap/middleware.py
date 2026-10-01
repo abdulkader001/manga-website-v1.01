@@ -239,6 +239,26 @@ def sanitize_origins(*candidates: Iterable[str | None]) -> list[str]:
     return origins
 
 
+class LiveCORSMiddleware(CORSMiddleware):
+    """CORS that follows the Secret Vault's website domain without a restart.
+
+    The origin list is fixed when the app starts; after the main admin changes
+    the domain, the vault updates the live settings, and this re-resolves the
+    list so the new origin is accepted immediately.
+    """
+
+    def is_allowed_origin(self, origin: str) -> bool:
+        if super().is_allowed_origin(origin):
+            return True
+        try:
+            from ..core.settings import get_settings
+
+            live, credentials = resolve_cors_configuration(get_settings())
+        except Exception:  # pragma: no cover - never break a request over CORS
+            return False
+        return credentials and origin.rstrip("/") in live
+
+
 def resolve_cors_configuration(settings) -> tuple[list[str], bool]:
     """Compute CORS origins and credentials policy from settings and env."""
 
@@ -416,7 +436,7 @@ def configure_middleware(app: FastAPI, settings) -> list[str]:
     # Outermost: CORS headers must be attached to short-circuit responses
     # (429/503/504) too, or the browser sees an opaque network error.
     app.add_middleware(
-        CORSMiddleware,
+        LiveCORSMiddleware,
         allow_origins=allowed_origins,
         allow_credentials=allow_credentials,
         allow_methods=["*"],
