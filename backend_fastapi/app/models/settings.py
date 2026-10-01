@@ -426,3 +426,25 @@ for _ddl in (
 
 for _ddl in (_ADMIN_AUDIT_LOGS_SQLITE_NO_DELETE, _ADMIN_AUDIT_LOGS_SQLITE_NO_MUTATE):
     event.listen(AdminAuditLog.__table__, "after_create", _ddl.execute_if(dialect="sqlite"))
+
+
+class VaultSecret(Base):
+    """Admin-managed override for an allow-listed environment variable.
+
+    ``value_encrypted`` is a Fernet token under ``INTEGRATIONS_SECRET`` (see
+    ``services/secret_vault.py``); the plaintext never touches the database.
+    A row here wins over the same key in ``.env``; deleting it falls back to
+    ``.env`` again.
+    """
+
+    __tablename__ = "vault_secrets"
+
+    id = Column(Integer, primary_key=True)
+    key = Column(String(100), unique=True, nullable=False)
+    value_encrypted = Column(Text, nullable=False)
+    updated_at = Column(
+        DateTime, nullable=False, server_default=func.now(), onupdate=func.now()
+    )
+    updated_by_id = Column(
+        Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )

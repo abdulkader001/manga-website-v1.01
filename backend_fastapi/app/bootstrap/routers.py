@@ -8,6 +8,7 @@ from ..api.routers import (
     account_router,
     reader_router,
     scraper_admin_router,
+    secret_vault_router,
     seo_router,
     site_admin_router,
     ad_slots_router,
@@ -79,6 +80,7 @@ def build_api_router() -> APIRouter:
     api_router.include_router(reader_router)
     api_router.include_router(site_admin_router)
     api_router.include_router(scraper_admin_router)
+    api_router.include_router(secret_vault_router)
     return api_router
 
 

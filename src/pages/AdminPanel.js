@@ -5,6 +5,9 @@ import api from "../services/api";
 import useAuth from "../hooks/useAuth";
 import { ADMIN_FEATURE_LINKS } from "../constants/adminFeatures";
 
+// Real counts only: a missing value renders as a dash, never a placeholder.
+const fmt = (value) => (value == null ? "—" : Number(value).toLocaleString());
+
 function Card({ title, subtitle, children, actions, className = "" }) {
   return (
     <div className={`bg-[#15171c] border border-[#262a33] shadow-xl rounded-2xl p-5 ${className}`}>
@@ -43,6 +46,8 @@ function QuickLink({ to, label, description, keyName }) {
         return "fas fa-plug text-[#00AEF0]";
       case "settings":
         return "fas fa-cog text-cyan-400";
+      case "vault":
+        return "fas fa-key text-amber-300";
       default:
         return "fas fa-shield-alt text-blue-400";
     }
@@ -141,7 +146,7 @@ export default function AdminPanel() {
                 Manga Series
               </span>
               <span className="text-white font-extrabold text-lg block">
-                {db.manga_count || 125} Titles
+                {fmt(db.manga_count)} Titles
               </span>
               <span className="text-[10px] text-emerald-400 flex items-center gap-1">
                 <i className="fas fa-check-circle"></i> In Catalog
@@ -153,7 +158,7 @@ export default function AdminPanel() {
                 Total Chapters
               </span>
               <span className="text-white font-extrabold text-lg block">
-                {db.chapters_count || 375} Indexed
+                {fmt(db.chapters_count)} Indexed
               </span>
               <span className="text-[10px] text-blue-400 flex items-center gap-1">
                 <i className="fas fa-layer-group"></i> Ready
@@ -165,7 +170,7 @@ export default function AdminPanel() {
                 Cumulative Reads
               </span>
               <span className="text-white font-extrabold text-lg block">
-                {db.cumulative_views_formatted || "3.7M"}
+                {db.cumulative_views_formatted ?? "—"}
               </span>
               <span className="text-[10px] text-amber-400 flex items-center gap-1">
                 <i className="fas fa-eye"></i> Chapter Views
@@ -177,11 +182,11 @@ export default function AdminPanel() {
                 Live Users
               </span>
               <span className="text-white font-extrabold text-lg block">
-                {health.users?.total_registered || 4} Users
+                {fmt(health.users?.total_registered)} Users
               </span>
               <span className="text-[10px] text-emerald-400 flex items-center gap-1">
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping"></span>
-                <span>{health.users?.active_sessions_count || 1} Active</span>
+                <span>{fmt(health.users?.active_sessions_count)} Active (15 min)</span>
               </span>
             </div>
 
@@ -190,10 +195,10 @@ export default function AdminPanel() {
                 Avg Rating
               </span>
               <span className="text-amber-400 font-extrabold text-lg block">
-                {health.ratings?.global_avg_rating || 8.8} ★
+                {health.ratings?.global_avg_rating ?? "—"} ★
               </span>
               <span className="text-[10px] text-[#8b93a3]">
-                {health.ratings?.total_ratings_cast || 0} Votes Cast
+                {fmt(health.ratings?.total_ratings_cast)} Votes Cast
               </span>
             </div>
 
@@ -202,10 +207,10 @@ export default function AdminPanel() {
                 CPU &amp; Memory
               </span>
               <span className="text-white font-extrabold text-lg block">
-                {health.system?.cpu_percent != null ? `${health.system.cpu_percent}%` : "1.2%"}
+                {health.system?.cpu_percent != null ? `${health.system.cpu_percent}%` : "—"}
               </span>
               <span className="text-[10px] text-purple-400 font-mono">
-                {health.system?.memory_heap_used || "45 MB"}
+                {health.system?.memory_heap_used ?? "—"}
               </span>
             </div>
           </div>
@@ -213,9 +218,15 @@ export default function AdminPanel() {
           {/* Quick Actions & Live Link */}
           <div className="flex items-center justify-between flex-wrap gap-3 border-t border-[#262a33] pt-4 mb-4">
             <div className="flex items-center gap-2">
-              <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 shadow-[0_0_8px_#34d399]"></span>
-              <span className="text-xs font-bold text-white">System Status: {health.system_status || "Fully Operational"}</span>
-              <span className="text-xs text-[#8b93a3]">• Uptime: {health.uptime}</span>
+              <span
+                className={`w-2.5 h-2.5 rounded-full ${
+                  health.status === "ok"
+                    ? "bg-emerald-400 shadow-[0_0_8px_#34d399]"
+                    : "bg-amber-400 shadow-[0_0_8px_#fbbf24]"
+                }`}
+              ></span>
+              <span className="text-xs font-bold text-white">System Status: {health.system_status ?? "Unknown"}</span>
+              <span className="text-xs text-[#8b93a3]">• Uptime: {health.uptime ?? "—"}</span>
             </div>
 
             <Link

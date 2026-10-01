@@ -139,3 +139,26 @@ def test_health_security_allows_main_admin(fastapi_client) -> None:
     payload = response.json()
     assert "checks" in payload
     assert "warnings" in payload
+
+
+def test_health_reports_real_dashboard_counts(fastapi_client) -> None:
+    """The admin hub tiles read these; they must be real counts, never absent."""
+
+    from backend_fastapi.app.core.db import SessionLocal
+    from backend_fastapi.app.models import Manga, User
+
+    with SessionLocal() as session:
+        manga_count = session.query(Manga).count()
+        user_count = session.query(User).count()
+
+    response = fastapi_client.get("/api/health", headers=_admin_headers())
+    assert response.status_code == 200
+    body = response.json()
+    assert body["database"]["manga_count"] == manga_count
+    # _admin_headers() created one more user after we counted.
+    assert body["users"]["total_registered"] == user_count + 1
+    assert isinstance(body["database"]["cumulative_views"], int)
+    assert isinstance(body["users"]["active_sessions_count"], int)
+    assert "total_ratings_cast" in body["ratings"]
+    assert body["system_status"] in {"Fully Operational", "Degraded"}
+    assert body["uptime"]

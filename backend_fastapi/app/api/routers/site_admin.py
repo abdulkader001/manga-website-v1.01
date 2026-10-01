@@ -30,10 +30,12 @@ from ...models import (
     GlobalAdProvider,
     Manga,
     MangaDailyView,
+    MangaRating,
     ReadHistory,
     SystemSettings,
     User,
 )
+from ...models.manga import format_count
 from ...services import site_content_service as content
 from ...utils.audit_logger import log_admin_action
 from ...utils.cache_invalidation import ainvalidate_manga_caches
@@ -918,15 +920,56 @@ def health_extras(db: Session) -> Dict[str, Any]:
                 "latency": f"{int((time.monotonic() - started) * 1000)}ms",
             }
         )
+    counts = {t["table"]: t["rows"] for t in tables}
+
+    # Manga.views is the lifetime counter bumped on every chapter read.
+    total_views = int(db.query(func.coalesce(func.sum(Manga.views), 0)).scalar() or 0)
+
+    # "Active" = distinct signed-in readers who opened a chapter in the last
+    # 15 minutes; there is no server-side session table to count instead.
+    active_since = datetime.utcnow() - timedelta(minutes=15)
+    active_readers = int(
+        db.query(func.count(distinct(ReadHistory.user_id)))
+        .filter(ReadHistory.last_read_at >= active_since)
+        .scalar()
+        or 0
+    )
+
+    avg_score, ratings_cast = db.query(
+        func.avg(MangaRating.score), func.count(MangaRating.id)
+    ).one()
+
+    uptime_seconds = int(time.time() - PROCESS_STARTED_AT)
+    days, rem = divmod(uptime_seconds, 86400)
+    hours, rem = divmod(rem, 3600)
+    minutes = rem // 60
+    uptime = f"{days}d {hours}h {minutes}m" if days else f"{hours}h {minutes}m"
+
     return {
+        "uptime": uptime,
         "system": {
             "cpu_percent": psutil.cpu_percent(interval=0.0),
             "memory_percent": psutil.virtual_memory().percent,
             "memory_heap_used_mb": round(memory, 1),
-            "uptime_hours": round((time.time() - PROCESS_STARTED_AT) / 3600, 2),
+            "memory_heap_used": f"{round(memory)} MB",
+            "uptime_hours": round(uptime_seconds / 3600, 2),
             "cache_status": "Active (Healthy)",
         },
-        "database": {"tables_health": tables},
+        "database": {
+            "tables_health": tables,
+            "manga_count": counts.get("manga", 0),
+            "chapters_count": counts.get("chapters", 0),
+            "cumulative_views": total_views,
+            "cumulative_views_formatted": format_count(total_views),
+        },
+        "users": {
+            "total_registered": counts.get("users", 0),
+            "active_sessions_count": active_readers,
+        },
+        "ratings": {
+            "global_avg_rating": round(float(avg_score), 1) if avg_score is not None else None,
+            "total_ratings_cast": int(ratings_cast or 0),
+        },
     }
 
 

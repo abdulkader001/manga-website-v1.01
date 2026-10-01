@@ -87,6 +87,7 @@ from .settings import (
     ProviderCredentials as ProviderCredentials,
     AdminPromotionToken as AdminPromotionToken,
     AdminAuditLog as AdminAuditLog,
+    VaultSecret as VaultSecret,
 )
 
 # Reader engagement: ratings, likes, broken-chapter reports, announcements,

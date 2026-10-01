@@ -5,7 +5,7 @@ from urllib.parse import urlparse, urlunparse
 
 import structlog
 from celery import Celery, Task
-from celery.signals import task_failure, worker_process_init
+from celery.signals import task_failure, task_prerun, worker_process_init
 
 from .settings import settings
 from ..tasks._instrumentation import (
@@ -422,3 +422,15 @@ celery_app.conf.beat_schedule = {
 @celery_app.task(name="backend_fastapi.app.tasks.echo.ping")
 def ping():
     return "pong"
+
+
+@task_prerun.connect
+def _refresh_vault_overrides(**_kwargs) -> None:  # pragma: no cover - exercised by workers
+    """Workers read SMTP/OAuth/API settings too, so keep vault overrides current.
+
+    ``refresh_if_stale`` hits the database at most every 30 seconds.
+    """
+
+    from ..services.secret_vault import refresh_if_stale
+
+    refresh_if_stale()

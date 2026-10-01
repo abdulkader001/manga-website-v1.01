@@ -25,6 +25,7 @@ from .ocr import router as ocr_router
 from .processing import router as processing_router
 from .reader import router as reader_router
 from .scraper_admin import router as scraper_admin_router
+from .secret_vault import router as secret_vault_router
 from .seo import router as seo_router
 from .site_admin import router as site_admin_router
 from .provider_management import router as provider_management_router
@@ -37,6 +38,7 @@ __all__ = [
     "account_router",
     "reader_router",
     "scraper_admin_router",
+    "secret_vault_router",
     "seo_router",
     "site_admin_router",
     "admin_router",

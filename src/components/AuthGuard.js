@@ -29,14 +29,10 @@ export default function AuthGuard({ children, requireAdmin, requireMainAdmin, al
     return <Navigate to="/complete-profile" replace />;
   }
 
-  // 3. Strict Main Admin Exclusive Gate (Only Main Admin / admin@mangareader.local can access User DB & Roles)
+  // 3. Main-admin-only pages. isAdmin is the owner tier (admin / permanent
+  // admin); the backend enforces the same rule, this only avoids a dead page.
   if (requireMainAdmin) {
-    const isMain = Boolean(
-      user.is_main_admin ||
-      user.role === "admin" ||
-      user.email === "admin@mangareader.local"
-    );
-    if (!isMain) {
+    if (!isAdmin) {
       return <Navigate to="/admin" replace />;
     }
     return <AdminSecondFactor>{children}</AdminSecondFactor>;

@@ -1,32 +1,27 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect } from "react";
 import { Link } from "react-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import api, { apiFetch } from "../../services/api";
 import useAuth from "../../hooks/useAuth";
 import AuthGuard from "../../components/AuthGuard";
 
+const last = (arr) => (arr.length ? arr[arr.length - 1] : null);
+const avg = (arr) =>
+  arr.length ? Math.round((arr.reduce((sum, v) => sum + v, 0) / arr.length) * 10) / 10 : null;
+
 export default function Health() {
   const queryClient = useQueryClient();
-  const { user: currentUser } = useAuth();
+  const { isAdmin: isMainAdmin } = useAuth();
   const [autoRefresh, setAutoRefresh] = useState(true);
   const [diagnosticReport, setDiagnosticReport] = useState(null);
   const [isRunningDiagnostics, setIsRunningDiagnostics] = useState(false);
   const [notice, setNotice] = useState(null);
   const [clearingCache, setClearingCache] = useState(false);
 
-  // Real-time canvas line chart telemetry history
-  const [cpuHistory, setCpuHistory] = useState([18, 22, 19, 25, 24, 28, 22, 26, 24, 30, 25, 27]);
-  const [ramHistory, setRamHistory] = useState([42, 43, 44, 43, 45, 46, 44, 45, 47, 46, 45, 46]);
-  const [ioHistory, setIoHistory] = useState([120, 145, 110, 180, 220, 160, 190, 210, 175, 240, 195, 225]);
-
-  // Live interactive connection test states
-  const [activeTests, setActiveTests] = useState({});
-
-  const isMainAdmin = Boolean(
-    currentUser?.is_main_admin ||
-    currentUser?.role === "admin" ||
-    currentUser?.email === "admin@mangareader.local"
-  );
+  // Telemetry history: starts empty and only ever holds values the backend reported.
+  const [cpuHistory, setCpuHistory] = useState([]);
+  const [ramHistory, setRamHistory] = useState([]);
+  const [latencyHistory, setLatencyHistory] = useState([]);
 
   // Poll live system health every 3 seconds
   const {
@@ -35,22 +30,27 @@ export default function Health() {
     refetch,
   } = useQuery({
     queryKey: ["healthLive"],
-    queryFn: () => api.health.simple(),
+    // Round-trip time is measured here so the latency graph is a real measurement.
+    queryFn: async () => {
+      const started = performance.now();
+      const data = await api.health.simple();
+      return { ...data, roundTripMs: Math.round(performance.now() - started) };
+    },
     refetchInterval: autoRefresh ? 3000 : false,
     staleTime: 2000,
   });
 
   // Push new telemetry points on every poll
   useEffect(() => {
-    if (health?.system) {
-      const cpu = health.system.cpu_percent || Math.floor(Math.random() * 12 + 18);
-      const heap = health.system.memory_heap_used_mb || 45;
-      const io = Math.floor(Math.random() * 80 + 140);
-
-      setCpuHistory((prev) => [...prev.slice(-15), cpu]);
-      setRamHistory((prev) => [...prev.slice(-15), heap]);
-      setIoHistory((prev) => [...prev.slice(-15), io]);
-    }
+    if (!health) return;
+    const push = (setter, value) => {
+      if (typeof value === "number" && Number.isFinite(value)) {
+        setter((prev) => [...prev.slice(-15), value]);
+      }
+    };
+    push(setCpuHistory, health.system?.cpu_percent);
+    push(setRamHistory, health.system?.memory_heap_used_mb);
+    push(setLatencyHistory, health.roundTripMs);
   }, [health]);
 
   const diagnosticMutation = useMutation({
@@ -71,33 +71,6 @@ export default function Health() {
 
   const handleRunDiagnostics = () => {
     diagnosticMutation.mutate();
-  };
-
-  // Run isolated probe test
-  const handleTestService = async (serviceKey, endpoint) => {
-    setActiveTests((prev) => ({ ...prev, [serviceKey]: { status: "testing" } }));
-    const start = Date.now();
-    try {
-      const res = await fetch(endpoint, { method: "GET" }).catch(() => null);
-      const latency = Date.now() - start;
-      setActiveTests((prev) => ({
-        ...prev,
-        [serviceKey]: {
-          status: "pass",
-          latency,
-          message: `Passed: ${latency}ms latency`,
-        },
-      }));
-    } catch {
-      setActiveTests((prev) => ({
-        ...prev,
-        [serviceKey]: {
-          status: "pass",
-          latency: 42,
-          message: "Probe verified (42ms)",
-        },
-      }));
-    }
   };
 
   const handleClearCache = async () => {
@@ -139,7 +112,9 @@ export default function Health() {
 
   // SVG sparkline helper
   const renderSparkline = (data, strokeColor, fillColor) => {
-    if (!data.length) return null;
+    if (data.length < 2) {
+      return <div className="h-10 flex items-center text-[10px] text-gray-500 font-mono">Collecting samples…</div>;
+    }
     const min = Math.min(...data);
     const max = Math.max(...data) || 1;
     const range = max - min || 1;
@@ -242,14 +217,14 @@ export default function Health() {
                 <span>CPU Core Load</span>
               </span>
               <span className="text-base font-extrabold text-white font-mono">
-                {cpuHistory[cpuHistory.length - 1] || 24}%
+                {last(cpuHistory) ?? "—"}%
               </span>
             </div>
             {renderSparkline(cpuHistory, "#00AEF0", "rgba(0, 174, 240, 0.12)")}
             <div className="flex justify-between text-[10px] text-gray-500 font-mono">
-              <span>Avg: 22%</span>
-              <span>Load: Normal</span>
-              <span>12 Threads</span>
+              <span>Avg: {avg(cpuHistory) ?? "—"}%</span>
+              <span>Peak: {cpuHistory.length ? Math.max(...cpuHistory) : "—"}%</span>
+              <span>{cpuHistory.length} samples</span>
             </div>
           </div>
 
@@ -261,14 +236,14 @@ export default function Health() {
                 <span>RAM Heap Profiler</span>
               </span>
               <span className="text-base font-extrabold text-white font-mono">
-                {ramHistory[ramHistory.length - 1] || 45} MB
+                {last(ramHistory) ?? "—"} MB
               </span>
             </div>
             {renderSparkline(ramHistory, "#a855f7", "rgba(168, 85, 247, 0.12)")}
             <div className="flex justify-between text-[10px] text-gray-500 font-mono">
-              <span>Limit: 512 MB</span>
-              <span>GC: Healthy</span>
-              <span>8.7% Used</span>
+              <span>Process RSS</span>
+              <span>Peak: {ramHistory.length ? Math.max(...ramHistory) : "—"} MB</span>
+              <span>Host RAM: {sys.memory_percent ?? "—"}%</span>
             </div>
           </div>
 
@@ -277,75 +252,21 @@ export default function Health() {
             <div className="flex items-center justify-between">
               <span className="text-xs font-bold text-gray-300 flex items-center gap-1.5">
                 <i className="fas fa-tachometer-alt text-emerald-400"></i>
-                <span>Network I/O &amp; Throughput</span>
+                <span>API Round-trip Latency</span>
               </span>
               <span className="text-base font-extrabold text-white font-mono">
-                {ioHistory[ioHistory.length - 1] || 180} req/s
+                {last(latencyHistory) ?? "—"} ms
               </span>
             </div>
-            {renderSparkline(ioHistory, "#10b981", "rgba(16, 185, 129, 0.12)")}
+            {renderSparkline(latencyHistory, "#10b981", "rgba(16, 185, 129, 0.12)")}
             <div className="flex justify-between text-[10px] text-gray-500 font-mono">
-              <span>Latency: 14ms</span>
-              <span>Status: 200 OK</span>
-              <span>Edge CDN: Active</span>
+              <span>Avg: {avg(latencyHistory) ?? "—"} ms</span>
+              <span>Status: {health?.status ?? "—"}</span>
+              <span>Uptime: {health?.uptime ?? "—"}</span>
             </div>
           </div>
         </div>
 
-        {/* Interactive Self-Diagnosis Suite: Test Individual APIs & Engines on Demand */}
-        <div className="bg-[#15171c] border border-[#262a33] p-5 rounded-2xl shadow-xl space-y-4">
-          <div className="flex items-center justify-between border-b border-[#262a33] pb-3">
-            <div>
-              <h2 className="text-base font-bold text-white flex items-center gap-2">
-                <i className="fas fa-vial text-[#00AEF0]"></i>
-                <span>Live Interactive Probes &amp; Service Testing</span>
-              </h2>
-              <p className="text-xs text-[#8b93a3]">
-                Validate database endpoints, OCR pipelines, AI APIs, and CDN caching with real ping measurements.
-              </p>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-            {[
-              { key: "db_ping", title: "Database & Cloud SQL", icon: "fas fa-database", endpoint: "/api/v1/health" },
-              { key: "ocr_ping", title: "OCR Detection Engine", icon: "fas fa-eye", endpoint: "/api/v1/health" },
-              { key: "ai_ping", title: "AI Phrasing Models", icon: "fas fa-brain", endpoint: "/api/v1/health" },
-              { key: "cdn_ping", title: "CDN Edge Nodes", icon: "fas fa-globe", endpoint: "/api/v1/health" },
-            ].map((probe) => {
-              const testState = activeTests[probe.key];
-              return (
-                <div key={probe.key} className="p-3.5 bg-[#101216] border border-[#262a33] rounded-xl flex flex-col justify-between space-y-2.5">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold text-white flex items-center gap-2">
-                      <i className={`${probe.icon} text-[#00AEF0]`}></i>
-                      <span>{probe.title}</span>
-                    </span>
-                    {testState?.status === "pass" && (
-                      <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-500/20 text-emerald-400">
-                        {testState.latency}ms
-                      </span>
-                    )}
-                  </div>
-
-                  <div className="flex items-center justify-between pt-1">
-                    <span className="text-[11px] text-gray-400">
-                      {testState?.status === "testing" ? "Pinging endpoint…" : testState?.message || "Ready to probe"}
-                    </span>
-                    <button
-                      type="button"
-                      disabled={testState?.status === "testing"}
-                      onClick={() => handleTestService(probe.key, probe.endpoint)}
-                      className="px-2.5 py-1 rounded-lg bg-[#00AEF0]/20 hover:bg-[#00AEF0] text-[#00AEF0] hover:text-white font-bold text-[10px] transition border border-[#00AEF0]/40 disabled:opacity-50"
-                    >
-                      {testState?.status === "testing" ? "Testing…" : "Test Ping"}
-                    </button>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
 
         {/* Cache & Data Purge Controls */}
         <div className="bg-[#15171c] border border-[#262a33] p-5 rounded-2xl shadow-xl space-y-4">
