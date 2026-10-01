@@ -1,3 +1,4 @@
+import { PAGE_PLACEHOLDER } from "../../utils/placeholders";
 import React, { useState, useMemo, useEffect } from "react";
 import { Link } from "react-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -207,8 +208,12 @@ export default function SeriesManagement() {
       return;
     }
 
-    if (muTarget && !muTarget.includes("mangaupdates.com/series")) {
-      setNotice({ type: "error", message: "Invalid MangaUpdates URL. Format must be https://www.mangaupdates.com/series/<id>/<slug>" });
+    if (muTarget && !/mangaupdates\.com\/series|anime-planet\.com\/manga\/[^/]+/.test(muTarget)) {
+      setNotice({
+        type: "error",
+        message:
+          "Metadata link must be a MangaUpdates series (https://www.mangaupdates.com/series/<id>/<slug>) or an Anime-Planet manga page (https://www.anime-planet.com/manga/<name>).",
+      });
       return;
     }
 
@@ -996,14 +1001,14 @@ export default function SeriesManagement() {
               {/* 1. MangaUpdates Series URL (Metadata Only) */}
               <div>
                 <label className="font-semibold text-purple-400 flex items-center justify-between mb-1">
-                  <span>MangaUpdates Series URL (Metadata Only)</span>
-                  <span className="text-[10px] text-gray-400">https://www.mangaupdates.com/series/...</span>
+                  <span>Metadata link: MangaUpdates or Anime-Planet (metadata only)</span>
+                  <span className="text-[10px] text-gray-400">one link per series</span>
                 </label>
                 <input
                   type="url"
                   value={mangaupdatesUrl}
                   onChange={(e) => setMangaupdatesUrl(e.target.value)}
-                  placeholder="e.g. https://www.mangaupdates.com/series/abc1234/solo-leveling"
+                  placeholder="https://www.mangaupdates.com/series/… or https://www.anime-planet.com/manga/…"
                   className="w-full px-3.5 py-2.5 rounded-xl bg-[#101216] border border-purple-500/40 text-xs text-white focus:outline-none focus:border-purple-400 font-mono"
                 />
               </div>
@@ -1062,13 +1067,13 @@ export default function SeriesManagement() {
 
                   <div className="flex gap-3">
                     <img
-                      src={previewData.coverImage || previewData.cover_url || previewData.cover || "https://images.unsplash.com/photo-1578632767115-351597cf2477?w=600&auto=format&fit=crop&q=80"}
+                      src={previewData.coverImage || previewData.cover_url || previewData.cover || PAGE_PLACEHOLDER}
                       alt="Cover Preview"
                       className="w-16 h-24 object-cover rounded-lg border border-[#262a33] flex-none shadow-md"
                       referrerPolicy="no-referrer"
                       onError={(e) => {
                         e.currentTarget.onerror = null;
-                        e.currentTarget.src = "https://images.unsplash.com/photo-1578632767115-351597cf2477?w=600&auto=format&fit=crop&q=80";
+                        e.currentTarget.src = PAGE_PLACEHOLDER;
                       }}
                     />
                     <div className="min-w-0 space-y-1">

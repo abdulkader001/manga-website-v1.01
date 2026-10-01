@@ -497,18 +497,19 @@ def run_preview(db: Session, payload: Dict[str, Any], actor: Optional[User]) -> 
     """Series import preview: MangaUpdates metadata + the chapters the source
     site really has, exactly as an import would ingest them."""
 
-    from ..services import mangaupdates_service
+    from ..services import metadata_sources
+    from ..services.mangaupdates_service import SeriesMetadata
 
     series_url = str(payload.get("url") or "").strip()
     mu_url = str(payload.get("mangaupdates_url") or "").strip()
     warnings: List[str] = []
-    metadata: Optional[mangaupdates_service.SeriesMetadata] = None
+    metadata: Optional[SeriesMetadata] = None
 
     if mu_url:
         try:
-            metadata = mangaupdates_service.fetch_series(mu_url)
-        except mangaupdates_service.MangaUpdatesError as exc:
-            warnings.append(f"MangaUpdates: {exc}")
+            metadata = metadata_sources.fetch(mu_url)
+        except metadata_sources.MetadataLinkError as exc:
+            warnings.append(f"{metadata_sources.label(mu_url) if mu_url else 'Metadata'}: {exc}")
 
     source: Optional[Dict[str, Any]] = None
     if series_url:

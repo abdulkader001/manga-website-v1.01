@@ -147,6 +147,30 @@ def build_options(payload: Any) -> Dict[str, Any]:
     return {k: v for k, v in options.items() if v is not None}
 
 
+def find_series_by_metadata_link(db: Session, link: str) -> Optional[Manga]:
+    """The series already created from this MangaUpdates / Anime-Planet page.
+
+    Compared by the page's identity (MangaUpdates id, Anime-Planet slug), so
+    different spellings of one link -- legacy ids, trailing slashes, a name
+    suffix -- are still recognised.
+    """
+
+    from . import metadata_sources
+
+    try:
+        wanted = metadata_sources.identity(link)
+    except metadata_sources.MetadataLinkError:
+        return None
+    rows = db.query(Manga).filter(Manga.mangaupdates_url.isnot(None)).all()
+    for row in rows:
+        try:
+            if metadata_sources.identity(row.mangaupdates_url) == wanted:
+                return row
+        except metadata_sources.MetadataLinkError:
+            continue
+    return None
+
+
 def queue_series_import(
     db: Session, actor: User, url: str, payload: Any, *, can_approve: bool
 ) -> Dict[str, Any]:
@@ -163,13 +187,24 @@ def queue_series_import(
         )
 
     mu = (payload.mangaupdates_url or "").strip()
+    meta_label = "MangaUpdates"
     if mu:
-        from .mangaupdates_service import MangaUpdatesError, series_id_from_url
+        from . import metadata_sources
 
         try:
-            series_id_from_url(mu)
-        except MangaUpdatesError as exc:
+            metadata_sources.identity(mu)
+            meta_label = metadata_sources.label(mu)
+        except metadata_sources.MetadataLinkError as exc:
             raise ApiError(ErrorCode.VALIDATION_FAILED, str(exc), field="mangaupdates_url")
+        twin = find_series_by_metadata_link(db, mu)
+        if twin is not None:
+            raise ApiError(
+                ErrorCode.DUPLICATE_MANGA_URL,
+                f"That {meta_label} link already belongs to “{twin.title}”. "
+                "One series can only be added once; open the existing series to re-scrape it.",
+                field="mangaupdates_url",
+                details={"url": mu, "existing_series_id": twin.id, "manga_id": twin.id},
+            )
 
     # Cheap duplicate check first, before anything is approved or queued.
     existing = db.query(Manga).filter(Manga.source_url.in_(_url_dedupe_variants(url))).first()
@@ -191,7 +226,7 @@ def queue_series_import(
     job = schedule_series_scrape(db, url, added_by=actor.id, options=build_options(payload))
     job["message"] = (
         "Import started. Chapters are being fetched from the source"
-        + (" and metadata from MangaUpdates" if mu else "")
+        + (f" and metadata from {meta_label}" if mu else "")
         + ". The series appears in the catalogue as soon as its chapter list is read; "
         "you will be notified when every chapter is in."
     )
