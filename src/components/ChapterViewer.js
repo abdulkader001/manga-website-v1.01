@@ -63,7 +63,8 @@ export default function ChapterViewer() {
   const { data: chapterAlertsData, refetch: refetchAlerts } = useQuery({
     queryKey: ["chapterAlerts", chapterId],
     queryFn: () => api.reports.getChapterReports(chapterId),
-    enabled: !!chapterId,
+    // Staff only: readers never see report status.
+    enabled: !!chapterId && isPrivileged,
     refetchInterval: 10000,
   });
   const activeChapterAlert = chapterAlertsData?.active_alert;

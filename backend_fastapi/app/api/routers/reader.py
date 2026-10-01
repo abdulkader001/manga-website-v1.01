@@ -251,8 +251,13 @@ def chapter_alerts(
     viewer: Optional[User] = Depends(get_optional_user),
     db: Session = Depends(get_db),
 ) -> Dict[str, Any]:
-    """Open reports for one chapter. Readers see only that an issue is known;
-    administrators also get the individual reports."""
+    """Open reports for one chapter: staff only (admin / sub-admin).
+
+    Readers get an empty answer -- broken-chapter reports are operational
+    information, not something shown to the public."""
+
+    if viewer is None or not is_secondary_or_higher(viewer):
+        return {"active_alert": None, "count": 0}
 
     open_reports = (
         db.query(ChapterReport)
@@ -272,10 +277,11 @@ def chapter_alerts(
             ),
             "created_at": latest.created_at.isoformat() if latest.created_at else None,
         }
-    response: Dict[str, Any] = {"active_alert": active_alert, "count": len(open_reports)}
-    if viewer is not None and is_secondary_or_higher(viewer):
-        response["reports"] = [report_to_dict(r, db) for r in open_reports]
-    return response
+    return {
+        "active_alert": active_alert,
+        "count": len(open_reports),
+        "reports": [report_to_dict(r, db) for r in open_reports],
+    }
 
 
 # ---------------------------------------------------------------------------

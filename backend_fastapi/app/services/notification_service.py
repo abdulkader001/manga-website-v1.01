@@ -30,6 +30,7 @@ logger = structlog.get_logger("backend_fastapi.notifications")
 TYPE_CATEGORY: Dict[str, str] = {
     # Reader-facing (1I.3.1)
     "chapter.new": CATEGORY_READER,
+    "announcement": CATEGORY_READER,
     "series.completed": CATEGORY_READER,
     "comment.reply": CATEGORY_READER,
     "comment.like": CATEGORY_READER,
@@ -57,12 +58,29 @@ TYPE_CATEGORY: Dict[str, str] = {
     "series.ingested": CATEGORY_ADMINISTRATIVE,
     "ingestion.failed": CATEGORY_ADMINISTRATIVE,
     "report.queue": CATEGORY_ADMINISTRATIVE,
+    "chapter.reported": CATEGORY_ADMINISTRATIVE,
     "system.storage_high": CATEGORY_ADMINISTRATIVE,
     "disposable_email.banned": CATEGORY_ADMINISTRATIVE,
     "quota.ceiling_reached": CATEGORY_ADMINISTRATIVE,
     # Security (1I.3.2) — never suppressible.
     "security.permanent_admin_tamper_attempt": CATEGORY_SECURITY,
 }
+
+# The only notifications a regular reader (not admin / sub-admin) receives:
+# their bookmarked series (new chapter, finished), the admin's broadcasts and
+# popups, and notices about their own account (their AI key failing, their
+# own translation limit, a role change). Everything operational -- broken-
+# chapter reports, scraper/ingestion problems -- goes to the main admin only.
+READER_NOTIFICATION_TYPES = frozenset(
+    {
+        "chapter.new",
+        "series.completed",
+        "announcement",
+        "provider.failure",
+        "quota.exceeded",
+        "role.changed",
+    }
+)
 
 # How long a batchable notification stays "open" for in-place aggregation
 # before a new event starts a fresh one (1I.5.3). A user's own digest
@@ -135,8 +153,11 @@ def create_notification(
     target_id: Optional[str] = None,
     data: Optional[dict] = None,
     dedup_key: Optional[str] = None,
-) -> Notification:
+) -> Optional[Notification]:
     """Persist a notification, applying mute preferences and batching.
+
+    Returns ``None`` when the recipient is a regular reader and ``type`` is
+    not one of :data:`READER_NOTIFICATION_TYPES`.
 
     Called by the ``create_notification`` Celery task — the actual DB write
     always happens off the request path. ``user_id=None`` addresses the
@@ -146,6 +167,23 @@ def create_notification(
     resolved_category = _category_for(type, category)
     resolved_priority = _priority_for(resolved_category, priority)
     is_security = resolved_category == CATEGORY_SECURITY
+
+    if user_id is not None:
+        from ..dependencies.auth import is_main_admin, is_secondary_or_higher
+        from ..models import User
+
+        recipient = db.get(User, user_id)
+        if resolved_category == CATEGORY_ADMINISTRATIVE:
+            # Operational notices belong to the main admin's bell
+            # (user_id=None), whoever the call site addressed them to.
+            if not is_main_admin(recipient):
+                user_id = None
+        elif (
+            not is_security
+            and not is_secondary_or_higher(recipient)
+            and type not in READER_NOTIFICATION_TYPES
+        ):
+            return None
 
     prefs = None
     if user_id is not None:

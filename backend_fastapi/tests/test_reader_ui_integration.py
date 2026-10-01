@@ -234,7 +234,7 @@ def test_chapter_like_toggles(fastapi_client):
     assert again["liked"] is False and again["likes"] == 0
 
 
-def test_chapter_report_raises_an_alert_until_an_admin_resolves_it(fastapi_client):
+def test_chapter_report_raises_a_staff_alert_until_an_admin_resolves_it(fastapi_client):
     _, chapter_id = _series_with_chapter()
     reader, _ = _user()
     admin, _ = _user(UserRole.ADMIN, is_main_admin=True, is_secondary_admin=True)
@@ -244,12 +244,15 @@ def test_chapter_report_raises_an_alert_until_an_admin_resolves_it(fastapi_clien
         headers=reader,
     )
     assert sent.status_code in (200, 201)
-    alert = fastapi_client.get(f"/api/v1/chapters/{chapter_id}/reports", headers=reader).json()
+    # Report status is staff-only: readers (and anonymous visitors) see nothing.
+    assert fastapi_client.get(f"/api/v1/chapters/{chapter_id}/reports", headers=reader).json()["active_alert"] is None
+    assert fastapi_client.get(f"/api/v1/chapters/{chapter_id}/reports").json()["active_alert"] is None
+    alert = fastapi_client.get(f"/api/v1/chapters/{chapter_id}/reports", headers=admin).json()
     assert alert["active_alert"]["report_type"] == "Missing Images"
     report_id = sent.json()["report"]["id"]
     assert fastapi_client.post(f"/api/v1/reports/{report_id}/resolve", headers=reader).status_code in (401, 403)
     assert fastapi_client.post(f"/api/v1/reports/{report_id}/resolve", headers=admin).status_code == 200
-    assert fastapi_client.get(f"/api/v1/chapters/{chapter_id}/reports", headers=reader).json()["active_alert"] is None
+    assert fastapi_client.get(f"/api/v1/chapters/{chapter_id}/reports", headers=admin).json()["active_alert"] is None
 
 
 def test_only_admins_can_broadcast_announcements(fastapi_client):

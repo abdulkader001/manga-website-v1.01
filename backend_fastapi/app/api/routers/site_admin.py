@@ -165,6 +165,12 @@ def broadcast_announcement(
     log_admin_action(
         db, request, current_user, "ANNOUNCEMENT_CREATE", "announcement", str(item.id), "success"
     )
+    try:
+        from ...tasks.notification_tasks import fan_out_announcement
+
+        fan_out_announcement.delay(item.id)
+    except Exception:  # broker outage: the homepage still shows it
+        logger.warning("announcement_fan_out_enqueue_failed", announcement_id=item.id)
     return {"success": True, "announcement": announcement_to_dict(item)}
 
 
