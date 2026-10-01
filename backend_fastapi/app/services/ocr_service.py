@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import io
+import re
 import structlog
 import os
 import subprocess
@@ -57,6 +58,40 @@ TESSERACT_LANGS = {
     "zh": "chi_sim+chi_tra+eng",
     "en": "eng",
 }
+
+
+_CJK_CHAR = re.compile(r"[\u1100-\u11ff\u3040-\u30ff\u3130-\u318f\u3400-\u9fff\uac00-\ud7af\uf900-\ufaff]")
+
+
+def _join_words(words: List[Dict[str, Any]]) -> str:
+    """Rebuild a paragraph from Tesseract word rows.
+
+    Tesseract reports Korean/Chinese/Japanese text syllable by syllable, so a
+    plain space-join turns "저딴" into "저 딴". Neighbours on the same line
+    whose facing characters are CJK and whose gap is small (a fraction of
+    the glyph height) are glued; real word spaces are much wider.
+    """
+
+    out = ""
+    prev = None
+    for word in words:
+        text = str(word.get("text") or "").strip()
+        if not text:
+            continue
+        if prev is not None:
+            same_line = prev.get("line_num") == word.get("line_num")
+            gap = word.get("left", 0) - (prev.get("left", 0) + prev.get("width", 0))
+            height = max(1, min(prev.get("height", 0) or 1, word.get("height", 0) or 1))
+            glue = (
+                same_line
+                and _CJK_CHAR.match(text[0])
+                and _CJK_CHAR.match(out[-1:] or " ")
+                and gap < 0.35 * height
+            )
+            out += "" if glue else " "
+        out += text
+        prev = word
+    return out.strip()
 
 
 def tesseract_lang_for(language_hint: Optional[str]) -> Optional[str]:
@@ -273,10 +308,13 @@ class OCRService:
                 psm_to_use,
                 "--oem",
                 "1",
-                "tsv",
             ]
+            # Options must come before the config name: Tesseract reads every
+            # argument after "tsv" as another config file, so a trailing
+            # "-l kor" was silently ignored and every page was read as English.
             if lang_to_use:
                 cmd.extend(["-l", lang_to_use])
+            cmd.append("tsv")
             try:
                 subprocess.run(
                     cmd,
@@ -375,7 +413,7 @@ class OCRService:
         regions: List[Dict[str, Any]] = []
         for words in groups.values():
             words_sorted = sorted(words, key=lambda w: (w["line_num"], w["word_num"]))
-            text = " ".join(w["text"] for w in words_sorted).strip()
+            text = _join_words(words_sorted)
             if not text:
                 continue
             left = min(w["left"] for w in words)
