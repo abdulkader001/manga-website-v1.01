@@ -282,6 +282,7 @@ const api = {
     detail: (id) => api.get(`/manga/${id}`),
     chapters: (id, params) => api.get(`/manga/${id}/chapters`, { params }),
     chapter: (mangaId, chapterId) => api.get(`/manga/${mangaId}/chapters/${chapterId}`),
+    chapterTitles: (mangaId, lang) => api.get(`/manga/${mangaId}/chapter-titles`, { params: { lang } }),
     rate: (id, rating) => api.post(`/manga/${id}/rate`, { rating }),
     likeChapter: (chapterId) => api.post(`/chapters/${chapterId}/like`),
     reportChapter: (chapterId, payload) => api.post(`/chapters/${chapterId}/report`, payload),

@@ -2,11 +2,13 @@ import React, { useState, useEffect, useMemo, useCallback } from "react";
 import { useParams, Link } from "react-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import api from "../services/api";
+import useChapterTitles from "../hooks/useChapterTitles";
 import CommentSection from "./CommentSection";
 import "../styles/components.css";
 
 const MangaDetail = () => {
   const { mangaId } = useParams();
+  const chapterLabel = useChapterTitles(mangaId);
   const queryClient = useQueryClient();
   const [bookmarked, setBookmarked] = useState(false);
   const [hoverRating, setHoverRating] = useState(0);
@@ -357,7 +359,16 @@ const MangaDetail = () => {
                 title="Continue from your last read chapter"
               >
                 <i className="fas fa-play"></i>
-                <span>Continue Reading ({lastRead.chapter_title || `Ch. ${lastRead.chapter_id % 100 || lastRead.chapter_id}`})</span>
+                <span>
+                  Continue Reading (
+                  {chapterLabel(
+                    rawChapters.find((c) => Number(c.id) === Number(lastRead.chapter_id)) || {
+                      id: lastRead.chapter_id,
+                      chapter_number: lastRead.chapter?.chapter_number,
+                    }
+                  )}
+                  )
+                </span>
               </Link>
             ) : newestChapter ? (
               <Link
@@ -502,13 +513,8 @@ const MangaDetail = () => {
                       ></span>
                       <div className="truncate">
                         <span className={`font-bold text-xs block truncate ${read ? "text-[#00AEF0]" : "text-white"}`}>
-                          {ch.chapter_number ? `Chapter ${ch.chapter_number}` : `Chapter #${ch.id}`}
+                          {chapterLabel(ch)}
                         </span>
-                        {ch.title && (
-                          <span className="text-[10px] text-[#8b93a3] block truncate">
-                            {ch.title}
-                          </span>
-                        )}
                       </div>
                     </div>
 
@@ -561,8 +567,7 @@ const MangaDetail = () => {
                       ></span>
                       <div className="truncate">
                         <span className={`font-bold text-xs sm:text-sm ${read ? "text-[#00AEF0]" : "text-white"}`}>
-                          {ch.chapter_number ? `Chapter ${ch.chapter_number}: ` : ""}
-                          {ch.title || `Chapter #${ch.id}`}
+                          {chapterLabel(ch)}
                         </span>
                       </div>
                     </div>

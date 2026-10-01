@@ -34,6 +34,20 @@ def format_count(value: int) -> str:
     return str(value)
 
 
+def _display_title(raw, number) -> str | None:
+    """"Chapter N" plus whatever the source title says beyond the number and
+    date (series-level noise and translation are handled by
+    services.chapter_title_service for the reader views)."""
+
+    from ..services.chapter_title_service import clean_title, needs_translation
+
+    label = f"Chapter {number}" if number is not None else None
+    sub = clean_title(raw, number)
+    if sub and not needs_translation(sub, "en"):
+        return f"{label}: {sub}" if label else sub
+    return label or raw
+
+
 def chapter_number_value(raw) -> int | float | None:
     """DECIMAL chapter number as a JSON number (12 rather than "12.00")."""
 
@@ -280,6 +294,9 @@ class Chapter(Base):
     manga_id = Column(Integer, ForeignKey("manga.id"), nullable=False)
     chapter_number = Column(DECIMAL(precision=10, scale=2), nullable=False)
     chapter_title = Column(String, nullable=True)
+    # Translated subtitle per reader language ({"en": "..."}), filled lazily
+    # by services.chapter_title_service; the raw source title stays above.
+    title_translations = Column(JSON, nullable=True)
     chapter_url = Column(String, unique=True, nullable=False)
     scraped_at = Column(DateTime, nullable=True)
     pages = Column(JSON, nullable=True)
@@ -331,9 +348,7 @@ class Chapter(Base):
             "manga_id": self.manga_id,
             "chapter_number": number,
             "chapter_title": self.chapter_title,
-            "title": self.chapter_title or (
-                f"Chapter {number}" if number is not None else None
-            ),
+            "title": _display_title(self.chapter_title, number),
             "chapter_url": self.chapter_url,
             "scraped_at": self.scraped_at.isoformat() if self.scraped_at else None,
             "release_date": released.isoformat() if released else None,

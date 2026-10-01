@@ -9,6 +9,7 @@ import AdPlacement from "./AdPlacement";
 import CommentSection from "./CommentSection";
 import useAuth from "../hooks/useAuth";
 import useReaderSettings from "../hooks/useReaderSettings";
+import useChapterTitles from "../hooks/useChapterTitles";
 import "../fonts/overlayFonts";
 import "./ChapterViewer.css";
 
@@ -37,6 +38,7 @@ export default function ChapterViewer() {
     enabled: Boolean(authUser),
   });
   const showOcr = Boolean(authUser && readerSettingsLoaded && readerSettings.overlay_enabled);
+  const chapterLabel = useChapterTitles(mangaId);
   const [overlayNotice, setOverlayNotice] = useState("");
 
   // Bookmark / Marked state
@@ -316,9 +318,7 @@ export default function ChapterViewer() {
   }
 
   const mangaTitle = chapter.manga?.title || `Manga #${mangaId}`;
-  const chapterTitle = chapter.chapter_number
-    ? `Chapter ${chapter.chapter_number}${chapter.title ? ` - ${chapter.title}` : ""}`
-    : chapter.title || `Chapter #${chapterId}`;
+  const chapterTitle = chapterLabel(chapter);
 
   return (
     <div className="chapter-viewer-page pb-16">
@@ -348,7 +348,7 @@ export default function ChapterViewer() {
                 <Link
                   to={prevChapter ? `/reader/${mangaId}/${prevChapter.id}` : "#"}
                   className={`chnav prev ${!prevChapter ? "isDisabled" : ""}`}
-                  title={prevChapter ? `Go to ${prevChapter.title || `Chapter ${prevChapter.chapter_number}`}` : "First chapter"}
+                  title={prevChapter ? `Go to ${chapterLabel(prevChapter)}` : "First chapter"}
                 >
                   <i className="fas fa-chevron-left mr-1 text-[10px]"></i>
                   <span>Prev</span>
@@ -357,7 +357,7 @@ export default function ChapterViewer() {
                 <Link
                   to={nextChapter ? `/reader/${mangaId}/${nextChapter.id}` : "#"}
                   className={`chnav next ${!nextChapter ? "isDisabled" : ""}`}
-                  title={nextChapter ? `Go to ${nextChapter.title || `Chapter ${nextChapter.chapter_number}`}` : "Latest chapter"}
+                  title={nextChapter ? `Go to ${chapterLabel(nextChapter)}` : "Latest chapter"}
                 >
                   <span>Next</span>
                   <i className="fas fa-chevron-right ml-1 text-[10px]"></i>
@@ -421,7 +421,7 @@ export default function ChapterViewer() {
           >
             {allChapters.map((ch) => (
               <option key={ch.id} value={ch.id}>
-                Chapter: {ch.chapter_number || ch.id} {ch.title ? `(${ch.title})` : ""}
+                {chapterLabel(ch)}
               </option>
             ))}
           </select>
@@ -584,7 +584,7 @@ export default function ChapterViewer() {
           >
             {allChapters.map((ch) => (
               <option key={ch.id} value={ch.id}>
-                Chapter: {ch.chapter_number || ch.id} {ch.title ? `(${ch.title})` : ""}
+                {chapterLabel(ch)}
               </option>
             ))}
           </select>
