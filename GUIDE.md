@@ -378,12 +378,22 @@ Celery worker reliably.
 
 ## 6. Create the first admin account
 
-Nobody is admin on a fresh install. Do this once:
+Nobody is admin on a fresh install. **How the site knows it's you:** you are
+the person with a shell on the server. Nothing below needs Google, Microsoft
+or working e-mail; each step is a command you run on the server, which no
+visitor can do.
 
 1. Make sure `ADMIN_PROMOTION_SECRET` is set in `.env` (Section 3.2).
-2. Open the website and **sign up / log in** with the e-mail you want as admin
-   (with `EMAIL_BACKEND=console`, read the link from
-   `docker compose logs celery_worker_email`).
+2. Get a one-time sign-in link for your e-mail, printed in the terminal (no
+   e-mail is sent; the account is created if it doesn't exist):
+
+   ```bash
+   docker compose exec backend python -m backend_fastapi.scripts.cli_bootstrap \
+     login-link --email you@example.com
+   ```
+
+   Open the printed link in your browser (single use, expires in ~15 min)
+   and finish the short profile form.
 3. Generate a one-time promotion token:
 
    ```bash
@@ -399,10 +409,18 @@ Nobody is admin on a fresh install. Do this once:
      promote-user --token <TOKEN> --email you@example.com
    ```
 
-5. Log out and in again. The admin menu now appears.
-6. Afterwards: empty `ADMIN_PROMOTION_SECRET` (or rotate it), keep
-   `MAIN_ADMIN_AUTO_PROMOTE_ENABLED=false`, then enroll 2-step login at
-   `/admin/security` and set `ADMIN_2FA_REQUIRED=true`.
+5. Log out and in again (step 2 again if you have no other sign-in yet). The
+   admin menu now appears.
+6. **Lock it down:** enrol an authenticator app at `/admin/security` and set
+   `ADMIN_2FA_REQUIRED=true`. From then on, even someone who gets into your
+   e-mail or Google account can't open Admin Settings or the Secret Vault
+   without the 6-digit code from your phone. Then empty
+   `ADMIN_PROMOTION_SECRET` (or rotate it) and keep
+   `MAIN_ADMIN_AUTO_PROMOTE_ENABLED=false`.
+
+Locked out later (lost e-mail access, Google sign-in broken, domain moved)?
+Run step 2 again on the server: `login-link` always works, whatever is set in
+the vault or Admin Settings.
 
 (Non-Docker: same commands without `docker compose exec backend`, venv active.)
 
@@ -419,6 +437,22 @@ Nobody is admin on a fresh install. Do this once:
 3. Once a value is in the vault you can delete that line from `.env`. Keep
    `.env` itself (and a private backup of it): without `INTEGRATIONS_SECRET`
    the vault cannot be decrypted.
+
+### 6.2 Make sign-in mandatory (or not)
+
+**Admin → Admin Settings → "Sign-in required"** (main admin only; it can't
+be granted to a sub-admin).
+
+- **On:** visitors must sign in before they can browse or read. The server
+  refuses catalogue, reader and community requests from guests too, not just
+  the pages.
+- **Off:** anyone can read; signing in is only needed for bookmarks sync,
+  translation, comments and settings.
+
+The sign-in page, sign-up, the admin area and `login-link` (Section 6) are
+never behind this switch, so turning it on can't lock you out. Sites
+upgraded from an older version start with it **on** (that was the old
+behaviour).
 
 ---
 
@@ -513,6 +547,56 @@ docker compose build --pull
 docker compose up -d --force-recreate   # migrations run automatically first
 docker compose exec backend tesseract --list-langs
 ```
+
+### 8.1 If your domain is taken down: move to a new one
+
+The site address, allowed origins and the Google / Microsoft / magic-link
+return addresses all come from one value, **Website domain**, in the Secret
+Vault. The data, accounts and settings stay as they are.
+
+1. **Buy/pick the new domain** and at its registrar create an `A` record
+   `new-domain.com → <server IP>` (and `www` too if you want it). With
+   Cloudflare, add the site there and point the record at the server.
+2. **HTTPS for the new name** on the server:
+   - Caddy (Section 8 step 6): add the name to the Caddyfile and reload. It
+     fetches the certificate by itself:
+
+     ```bash
+     sudo sed -i 's/^manga.example.com {/manga.example.com, new-domain.com, www.new-domain.com {/' /etc/caddy/Caddyfile
+     sudo systemctl reload caddy
+     ```
+
+   - nginx + certbot: add the name to both `server_name` lines in
+     `/etc/nginx/sites-available/manga-site.conf`, then
+     `sudo certbot --nginx -d new-domain.com -d www.new-domain.com` and
+     `sudo systemctl reload nginx`.
+   - The Docker `web` container uses `server_name _;` and needs no change.
+3. **Switch** (a few clicks): Admin → Secret Vault → unlock with your
+   authenticator code → **Website domain** card → type `new-domain.com` →
+   **1. Check**. When all three ticks are green (DNS, HTTPS, "it is this
+   site"), click **2. Switch to this domain**. It applies within seconds,
+   with no restart: links in e-mails, sign-in callbacks and CORS use the new
+   address. (DNS still propagating? Tick "Switch anyway".)
+4. **Sign-in providers:** the card lists the new return addresses. Add them
+   in the Google Cloud console (OAuth client → Authorized redirect URIs) and
+   in Azure (App registration → Authentication). Until you do, Google /
+   Microsoft sign-in fails on the new domain; magic links work right away.
+5. Tell your readers (announcement, social links in the footer).
+
+**Can't reach the admin page at all?** Do the switch from the server:
+
+```bash
+docker compose exec backend python -m backend_fastapi.scripts.set_site_domain new-domain.com
+# undo / go back to FRONTEND_URL from .env:
+docker compose exec backend python -m backend_fastapi.scripts.set_site_domain --clear
+```
+
+and sign in with `cli_bootstrap login-link` (Section 6). A value you set
+explicitly in the vault for one of the derived keys (e.g. `FRONTEND_URL`)
+wins over the domain; remove it if the switch seems to have no effect. If a
+bad vault value ever stops the site from starting, set
+`VAULT_PRELOAD_DISABLED=true` in `.env`, restart, fix it in the vault, and
+remove the flag again.
 
 ---
 

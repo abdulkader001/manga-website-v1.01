@@ -80,10 +80,12 @@ function AppRoutes() {
       <Route path="/login/magic/:token" element={<MagicLinkConsume />} />
       <Route path="/complete-profile" element={<CompleteProfile />} />
 
-      {/* Mandatory Protected Content: All pages require verified login & profile */}
+      {/* Reading pages: open to guests unless the main admin turned on
+          "Sign-in required" in Admin Settings. Signed-in users still have to
+          finish their profile. */}
       <Route
         element={
-          <AuthGuard>
+          <AuthGuard followSiteSetting>
             <Outlet />
           </AuthGuard>
         }
@@ -93,8 +95,22 @@ function AppRoutes() {
         <Route path="/reader/:mangaId/:chapterId" element={<ChapterViewer />} />
         <Route path="/manga/:mangaId" element={<MangaDetail />} />
         <Route path="/bookmarks" element={<BookmarkHistoryTab />} />
-        <Route path="/settings" element={<UserSettings />} />
-        <Route path="/notifications" element={<NotificationsPage />} />
+        <Route
+          path="/settings"
+          element={
+            <AuthGuard>
+              <UserSettings />
+            </AuthGuard>
+          }
+        />
+        <Route
+          path="/notifications"
+          element={
+            <AuthGuard>
+              <NotificationsPage />
+            </AuthGuard>
+          }
+        />
 
         {/* Admin Section: Instant render without chunk latency */}
         <Route

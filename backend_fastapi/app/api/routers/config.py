@@ -4,7 +4,11 @@ from __future__ import annotations
 
 from typing import Any, Dict
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Depends, Request
+from sqlalchemy.orm import Session
+
+from ...core.db import get_db
+from ...dependencies.site_access import login_required
 
 from ...services.provider_registry import ProviderRegistryState
 
@@ -29,6 +33,12 @@ async def list_providers(request: Request) -> Dict[str, Any]:
     }
     payload["systemProviders"] = state.system_provider_snapshot()
     return payload
+
+
+@router.get("/site-access")
+def site_access(db: Session = Depends(get_db)) -> Dict[str, Any]:
+    """Public: whether visitors must sign in before reading."""
+    return {"loginRequired": login_required(db)}
 
 
 __all__ = ["router"]

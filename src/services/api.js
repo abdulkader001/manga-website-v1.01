@@ -278,6 +278,7 @@ const api = {
   // ---- Configuration ----
   config: {
     providers: () => api.get("/config/providers"),
+    siteAccess: () => api.get("/config/site-access"),
   },
 
   // ---- Authentication ----
@@ -472,6 +473,12 @@ const api = {
       clearCache: () => api.post("/admin/settings/clear-cache"),
       deleteAllManga: () => api.post("/admin/maintenance/delete-all-manga"),
       purgeAllImages: () => api.post("/admin/maintenance/purge-all-images"),
+    },
+    // Main admin only: "readers must sign in" switch.
+    siteAccess: {
+      get: () => api.get("/admin/config/access"),
+      update: (loginRequired) =>
+        api.put("/admin/config/access", { login_required: Boolean(loginRequired) }),
     },
     apiRegistry: {
       get: () => api.get("/admin/api-registry"),

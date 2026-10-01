@@ -231,6 +231,11 @@ class SystemSettings(Base):
     # (pages/day, aggregate across every user who isn't using their own
     # key). NULL = unbounded, subject only to each account's own limit.
     platform_default_daily_ceiling = Column(Integer, nullable=True)
+    # Main-admin switch: when on, only signed-in accounts can browse and read.
+    # Sign-in, sign-up and admin bootstrap stay reachable so nobody is locked out.
+    login_required = Column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
     created_at = Column(DateTime, nullable=False, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
 

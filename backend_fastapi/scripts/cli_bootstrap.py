@@ -116,5 +116,34 @@ def promote_user(
         click.echo("User promoted to admin.")
 
 
+@cli.command("login-link")
+@click.option("--email", type=str, required=True, help="Account to sign in as")
+def login_link(email: str) -> None:
+    """Print a one-time sign-in link, without sending any e-mail.
+
+    For the admin when Google/Microsoft sign-in or e-mail delivery is not set
+    up (or broken). Running it needs a shell on the server, which is the proof
+    of ownership. The link is single-use and expires like a normal magic link.
+    """
+
+    from backend_fastapi.app.core.settings import get_settings
+    from backend_fastapi.app.services.auth_service import (
+        create_magic_login_token,
+        ensure_magic_link_user,
+    )
+
+    normalized = normalize_email(email)
+    if not normalized or "@" not in normalized:
+        raise click.ClickException("Give a valid e-mail address")
+    base = (get_settings().frontend_url or "").rstrip("/")
+    with session_scope() as session:
+        user = ensure_magic_link_user(session, normalized)
+        record, token = create_magic_login_token(session, user)
+        expires = record.expires_at
+    click.echo("One-time sign-in link (open it in your browser):")
+    click.echo(f"{base}/magic-link/{token}" if base else f"/magic-link/{token}")
+    click.echo(f"Valid until {expires:%Y-%m-%d %H:%M} UTC, single use.")
+
+
 if __name__ == "__main__":
     cli()

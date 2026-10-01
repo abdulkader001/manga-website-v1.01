@@ -75,3 +75,31 @@ def test_issue_and_redeem_admin_token_end_to_end(monkeypatch):
         assert refreshed.is_main_admin is True
     finally:
         session.close()
+
+
+def test_login_link_prints_a_working_one_time_link():
+    from backend_fastapi.app.models import LoginToken
+    from backend_fastapi.app.services.auth_service import hash_login_token
+
+    result = CliRunner().invoke(
+        cli_bootstrap.cli, ["login-link", "--email", "cli-login-link@example.com"]
+    )
+    assert result.exit_code == 0, result.output
+    link = next(line for line in result.output.splitlines() if "/magic-link/" in line)
+    token = link.rsplit("/magic-link/", 1)[1].strip()
+
+    session = SessionLocal()
+    try:
+        record = (
+            session.query(LoginToken)
+            .filter(LoginToken.token_hash == hash_login_token(token))
+            .one()
+        )
+        assert record.used_at is None
+    finally:
+        session.close()
+
+
+def test_login_link_refuses_a_non_address():
+    result = CliRunner().invoke(cli_bootstrap.cli, ["login-link", "--email", "nope"])
+    assert result.exit_code != 0
