@@ -17,7 +17,7 @@ from __future__ import annotations
 import hashlib
 import re
 import secrets
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Tuple
 from urllib.parse import urlsplit
 
 from sqlalchemy.orm import Session

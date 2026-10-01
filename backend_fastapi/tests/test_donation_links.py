@@ -82,7 +82,7 @@ def test_only_the_main_admin_can_change_them_and_the_owner_is_told(fastapi_clien
     assert after == before + 1
 
     public = fastapi_client.get("/api/v1/support").json()["links"]
-    assert [l["kind"] for l in public] == ["link", "crypto"]
+    assert [entry["kind"] for entry in public] == ["link", "crypto"]
     assert public[1]["label"].startswith("Bitcoin")
 
 
@@ -96,4 +96,4 @@ def test_one_bad_entry_saves_nothing(fastapi_client):
     ]})
     assert resp.status_code == 422
     assert "Entry 2" in resp.json()["error"]["message"]
-    assert [l["url"] for l in fastapi_client.get("/api/v1/support").json()["links"]] == ["https://ko-fi.com/keep"]
+    assert [entry["url"] for entry in fastapi_client.get("/api/v1/support").json()["links"]] == ["https://ko-fi.com/keep"]
