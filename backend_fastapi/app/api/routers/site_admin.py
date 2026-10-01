@@ -165,6 +165,12 @@ def broadcast_announcement(
     log_admin_action(
         db, request, current_user, "ANNOUNCEMENT_CREATE", "announcement", str(item.id), "success"
     )
+    try:
+        from ...tasks.notification_tasks import fan_out_announcement
+
+        fan_out_announcement.delay(item.id)
+    except Exception:  # broker outage: the homepage still shows it
+        logger.warning("announcement_fan_out_enqueue_failed", announcement_id=item.id)
     return {"success": True, "announcement": announcement_to_dict(item)}
 
 
@@ -1146,6 +1152,8 @@ class LayoutPayload(BaseModel):
     split_spreads: Optional[bool] = None
     spread_mode: Optional[str] = Field(default=None, max_length=8)
     reading_direction: Optional[str] = Field(default=None, max_length=3)
+    # "" / "auto" clears it back to auto-detect.
+    text_language: Optional[str] = Field(default=None, max_length=5)
 
 
 @router.post("/admin/series/{series_id}/layout")
@@ -1166,6 +1174,11 @@ async def update_series_layout(
     manga = db.get(Manga, series_id)
     if manga is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Series not found")
+    from ...services.series_import import normalize_text_language
+
+    if payload.text_language is not None:
+        manga.language = normalize_text_language(payload.text_language)
+
     changes = {}
     if payload.split_spreads is not None:
         changes["split_spreads"] = payload.split_spreads
@@ -1173,23 +1186,33 @@ async def update_series_layout(
         changes["spread_mode"] = payload.spread_mode
     if payload.reading_direction:
         changes["reading_direction"] = payload.reading_direction
-    merged = {**normalize_layout(manga.scrape_layout), **normalize_layout(changes)}
+    previous = normalize_layout(manga.scrape_layout)
+    merged = {**previous, **normalize_layout(changes)}
     manga.scrape_layout = merged or None
     rebuilt = 0
-    for chapter in db.query(Chapter).filter(Chapter.manga_id == manga.id).all():
-        if chapter.source_pages:
-            chapter.pages = list(chapter.source_pages)
-            chapter.source_pages = None
-            chapter.pages_bytes = None
-            rebuilt += 1
+    # Only re-split the pictures when the split itself changed; a text
+    # language change alone needs no image work.
+    if merged != previous:
+        for chapter in db.query(Chapter).filter(Chapter.manga_id == manga.id).all():
+            if chapter.source_pages:
+                chapter.pages = list(chapter.source_pages)
+                chapter.source_pages = None
+                chapter.pages_bytes = None
+                rebuilt += 1
     db.commit()
-    mirror_series_pages.delay(manga.id)
+    if rebuilt:
+        mirror_series_pages.delay(manga.id)
     await ainvalidate_manga_caches(getattr(request.app.state, "redis", None), manga.id)
     return {
         "success": True,
         "layout": merged,
+        "text_language": manga.language,
         "chapters_rebuilding": rebuilt,
-        "message": f"Layout saved; re-compressing {rebuilt} chapters in the background.",
+        "message": (
+            f"Layout saved; re-compressing {rebuilt} chapters in the background."
+            if rebuilt
+            else "Saved."
+        ),
     }
 
 

@@ -392,3 +392,55 @@ def test_read_at_timestamp_is_set_alongside_read_flag():
         updated = notification_service.mark_read(db, note.id, user_id=user_id)
         assert updated.read is True
         assert isinstance(updated.read_at, datetime)
+
+
+def test_readers_only_get_new_chapters_and_announcements():
+    import uuid
+
+    from backend_fastapi.app.core.db import SessionLocal
+    from backend_fastapi.app.models import Notification, User, UserRole
+    from backend_fastapi.app.services import notification_service as ns
+
+    with SessionLocal() as db:
+        reader = User(email=f"r-{uuid.uuid4().hex}@example.com", is_active=True, provider="magic_link")
+        sub = User(
+            email=f"s-{uuid.uuid4().hex}@example.com",
+            is_active=True,
+            provider="magic_link",
+            role=UserRole.SECONDARY,
+            is_secondary_admin=True,
+        )
+        db.add_all([reader, sub])
+        db.commit()
+
+        assert ns.create_notification(db, type="comment.reply", title="x", user_id=reader.id) is None
+        assert ns.create_notification(db, type="chapter.new", title="x", user_id=reader.id).user_id == reader.id
+        assert ns.create_notification(db, type="announcement", title="x", user_id=reader.id).user_id == reader.id
+
+        # Operational notices always land in the main admin's bell.
+        for uid in (reader.id, sub.id):
+            note = ns.create_notification(db, type="ingestion.failed", title="x", user_id=uid)
+            assert note is not None and note.user_id is None
+
+        assert (
+            db.query(Notification).filter(Notification.user_id == reader.id, Notification.type == "comment.reply").count()
+            == 0
+        )
+
+
+def test_broadcast_reaches_every_active_bell():
+    import uuid
+
+    from backend_fastapi.app.core.db import SessionLocal
+    from backend_fastapi.app.models import Announcement, Notification, User
+    from backend_fastapi.app.tasks.notification_tasks import fan_out_announcement
+
+    with SessionLocal() as db:
+        user = User(email=f"b-{uuid.uuid4().hex}@example.com", is_active=True, provider="magic_link")
+        item = Announcement(title="Hi", message="Tonight", type="info", enabled=True, is_popup=True)
+        db.add_all([user, item])
+        db.commit()
+        result = fan_out_announcement.run(item.id)
+        assert result["sent"] >= 1
+        note = db.query(Notification).filter_by(user_id=user.id, type="announcement").one()
+        assert note.data["is_popup"] is True

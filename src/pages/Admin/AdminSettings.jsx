@@ -470,7 +470,7 @@ export default function AdminSettings() {
 
       {/* Two-Step Verification Safeguard Modal */}
       {safeguardModal.open && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 backdrop-blur-md p-4 animate-in fade-in">
+        <div className="fixed inset-0 z-50 flex [align-items:safe_center] justify-center overflow-y-auto bg-black/85 backdrop-blur-md p-4 animate-in fade-in">
           <form
             onSubmit={handleExecuteSafeguardAction}
             className="bg-[#15171c] border border-red-600/60 rounded-2xl max-w-md w-full p-6 space-y-4 shadow-2xl text-xs"

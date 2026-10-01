@@ -85,10 +85,6 @@ from ...services.admin_service import (
     demote_user_from_main,
     promote_user_role,
     demote_user_role,
-    promote_to_moderator,
-    demote_moderator,
-    effective_moderator_limit,
-    count_moderators_for,
     AdminServiceError,
     RateLimitExceeded,
     hash_email,
@@ -635,6 +631,9 @@ class SeriesUrlPayload(BaseModel):
     # Manual override of what the scraper detects: auto | vertical | double | single.
     source_format: Optional[str] = Field(default=None, max_length=10)
     reading_direction: Optional[str] = Field(default=None, max_length=3)
+    # Language of the lettering on the scraped pages (ko/ja/zh/en), which can
+    # differ from the series' origin; blank = auto-detect. Drives OCR.
+    text_language: Optional[str] = Field(default=None, max_length=5)
 
 
 class ApprovedDomainPayload(BaseModel):
@@ -1846,90 +1845,6 @@ def list_managed_permissions(
     from ...services.permissions_service import list_managed_people
 
     return {"people": list_managed_people(db, modified_only=modified_only)}
-
-
-# --------------------------------------------------------------------------
-# Moderator role management + the 10-moderator limit (SRS 1F.3.3 / Req 6)
-# --------------------------------------------------------------------------
-
-
-class ModeratorPromotePayload(BaseModel):
-    user_id: int
-
-
-class ModeratorLimitPayload(BaseModel):
-    moderator_limit: int = Field(..., ge=1, le=1000)
-
-
-@router.post("/roles/moderators")
-def promote_moderator_endpoint(
-    payload: ModeratorPromotePayload,
-    current_user: User = Depends(require_permission("promote_moderator")),
-    db: Session = Depends(get_db),
-) -> Dict[str, Any]:
-    """Promote a user to moderator. Secondary admins are capped (SRS 1F.3.3)."""
-    target = db.get(User, payload.user_id)
-    if target is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail={"error": "not_found"}
-        )
-    try:
-        target = promote_to_moderator(db, target, current_user)
-    except AdminServiceError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)
-        ) from exc
-    return {
-        "user_id": target.id,
-        "role": target.role.value,
-        "assigned_to_admin_id": target.assigned_to_admin_id,
-    }
-
-
-@router.delete("/roles/moderators/{user_id}")
-def demote_moderator_endpoint(
-    user_id: int,
-    current_user: User = Depends(require_permission("demote_own_moderators")),
-    db: Session = Depends(get_db),
-) -> Dict[str, Any]:
-    """Demote a moderator. The Permanent Administrator can demote any (1F.2.2)."""
-    target = db.get(User, user_id)
-    if target is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail={"error": "not_found"}
-        )
-    try:
-        target = demote_moderator(db, target, current_user)
-    except AdminServiceError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)
-        ) from exc
-    return {"user_id": target.id, "role": target.role.value}
-
-
-@router.put(
-    "/users/{user_id}/moderator-limit",
-    dependencies=[Depends(require_main_admin_user)],
-)
-def set_moderator_limit(
-    user_id: int,
-    payload: ModeratorLimitPayload,
-    db: Session = Depends(get_db),
-) -> Dict[str, Any]:
-    """Set a Secondary Administrator's per-person moderator cap (PA only)."""
-    target = db.get(User, user_id)
-    if target is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail={"error": "not_found"}
-        )
-    target.moderator_limit = payload.moderator_limit
-    db.commit()
-    db.refresh(target)
-    return {
-        "user_id": target.id,
-        "moderator_limit": effective_moderator_limit(target),
-        "current_moderators": count_moderators_for(db, target.id),
-    }
 
 
 @router.post("/series/scrape", dependencies=[Depends(require_admin_user)])

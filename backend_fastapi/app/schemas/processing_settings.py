@@ -21,6 +21,13 @@ class ProcessingSettingsResponse(BaseModel):
     overlay_font: str
     overlay_font_size: int
     translate_sound_effects: bool
+    auto_translate_comments: bool = True
+    overlay_enabled: bool = True
+    target_language: str = "en"
+    overlay_text_color: Optional[str] = None
+    overlay_box_color: Optional[str] = None
+    overlay_box_opacity: int = 100
+    context_translation: bool = True
 
 
 class UpdateProcessingSettingsRequest(BaseModel):
@@ -34,6 +41,17 @@ class UpdateProcessingSettingsRequest(BaseModel):
     overlay_font: Optional[str] = None
     overlay_font_size: Optional[int] = None
     translate_sound_effects: Optional[bool] = None
+    auto_translate_comments: Optional[bool] = None
+    # Explicit, because a null usage_limit_value is indistinguishable from
+    # "not sent" once None fields are dropped.
+    clear_usage_limit: Optional[bool] = None
+    overlay_enabled: Optional[bool] = None
+    target_language: Optional[str] = Field(default=None, max_length=8)
+    # "" resets a colour to automatic.
+    overlay_text_color: Optional[str] = Field(default=None, max_length=7)
+    overlay_box_color: Optional[str] = Field(default=None, max_length=7)
+    overlay_box_opacity: Optional[int] = None
+    context_translation: Optional[bool] = None
 
 
 __all__ = ["ProcessingSettingsResponse", "UpdateProcessingSettingsRequest"]

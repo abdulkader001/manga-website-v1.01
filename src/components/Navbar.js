@@ -383,7 +383,7 @@ export default function Navbar() {
 
       {/* Change Website Name & Favicon/Picture Modal */}
       {brandingModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+        <div className="fixed inset-0 z-50 flex [align-items:safe_center] justify-center overflow-y-auto bg-black/80 backdrop-blur-sm p-4">
           <form
             onSubmit={handleSaveBranding}
             className="bg-[#15171c] border border-[#262a33] rounded-2xl max-w-md w-full p-5 shadow-2xl space-y-4"

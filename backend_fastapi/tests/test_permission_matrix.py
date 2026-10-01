@@ -45,7 +45,6 @@ def roles():
         return {
             "main": _make(session, UserRole.ADMIN, main=True, secondary=True),
             "secondary": _make(session, UserRole.SECONDARY, secondary=True),
-            "moderator": _make(session, UserRole.MODERATOR),
             "user": _make(session, UserRole.USER),
         }
     finally:
@@ -63,55 +62,55 @@ MATRIX = [
         "post",
         "/api/admin/series",
         {"url": "https://unapproved-matrix.example/m/1"},
-        {"main": True, "secondary": True, "moderator": True, "user": False},
+        {"main": True, "secondary": True, "user": False},
     ),
     (
         "delete",
         "/api/admin/series/99999999",
         None,
-        {"main": True, "secondary": True, "moderator": False, "user": False},
+        {"main": True, "secondary": True, "user": False},
     ),
     (
         "post",
         "/api/admin/series/99999999/rescrape",
         None,
-        {"main": True, "secondary": True, "moderator": False, "user": False},
+        {"main": True, "secondary": True, "user": False},
     ),
     (
         "post",
         "/api/admin/chapters/99999999/rescrape",
         {},
-        {"main": True, "secondary": True, "moderator": True, "user": False},
+        {"main": True, "secondary": True, "user": False},
     ),
     (
         "post",
         "/api/admin/approved-domains",
         {"url": "https://matrix-never.example"},
-        {"main": True, "secondary": False, "moderator": False, "user": False},
+        {"main": True, "secondary": False, "user": False},
     ),
     (
         "delete",
         "/api/admin/approved-domains/99999999",
         None,
-        {"main": True, "secondary": False, "moderator": False, "user": False},
+        {"main": True, "secondary": False, "user": False},
     ),
     (
         "put",
         "/api/admin/config/session",
         {"session_expiry_days": 14},
-        {"main": True, "secondary": False, "moderator": False, "user": False},
+        {"main": True, "secondary": False, "user": False},
     ),
     (
         "post",
         "/api/admin/promote-secondary",
         {"user_id": 99999999},
-        {"main": True, "secondary": False, "moderator": False, "user": False},
+        {"main": True, "secondary": False, "user": False},
     ),
     (
         "get",
         "/api/admin/users",
         None,
-        {"main": True, "secondary": True, "moderator": False, "user": False},
+        {"main": True, "secondary": True, "user": False},
     ),
 ]
 
@@ -136,9 +135,9 @@ def test_matrix_row(fastapi_client, roles, method, path, body, expectations):
 
 
 def test_override_applies_to_wired_endpoint(fastapi_client, roles):
-    """Revoking rescrape_chapter strips a moderator's matrix default (1F.6)."""
+    """Revoking rescrape_chapter strips a sub-admin's matrix default (1F.6)."""
     revoke = fastapi_client.put(
-        f"/api/admin/users/{roles['moderator']}/permissions",
+        f"/api/admin/users/{roles['secondary']}/permissions",
         headers=_h(roles["main"]),
         json={"overrides": [{"permission": "rescrape_chapter", "state": "revoked"}]},
     )
@@ -146,14 +145,14 @@ def test_override_applies_to_wired_endpoint(fastapi_client, roles):
 
     resp = fastapi_client.post(
         "/api/admin/chapters/99999999/rescrape",
-        headers=_h(roles["moderator"]),
+        headers=_h(roles["secondary"]),
         json={},
     )
     assert resp.status_code == 403
 
     # Restore for other tests.
     reset = fastapi_client.post(
-        f"/api/admin/users/{roles['moderator']}/permissions/reset",
+        f"/api/admin/users/{roles['secondary']}/permissions/reset",
         headers=_h(roles["main"]),
     )
     assert reset.status_code == 200

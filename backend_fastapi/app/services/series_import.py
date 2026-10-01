@@ -103,6 +103,16 @@ def interval_hours(value: Optional[int], unit: Optional[str]) -> Optional[int]:
     return max(MIN_INTERVAL_HOURS, min(MAX_INTERVAL_HOURS, hours))
 
 
+TEXT_LANGUAGES = {"ko", "ja", "zh", "en"}
+
+
+def normalize_text_language(value: Optional[str]) -> Optional[str]:
+    """ko/ja/zh/en, or None for auto-detect."""
+
+    cleaned = (value or "").strip().lower()[:2]
+    return cleaned if cleaned in TEXT_LANGUAGES else None
+
+
 def build_options(payload: Any) -> Dict[str, Any]:
     """The job options the worker applies when it creates the series."""
 
@@ -118,6 +128,7 @@ def build_options(payload: Any) -> Dict[str, Any]:
         "auto_scrape_enabled": payload.auto_scrape_enabled,
         "chapters_to_scrape": payload.chapters_to_scrape,
         "base_url": (payload.base_url or "").strip() or None,
+        "text_language": normalize_text_language(getattr(payload, "text_language", None)),
         "ensure_parser": True,
     }
     from .chapter_grouping import normalize_layout

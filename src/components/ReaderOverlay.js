@@ -1,51 +1,27 @@
 import React, { useState, useEffect } from "react";
 import { apiFetch } from "../services/api";
+import OverlayBox from "./OverlayBox";
 
+// Server-side OCR + translation for one page (cached per page/language),
+// drawn as boxes over the original lettering only.
 export default function ReaderOverlay({
   imageUrl,
-  language = "en",
   chapterId,
   pageIndex,
-  mangaId,
+  settings,
   translatable = true,
   onLimitReached,
+  onError,
 }) {
   const [boxes, setBoxes] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [fontScale, setFontScale] = useState(18);
-  const [overlayStyle, setOverlayStyle] = useState("white_box");
+  const language = settings.target_language || "en";
 
-  // Load local font scale and listen for live changes from OverlayScaleControl
-  useEffect(() => {
-    const local = localStorage.getItem("reader_font_settings");
-    if (local) {
-      try {
-        const parsed = JSON.parse(local);
-        if (parsed.fontScale) setFontScale(parsed.fontScale);
-        if (parsed.overlayStyle) setOverlayStyle(parsed.overlayStyle);
-      } catch (e) {}
-    }
-
-    const handleScaleChange = (e) => {
-      if (e.detail) {
-        if (e.detail.fontScale) setFontScale(e.detail.fontScale);
-        if (e.detail.overlayStyle) setOverlayStyle(e.detail.overlayStyle);
-      }
-    };
-
-    window.addEventListener("reader-font-scale-change", handleScaleChange);
-    return () => window.removeEventListener("reader-font-scale-change", handleScaleChange);
-  }, []);
-
-  // Real OCR + translation for this page (server-side, cached per page/language).
   useEffect(() => {
     let isMounted = true;
     setBoxes([]);
     if (!imageUrl || !chapterId || pageIndex === undefined || pageIndex === null || !translatable) {
       return undefined;
     }
-
-    setLoading(true);
 
     const naturalSize = () =>
       new Promise((resolve) => {
@@ -65,15 +41,25 @@ export default function ReaderOverlay({
           naturalSize(),
         ]);
         if (!isMounted) return;
-        if (res.status === 429 && onLimitReached) {
-          onLimitReached(res);
+        if (res.status === 429) {
+          if (onLimitReached) onLimitReached(res);
           return;
         }
-        if (!res.ok || !size || !size.w || !size.h) return;
+        if (!res.ok) {
+          if (onError) onError(res.status);
+          return;
+        }
+        if (!size || !size.w || !size.h) return;
         const data = await res.json();
         if (!isMounted) return;
-        const found = (data.regions || [])
-          .filter((r) => r.coordinates && String(r.text || "").trim())
+        const withText = (data.regions || []).filter((r) => r.coordinates && String(r.text || "").trim());
+        // A region whose "translation" is the source text unchanged was not
+        // translated (no provider answered): covering it helps nobody.
+        const translated = withText.filter(
+          (r) => String(r.text).trim() !== String(r.source_text || "").trim()
+        );
+        if (withText.length && !translated.length && onError) onError("untranslated");
+        const found = translated
           .map((r, i) => ({
             id: r.index ?? i,
             x: r.coordinates.x / size.w,
@@ -82,54 +68,41 @@ export default function ReaderOverlay({
             h: r.coordinates.height / size.h,
             original: r.source_text || "",
             translated: r.text,
-            // Bubble's own fill, sampled just outside the original lettering,
-            // so the translation replaces the text instead of sitting in a
-            // white patch. Only used when the surrounding art is plain.
+            // Bubble fill and lettering colour sampled around the original
+            // text; only trusted when the surrounding art is plain.
             bg: r.background_clean ? r.background : null,
             fg: r.background_clean ? r.text_color : null,
           }));
         setBoxes(found);
       } catch {
-        // Overlay is optional: the page itself is already readable.
-      } finally {
-        if (isMounted) setLoading(false);
+        // The overlay is optional: the page itself is already readable.
       }
     })();
 
     return () => {
       isMounted = false;
     };
+    // onLimitReached/onError are notification callbacks, not inputs.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [imageUrl, language, chapterId, pageIndex, translatable]);
 
   if (!boxes.length) return null;
 
-  const styleClasses = {
-    white_box: "bg-white text-gray-950 font-semibold border border-gray-300 shadow-md",
-    transparent_outline: "bg-black/40 text-white font-extrabold drop-shadow-[0_2px_4px_rgba(0,0,0,1)] border border-white/40",
-    dark_box: "bg-[#101216]/95 text-white font-semibold border border-gray-700 shadow-lg",
-  }[overlayStyle] || "bg-white text-gray-950 font-semibold border border-gray-300 shadow-md";
-
   return (
     <div className="absolute inset-0 pointer-events-none z-10 overflow-hidden">
       {boxes.map((box) => (
-        <div
+        <OverlayBox
           key={box.id}
-          className={`absolute rounded-xl px-2.5 py-1.5 flex items-center justify-center text-center transition-all duration-150 pointer-events-auto select-text hover:ring-2 hover:ring-[#00AEF0] ${styleClasses}`}
+          region={box}
+          settings={settings}
+          title={`Original: ${box.original}`}
           style={{
             left: `${box.x * 100}%`,
             top: `${box.y * 100}%`,
             width: `${box.w * 100}%`,
-            minHeight: `${box.h * 100}%`,
-            fontSize: `${fontScale}px`,
-            lineHeight: 1.25,
-            ...(overlayStyle === "white_box" && box.bg
-              ? { backgroundColor: box.bg, color: box.fg }
-              : {}),
+            height: `${box.h * 100}%`,
           }}
-          title={`Original: ${box.original}`}
-        >
-          <span>{box.translated}</span>
-        </div>
+        />
       ))}
     </div>
   );

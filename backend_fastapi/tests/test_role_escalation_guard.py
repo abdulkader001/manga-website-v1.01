@@ -34,7 +34,7 @@ def _schema():
     yield
 
 
-def _make(session, role, *, main=False, secondary=False, assigned_to=None) -> int:
+def _make(session, role, *, main=False, secondary=False) -> int:
     user = User(
         email=f"esc-{uuid.uuid4().hex}@example.com",
         is_active=True,
@@ -42,7 +42,6 @@ def _make(session, role, *, main=False, secondary=False, assigned_to=None) -> in
         role=role,
         is_main_admin=main,
         is_secondary_admin=secondary,
-        assigned_to_admin_id=assigned_to,
         provider="magic_link",
     )
     session.add(user)
@@ -157,29 +156,3 @@ def test_secondary_admin_may_still_demote_an_ordinary_user(fastapi_client, actor
         headers=_headers(actors["secondary"]),
     )
     assert resp.status_code == 200, resp.text
-
-
-def test_generic_demote_route_honours_moderator_assignment_scope(
-    fastapi_client, actors
-):
-    """A Secondary Admin cannot use /demote/{id} to reach another's moderator."""
-
-    with SessionLocal() as session:
-        foreign_mod = _make(
-            session, UserRole.MODERATOR, assigned_to=actors["other_secondary"]
-        )
-        own_mod = _make(session, UserRole.MODERATOR, assigned_to=actors["secondary"])
-
-    blocked = fastapi_client.post(
-        f"/api/admin/demote/{foreign_mod}",
-        headers=_headers(actors["secondary"]),
-    )
-    assert blocked.status_code == 403, blocked.text
-    assert _role_of(foreign_mod) == UserRole.MODERATOR
-
-    allowed = fastapi_client.post(
-        f"/api/admin/demote/{own_mod}",
-        headers=_headers(actors["secondary"]),
-    )
-    assert allowed.status_code == 200, allowed.text
-    assert _role_of(own_mod) == UserRole.USER

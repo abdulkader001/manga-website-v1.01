@@ -6,7 +6,7 @@ import useAuth from "../../hooks/useAuth";
 import { maskEmail } from "../../utils/maskEmail";
 
 export default function UserDatabase() {
-  const { user: currentUser } = useAuth();
+  const { isAdmin: isMainAdmin } = useAuth();
   const queryClient = useQueryClient();
   const [search, setSearch] = useState("");
   const [notice, setNotice] = useState(null);
@@ -16,11 +16,6 @@ export default function UserDatabase() {
   const [reverifyDays, setReverifyDays] = useState(15);
   const [savingInterval, setSavingInterval] = useState(false);
 
-  const isMainAdmin = Boolean(
-    currentUser?.is_main_admin ||
-    currentUser?.role === "admin" ||
-    currentUser?.email === "admin@mangareader.local"
-  );
 
   // Fetch admin settings for reverifyDays
   useEffect(() => {
@@ -96,7 +91,7 @@ export default function UserDatabase() {
           <div className="text-3xl">🔒</div>
           <h2 className="text-xl font-bold text-white">Main Admin Access Only</h2>
           <p className="text-xs text-gray-400">
-            Only the primary owner (<strong className="text-white">admin@mangareader.local</strong>) can access the user database and credentials.
+            Only the main admin can open the user database.
           </p>
           <Link to="/admin" className="inline-block mt-3 px-4 py-2 rounded-xl bg-[#00AEF0] text-white text-xs font-bold">
             ← Return to Dashboard

@@ -33,47 +33,33 @@ CATEGORIES = (
 # two manga/anime lettering-style fonts, one calligraphy script, one casual
 # handwriting face. ``css_family`` is a web-safe/system fallback so the
 # picker and live preview work even before the on-demand webfont loads.
-BUILTIN_FONTS: List[Dict[str, Any]] = [
-    {
-        "id": "standard_sans",
-        "label": "Standard",
-        "category": CATEGORY_STANDARD,
-        "css_family": "'Inter', 'Helvetica Neue', Arial, sans-serif",
+def _font(font_id, label, category, family, fallback, default=False):
+    return {
+        "id": font_id,
+        "label": label,
+        "category": category,
+        "css_family": f"'{family}', {fallback}",
+        # Open-licensed (SIL OFL) webfonts bundled with the frontend
+        # (@fontsource packages), so nothing is fetched from a third party.
         "file_url": None,
-        "default": True,
-    },
-    {
-        "id": "anime_ace",
-        "label": "Anime Ace",
-        "category": CATEGORY_ANIME_MANGA,
-        "css_family": "'Anime Ace', 'Comic Sans MS', sans-serif",
-        "file_url": "/static/fonts/anime-ace.woff2",
-        "default": False,
-    },
-    {
-        "id": "wild_words",
-        "label": "Wild Words",
-        "category": CATEGORY_ANIME_MANGA,
-        "css_family": "'Wild Words', 'Comic Sans MS', sans-serif",
-        "file_url": "/static/fonts/wild-words.woff2",
-        "default": False,
-    },
-    {
-        "id": "manga_calligraphy",
-        "label": "Calligraphy",
-        "category": CATEGORY_CALLIGRAPHY,
-        "css_family": "'Pinyon Script', 'Brush Script MT', cursive",
-        "file_url": "/static/fonts/pinyon-script.woff2",
-        "default": False,
-    },
-    {
-        "id": "casual_handwriting",
-        "label": "Handwriting",
-        "category": CATEGORY_HANDWRITING,
-        "css_family": "'Patrick Hand', 'Segoe Print', cursive",
-        "file_url": "/static/fonts/patrick-hand.woff2",
-        "default": False,
-    },
+        "default": default,
+    }
+
+
+# Ids "anime_ace" and "wild_words" are kept so existing preferences still
+# resolve; they now map to free look-alikes (the originals are commercial
+# and were never shipped -- their font files did not exist).
+BUILTIN_FONTS: List[Dict[str, Any]] = [
+    _font("standard_sans", "Standard", CATEGORY_STANDARD, "Inter", "'Helvetica Neue', Arial, sans-serif", True),
+    _font("anime_ace", "Comic Lettering", CATEGORY_ANIME_MANGA, "Comic Neue", "'Comic Sans MS', sans-serif"),
+    _font("wild_words", "Speech Bubble", CATEGORY_ANIME_MANGA, "Shantell Sans", "'Comic Sans MS', sans-serif"),
+    _font("bangers", "Action (Bangers)", CATEGORY_ANIME_MANGA, "Bangers", "Impact, sans-serif"),
+    _font("luckiest_guy", "Shout (Luckiest Guy)", CATEGORY_ANIME_MANGA, "Luckiest Guy", "Impact, sans-serif"),
+    _font("mali", "Soft Manga (Mali)", CATEGORY_ANIME_MANGA, "Mali", "'Comic Sans MS', sans-serif"),
+    _font("casual_handwriting", "Handwriting", CATEGORY_HANDWRITING, "Patrick Hand", "'Segoe Print', cursive"),
+    _font("kalam", "Pen (Kalam)", CATEGORY_HANDWRITING, "Kalam", "'Segoe Print', cursive"),
+    _font("permanent_marker", "Marker", CATEGORY_HANDWRITING, "Permanent Marker", "'Segoe Print', cursive"),
+    _font("manga_calligraphy", "Calligraphy", CATEGORY_CALLIGRAPHY, "Pinyon Script", "'Brush Script MT', cursive"),
 ]
 
 _KNOWN_CATEGORIES = frozenset(CATEGORIES)

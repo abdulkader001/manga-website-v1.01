@@ -411,7 +411,9 @@ class TranslationService:
         provider_id: str,
         provider_config: Dict[str, Any],
     ) -> str:
-        if not model:
+        gemini = self._is_gemini(provider_id, api_url)
+        # Gemini names the model in the URL path; everything else needs it in the body.
+        if not model and not gemini:
             raise TranslationProviderError("model_required")
 
         prompt_override = provider_config.get("prompt")
@@ -419,19 +421,23 @@ class TranslationService:
             "Translate the following text from {source} to {target} and return only the translation."
         ).format(source=source_lang or "auto", target=target_lang)
 
-        payload: Dict[str, Any] = {
-            "model": model,
-            "messages": [
-                {"role": "system", "content": prompt},
-                {"role": "user", "content": text},
-            ],
-        }
+        payload = self._chat_request_payload(
+            provider_id=provider_id,
+            api_url=api_url,
+            model=model,
+            system_prompt=prompt,
+            user_content=text,
+        )
 
         try:
             response = requests.post(
                 api_url, json=payload, headers=headers, timeout=self.timeout_s
             )
             response.raise_for_status()
+        except requests.HTTPError as exc:
+            raise TranslationProviderError(
+                str(exc), status_code=exc.response.status_code if exc.response is not None else None
+            ) from exc
         except requests.RequestException as exc:
             raise TranslationProviderError(str(exc)) from exc
 
@@ -440,10 +446,12 @@ class TranslationService:
         except ValueError as exc:
             raise TranslationProviderError("invalid_json") from exc
 
-        content = self._extract_chat_content(provider_id, data)
+        content = self._extract_chat_content(
+            "google_gemini" if gemini else provider_id, data
+        )
         if content is None:
             raise TranslationProviderError("unexpected_payload")
-        return content
+        return content.strip()
 
     def _extract_chat_content(self, provider_id: str, data: Any) -> Optional[str]:
         """Pull the assistant's text out of a chat-completion response.

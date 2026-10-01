@@ -12,7 +12,7 @@ import json
 from datetime import date, datetime, timedelta
 from typing import Any, Dict, Iterable, List, Optional
 
-from sqlalchemy import Text, cast, func
+from sqlalchemy import Text, cast, func, tuple_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -63,14 +63,29 @@ def enrich(db: Session, items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         .group_by(MangaRating.manga_id)
     }
 
-    chapter_stats = {
-        manga_id: (int(count or 0), latest)
-        for manga_id, count, latest in db.query(
-            Chapter.manga_id, func.count(Chapter.id), func.max(Chapter.chapter_number)
-        )
-        .filter(Chapter.manga_id.in_(ids))
-        .group_by(Chapter.manga_id)
-    }
+    chapter_stats = {}
+    first_numbers = {}
+    for manga_id, count, latest, first in db.query(
+        Chapter.manga_id,
+        func.count(Chapter.id),
+        func.max(Chapter.chapter_number),
+        func.min(Chapter.chapter_number),
+    ).filter(Chapter.manga_id.in_(ids)).group_by(Chapter.manga_id):
+        chapter_stats[manga_id] = (int(count or 0), latest)
+        first_numbers[manga_id] = first
+
+    # Ids of the first and newest chapter, so "Read now" / "latest chapter"
+    # links open a real chapter. Only those two rows per series are fetched.
+    edge_ids: Dict[tuple, int] = {}
+    pairs = {(m, n) for m, (_, n) in chapter_stats.items() if n is not None}
+    pairs |= {(m, n) for m, n in first_numbers.items() if n is not None}
+    if pairs:
+        for manga_id, number, chapter_id in (
+            db.query(Chapter.manga_id, Chapter.chapter_number, Chapter.id)
+            .filter(tuple_(Chapter.manga_id, Chapter.chapter_number).in_(list(pairs)))
+            .order_by(Chapter.id)
+        ):
+            edge_ids.setdefault((manga_id, number), chapter_id)
 
     today = datetime.utcnow().date()
     period_views: Dict[int, Dict[str, int]] = {i: {"d": 0, "w": 0, "m": 0} for i in ids}
@@ -97,6 +112,8 @@ def enrich(db: Session, items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         item["chapters_count"] = chapters_count
         latest_number = chapter_number_value(latest)
         item["latest_chapter_number"] = latest_number
+        item["latest_chapter_id"] = edge_ids.get((manga_id, latest))
+        item["first_chapter_id"] = edge_ids.get((manga_id, first_numbers.get(manga_id)))
         item["last_chapter_title"] = (
             f"Chapter {latest_number}" if latest_number is not None else None
         )

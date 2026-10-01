@@ -201,8 +201,10 @@ class SystemSettings(Base):
     __tablename__ = "system_settings"
 
     id = Column(Integer, primary_key=True, default=1)
+    # On by default: the backend image ships Tesseract with CJK language data,
+    # so the built-in engine works out of the box (admin can turn it off).
     local_ocr_enabled = Column(
-        Boolean, nullable=False, default=False, server_default="false"
+        Boolean, nullable=False, default=True, server_default="true"
     )
     local_ocr_engine = Column(String(100), nullable=True)
     # Session lifetime in days, admin-configurable (SRS 1D.5.1). Range 1–30,

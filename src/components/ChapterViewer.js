@@ -8,6 +8,8 @@ import AdSection from "./GlobalAds";
 import AdPlacement from "./AdPlacement";
 import CommentSection from "./CommentSection";
 import useAuth from "../hooks/useAuth";
+import useReaderSettings from "../hooks/useReaderSettings";
+import "../fonts/overlayFonts";
 import "./ChapterViewer.css";
 
 const normalizePageImages = (page) => {
@@ -29,10 +31,13 @@ export default function ChapterViewer() {
   const { isAdmin, isSecondaryAdmin, user: authUser } = useAuth();
   const isPrivileged = isAdmin || isSecondaryAdmin;
 
-  // OCR Translation states
-  const [showOcr, setShowOcr] = useState(false);
-  const [ocrLang, setOcrLang] = useState("en");
-  const [limitNotice, setLimitNotice] = useState("");
+  // Page translation follows the reader's saved settings (Settings ->
+  // Reading & Translation); there is no per-chapter toggle.
+  const { settings: readerSettings, loaded: readerSettingsLoaded } = useReaderSettings({
+    enabled: Boolean(authUser),
+  });
+  const showOcr = Boolean(authUser && readerSettingsLoaded && readerSettings.overlay_enabled);
+  const [overlayNotice, setOverlayNotice] = useState("");
 
   // Bookmark / Marked state
   const [bookmarked, setBookmarked] = useState(false);
@@ -58,7 +63,8 @@ export default function ChapterViewer() {
   const { data: chapterAlertsData, refetch: refetchAlerts } = useQuery({
     queryKey: ["chapterAlerts", chapterId],
     queryFn: () => api.reports.getChapterReports(chapterId),
-    enabled: !!chapterId,
+    // Staff only: readers never see report status.
+    enabled: !!chapterId && isPrivileged,
     refetchInterval: 10000,
   });
   const activeChapterAlert = chapterAlertsData?.active_alert;
@@ -430,70 +436,65 @@ export default function ChapterViewer() {
         </Link>
       </div>
 
-      {/* Admin Control Bar (OCR & Rescrape Tools) */}
+      {/* Translation status (settings live in Settings -> Reading & Translation) */}
       <div className="max-w-4xl mx-auto my-3 px-4 flex items-center justify-between flex-wrap gap-3 bg-[#15171c] border border-[#262a33] p-3 rounded-xl shadow-lg">
-        {/* OCR Translation Controls */}
-        <div className="flex items-center gap-3 flex-wrap">
-          <label className="flex items-center gap-2 text-xs font-bold text-gray-300 cursor-pointer select-none">
-            <input
-              type="checkbox"
-              checked={showOcr}
-              onChange={(e) => setShowOcr(e.target.checked)}
-              className="rounded bg-[#101216] border-[#262a33] text-[#00AEF0] focus:ring-0 cursor-pointer"
-            />
-            <span className="flex items-center gap-1.5">
-              <i className="fas fa-language text-[#00AEF0]"></i>
-              <span>Show OCR Translation Overlay</span>
+        <div className="flex items-center gap-2 text-xs text-gray-300 flex-wrap">
+          <i className="fas fa-language text-[#00AEF0]"></i>
+          {!authUser ? (
+            <span>
+              <Link to="/login" className="text-[#00AEF0] hover:underline font-semibold">Sign in</Link> to translate pages automatically.
             </span>
-          </label>
-
-          {showOcr && (
-            <select
-              value={ocrLang}
-              onChange={(e) => setOcrLang(e.target.value)}
-              className="px-2.5 py-1 rounded bg-[#101216] border border-[#262a33] text-xs font-semibold text-white focus:outline-none focus:border-[#00AEF0]"
-            >
-              <option value="en">English (EN)</option>
-              <option value="es">Spanish (ES)</option>
-              <option value="fr">French (FR)</option>
-              <option value="de">German (DE)</option>
-              <option value="ja">Japanese (JA)</option>
-              <option value="ko">Korean (KO)</option>
-              <option value="zh">Chinese (ZH)</option>
-            </select>
+          ) : showOcr ? (
+            <span>
+              Auto-translate is <span className="text-emerald-400 font-bold">on</span> ({(readerSettings.target_language || "en").toUpperCase()}).
+            </span>
+          ) : (
+            <span>
+              Auto-translate is <span className="text-gray-400 font-bold">off</span>.
+            </span>
+          )}
+          {authUser && (
+            <Link to="/settings?tab=reading" className="text-[#00AEF0] hover:underline font-semibold">
+              Change in Settings
+            </Link>
           )}
         </div>
-
-        {/* Admin Rescrape Button */}
-        {isPrivileged && (
-          <div className="flex items-center gap-3 flex-wrap">
-            <label className="flex items-center gap-1.5 text-[11px] text-gray-400 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={deletePrev}
-                onChange={(e) => setDeletePrev(e.target.checked)}
-                disabled={rescrapeBusy}
-                className="rounded bg-[#101216] border-[#262a33]"
-              />
-              <span>Delete existing pages</span>
-            </label>
-
-            <button
-              type="button"
-              onClick={handleRescrape}
-              disabled={rescrapeBusy}
-              className="px-3.5 py-1.5 rounded-lg bg-[#00AEF0] hover:bg-[#0F5065] text-white text-xs font-bold flex items-center gap-1.5 shadow transition disabled:opacity-50"
-            >
-              <i className={`fas fa-sync-alt ${rescrapeBusy ? "animate-spin" : ""}`}></i>
-              <span>{rescrapeBusy ? "Re-scraping…" : "Re-Scrape Chapter"}</span>
+        {showOcr && <OverlayScaleControl />}
+        {overlayNotice && (
+          <div className="w-full text-[11px] text-amber-300 bg-amber-950/30 border border-amber-500/30 rounded-lg px-3 py-2 flex items-center justify-between gap-2">
+            <span>{overlayNotice}</span>
+            <button type="button" onClick={() => setOverlayNotice("")} className="text-gray-400 hover:text-white" aria-label="Dismiss">
+              ✕
             </button>
           </div>
         )}
       </div>
 
-      {showOcr && (
-        <div className="max-w-4xl mx-auto mb-3 px-4 flex justify-end">
-          <OverlayScaleControl chapterId={chapterId} />
+      {/* Admin and sub-admin only: never rendered for readers */}
+      {isPrivileged && (
+        <div className="max-w-4xl mx-auto mb-3 px-4 flex items-center justify-end flex-wrap gap-3 bg-[#15171c] border border-amber-500/20 p-3 rounded-xl">
+          <span className="mr-auto text-[11px] font-bold text-amber-300 flex items-center gap-1.5">
+            <i className="fas fa-user-shield"></i> Staff tools
+          </span>
+          <label className="flex items-center gap-1.5 text-[11px] text-gray-400 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={deletePrev}
+              onChange={(e) => setDeletePrev(e.target.checked)}
+              disabled={rescrapeBusy}
+              className="rounded bg-[#101216] border-[#262a33]"
+            />
+            <span>Delete existing pages</span>
+          </label>
+          <button
+            type="button"
+            onClick={handleRescrape}
+            disabled={rescrapeBusy}
+            className="px-3.5 py-1.5 rounded-lg bg-[#00AEF0] hover:bg-[#0F5065] text-white text-xs font-bold flex items-center gap-1.5 shadow transition disabled:opacity-50"
+          >
+            <i className={`fas fa-sync-alt ${rescrapeBusy ? "animate-spin" : ""}`}></i>
+            <span>{rescrapeBusy ? "Re-scraping…" : "Re-Scrape Chapter"}</span>
+          </button>
         </div>
       )}
 
@@ -524,12 +525,24 @@ export default function ChapterViewer() {
                 {showOcr && (
                   <ReaderOverlay
                     imageUrl={imgUrl}
-                    language={ocrLang}
                     chapterId={chapterId}
                     pageIndex={idx}
-                    mangaId={mangaId}
+                    settings={readerSettings}
                     translatable={chapter?.may_translate !== false}
-                    onLimitReached={(res) => setLimitNotice("Translation limit reached.")}
+                    onLimitReached={() =>
+                      setOverlayNotice(
+                        "You've reached your translation limit for this period. Raise it in Settings → Reading & Translation."
+                      )
+                    }
+                    onError={(code) =>
+                      setOverlayNotice(
+                        code === "untranslated"
+                          ? "Text was found but not translated: no translator is set up. Add a free AI key in Settings → AI & OCR Engines."
+                          : code === 403 || code === 401
+                          ? "Translation needs you to be signed in."
+                          : "Some pages could not be translated right now."
+                      )
+                    }
                   />
                 )}
 
@@ -619,7 +632,7 @@ export default function ChapterViewer() {
 
       {/* Broken Chapter Report Modal */}
       {reportOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in fade-in">
+        <div className="fixed inset-0 z-50 flex [align-items:safe_center] justify-center overflow-y-auto bg-black/80 backdrop-blur-sm p-4 animate-in fade-in">
           <form onSubmit={handleReportSubmit} className="bg-[#15171c] border border-[#262a33] rounded-2xl max-w-md w-full p-6 space-y-4 shadow-2xl">
             <div className="flex items-center justify-between border-b border-[#262a33] pb-3">
               <div className="flex items-center gap-2.5">
