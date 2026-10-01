@@ -70,7 +70,6 @@ export default function Login() {
     <div className="min-h-[80vh] flex items-center justify-center p-4">
       <div className="w-full max-w-md bg-[#15171c] border border-[#262a33] p-6 sm:p-8 rounded-2xl shadow-2xl space-y-5">
         <div className="text-center space-y-1">
-          <div className="text-3xl">🦎</div>
           <h1 className="text-2xl font-extrabold text-white">Welcome to Manga World</h1>
           <p className="text-xs text-[#8b93a3]">
             Sign in with your Email, Google, or Microsoft account to enter.
