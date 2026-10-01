@@ -6,12 +6,8 @@ from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 from fastapi import HTTPException, status
 
-from ..models import AdminAuditLog, User, LoginToken, UserRole
+from ..models import User, LoginToken
 from ..core.security import create_access_token, create_refresh_token
-from ..core.admin_identity import (
-    auto_promote_enabled,
-    is_configured_main_admin_email,
-)
 from ..schemas.auth import TokenPair
 
 from ..utils.email_crypto import email_identity, email_lookup, hash_email
@@ -120,81 +116,15 @@ def _heal_identity(db: Session, user: User, identity: str | None) -> None:
         user.email_identity_hash = identity
 
 
-def _apply_main_admin_role(user: User, email: str) -> bool:
-    """Grant main-admin role when auto-promotion is configured and enabled.
-
-    C5: this path is gated on both a configured ``MAIN_ADMIN_EMAIL_HASH`` and
-    the ``MAIN_ADMIN_AUTO_PROMOTE_ENABLED`` flag (default off), so it never
-    fires silently. Returns ``True`` when the user's privileges changed.
-
-    Grants the same ``UserRole.PERMANENT`` / ``permanent=True`` state the
-    bootstrap-token path grants (``admin_bootstrap.redeem_admin_token`` via
-    ``User.promote_to_permanent_admin``). Permanent Admin and Admin are one
-    merged, single-owner tier -- this is a second, config-gated way to reach
-    it, not a way to create a second, different admin.
-    """
-
-    if not auto_promote_enabled():
-        return False
-    if not is_configured_main_admin_email(email):
-        return False
-
-    changed = False
-    if user.role != UserRole.PERMANENT:
-        user.role = UserRole.PERMANENT
-        changed = True
-    if not getattr(user, "permanent", False):
-        user.permanent = True
-        changed = True
-    if not getattr(user, "is_main_admin", False):
-        user.is_main_admin = True
-        changed = True
-    if not getattr(user, "is_secondary_admin", False):
-        user.is_secondary_admin = True
-        changed = True
-    return changed
-
-
-def _log_auto_promotion(db: Session, user: User) -> None:
-    """Record an audit entry every time the auto-promotion path grants access."""
-
-    logger.warning(
-        "main_admin_auto_promote",
-        user_id=user.id,
-        message="Account auto-promoted to main admin via MAIN_ADMIN_EMAIL_HASH",
-    )
-    try:
-        db.add(
-            AdminAuditLog(
-                user_id=user.id,
-                operator=getattr(user, "email_plaintext", None),
-                action="admin.auto_promote",
-                metadata_json={
-                    "reason": "email_hash_match",
-                    "source": "MAIN_ADMIN_EMAIL_HASH",
-                },
-                source_ip=None,
-            )
-        )
-        db.commit()
-    except Exception:  # pragma: no cover - audit logging must not break login
-        db.rollback()
-        logger.exception("failed_to_log_auto_promotion")
-
-
 def ensure_magic_link_user(db: Session, email: str) -> User:
     norm_email = normalize_email(email)
     user = get_user_by_email(db, norm_email)
     if user:
-        if _apply_main_admin_role(user, norm_email):
-            db.commit()
-            _log_auto_promotion(db, user)
         return user
     user = User(
         email=norm_email,
         username=norm_email.split("@")[0],
     )
-    promoted = _apply_main_admin_role(user, norm_email)
     db.add(user)
     try:
         db.commit()
@@ -206,8 +136,6 @@ def ensure_magic_link_user(db: Session, email: str) -> User:
                 status_code=500, detail="Failed to create user concurrently"
             )
         return user
-    if promoted:
-        _log_auto_promotion(db, user)
     return user
 
 

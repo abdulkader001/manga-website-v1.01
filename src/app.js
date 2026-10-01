@@ -10,7 +10,6 @@ import BookmarkHistoryTab from "./components/BookmarkHistoryTab";
 import MangaDetail from "./components/MangaDetail";
 import Login from "./components/Login";
 import MagicLinkConsume from "./pages/MagicLinkConsume";
-import AdminLogin from "./pages/AdminLogin";
 import CompleteProfile from "./pages/CompleteProfile";
 import UserSettings from "./pages/UserSettings";
 import NotificationsPage from "./pages/NotificationsPage";
@@ -40,6 +39,10 @@ import AuditReport from "./pages/Admin/AuditReport";
 import ChapterReports from "./pages/Admin/ChapterReports";
 import AdminSecurity from "./pages/Admin/AdminSecurity";
 import SecretVault from "./pages/Admin/SecretVault";
+
+// The one-time site-owner sign-in is its own chunk: nothing links to it and
+// regular visitors never download it.
+const AdminLogin = React.lazy(() => import("./pages/AdminLogin"));
 
 function AppShell({ children }) {
   const location = useLocation();
@@ -78,7 +81,14 @@ function AppRoutes() {
     <Routes>
       {/* Auth Entry & Onboarding Routes */}
       <Route path="/login" element={<Login />} />
-      <Route path="/admin-login" element={<AdminLogin />} />
+      <Route
+        path="/admin-login"
+        element={
+          <Suspense fallback={null}>
+            <AdminLogin />
+          </Suspense>
+        }
+      />
       <Route path="/magic-link/:token" element={<MagicLinkConsume />} />
       <Route path="/login/magic/:token" element={<MagicLinkConsume />} />
       <Route path="/complete-profile" element={<CompleteProfile />} />

@@ -1,14 +1,27 @@
-"""Configurable main-administrator identity (C5).
+"""Main-administrator identity for the one-time Admin sign-in (/admin-login).
 
-The Argon2id hash of the main admin's email address is supplied via the
-``MAIN_ADMIN_EMAIL_HASH`` environment variable and must never be committed to
-source control. Auto-promotion of a matching account to main admin on login is
-disabled by default and must be explicitly enabled via
-``MAIN_ADMIN_AUTO_PROMOTE_ENABLED`` — this is intended only for first-time
-bootstrap and should be disabled again immediately afterwards.
+Two values in ``.env`` (never in source control) identify the site owner:
+
+* ``MAIN_ADMIN_EMAIL_HASH``    -- Argon2id hash of the owner's e-mail,
+* ``MAIN_ADMIN_PASSWORD_HASH`` -- Argon2id hash of the ONE-TIME admin password.
+
+``scripts/make_admin_hash.py`` prints them. Both are accepted in two forms:
+
+* ``a2:<base64url>`` (what the tool prints): the Argon2id PHC string wrapped in
+  base64url, so it has no ``$`` in it. Docker Compose, ``source .env`` and
+  PowerShell all treat ``$`` as "insert a variable here" and silently mangle a
+  raw hash; this form survives every one of them, quoted or not.
+* the raw Argon2id PHC string (starts with a dollar sign), for hashes made
+  before.
+
+Surrounding quotes are tolerated too (``docker run --env-file`` and some
+hosting panels keep them as part of the value).
 """
 
 from __future__ import annotations
+
+import base64
+import binascii
 
 import structlog
 from cryptography.exceptions import InvalidKey
@@ -19,57 +32,58 @@ from ..utils.email_crypto import normalize_email
 
 logger = structlog.get_logger("backend_fastapi.admin_identity")
 
+WRAPPED_PREFIX = "a2:"
+
+
+def decode_admin_hash(value: str | None) -> str | None:
+    """Return the Argon2id PHC string from an env value, or ``None``."""
+
+    text = str(value or "").strip()
+    if len(text) >= 2 and text[0] == text[-1] and text[0] in "'\"":
+        text = text[1:-1].strip()
+    if not text:
+        return None
+    if text.startswith(WRAPPED_PREFIX):
+        body = text[len(WRAPPED_PREFIX):]
+        try:
+            text = base64.urlsafe_b64decode(body + "=" * (-len(body) % 4)).decode("utf-8")
+        except (binascii.Error, ValueError):
+            return None
+    return text or None
+
 
 def get_main_admin_email_hash() -> str | None:
-    """Return the configured main-admin email hash, or ``None`` when unset."""
-
-    value = getattr(settings, "main_admin_email_hash", None)
-    if value is None:
-        return None
-    value = str(value).strip()
-    return value or None
+    return decode_admin_hash(getattr(settings, "main_admin_email_hash", None))
 
 
-def auto_promote_enabled() -> bool:
-    """Return ``True`` when login-time auto-promotion is explicitly enabled."""
-
-    return bool(getattr(settings, "main_admin_auto_promote_enabled", False))
+def get_main_admin_password_hash() -> str | None:
+    return decode_admin_hash(getattr(settings, "main_admin_password_hash", None))
 
 
-def is_configured_main_admin_email(email: str | None) -> bool:
-    """Return ``True`` when ``email`` matches the configured main-admin hash.
-
-    Returns ``False`` when no hash is configured. This does **not** consider the
-    ``MAIN_ADMIN_AUTO_PROMOTE_ENABLED`` flag; callers must gate the actual
-    promotion on :func:`auto_promote_enabled` separately.
-    """
-
-    hash_value = get_main_admin_email_hash()
-    if not hash_value:
-        return False
-
-    normalized = normalize_email(email)
-    if normalized is None:
-        return False
-
+def _verify(secret: bytes, hash_value: str, name: str) -> bool:
     try:
-        Argon2id.verify_phc_encoded(normalized.encode("utf-8"), hash_value)
+        Argon2id.verify_phc_encoded(secret, hash_value)
         return True
     except InvalidKey:
         return False
-    except Exception:  # pragma: no cover - defensive: malformed hash config
+    except Exception:  # malformed hash in .env
         logger.warning(
-            "invalid_main_admin_email_hash",
-            message="MAIN_ADMIN_EMAIL_HASH is not a valid Argon2id PHC string; "
-            "ignoring auto-promotion",
+            "invalid_admin_hash",
+            setting=name,
+            message=f"{name} is not a valid hash; make a new one with "
+            "scripts/make_admin_hash.py",
         )
         return False
 
 
-def get_main_admin_password_hash() -> str | None:
-    value = getattr(settings, "main_admin_password_hash", None)
-    value = str(value).strip() if value is not None else ""
-    return value or None
+def is_configured_main_admin_email(email: str | None) -> bool:
+    """True when ``email`` matches ``MAIN_ADMIN_EMAIL_HASH``."""
+
+    hash_value = get_main_admin_email_hash()
+    normalized = normalize_email(email)
+    if not hash_value or normalized is None:
+        return False
+    return _verify(normalized.encode("utf-8"), hash_value, "MAIN_ADMIN_EMAIL_HASH")
 
 
 def admin_password_configured() -> bool:
@@ -79,17 +93,49 @@ def admin_password_configured() -> bool:
 
 
 def verify_main_admin_password(password: str | None) -> bool:
+    """True when ``password`` matches ``MAIN_ADMIN_PASSWORD_HASH``.
+
+    Spaces or a line break at either end (a copy-paste accident) are ignored;
+    the hash tool strips them the same way.
+    """
+
     hash_value = get_main_admin_password_hash()
     if not hash_value or not password:
         return False
-    try:
-        Argon2id.verify_phc_encoded(password.encode("utf-8"), hash_value)
+    candidates = [password.strip()]
+    if password != candidates[0]:
+        candidates.append(password)  # hashes made before trimming existed
+    return any(
+        c and _verify(c.encode("utf-8"), hash_value, "MAIN_ADMIN_PASSWORD_HASH")
+        for c in candidates
+    )
+
+
+def admin_sign_in_in_use(session=None) -> bool:
+    """This site's owner is protected by the one-time Admin sign-in.
+
+    True while a one-time password is set in .env, and for ever once one has
+    been used -- so deleting the used hash from .env afterwards does NOT switch
+    off the authenticator requirement for the main admin.
+    """
+
+    if admin_password_configured():
         return True
-    except InvalidKey:
+    from ..models import SystemSettings
+
+    def _used(db) -> bool:
+        row = db.query(SystemSettings.admin_setup_password_used).first()
+        return bool(row and row[0])
+
+    try:
+        if session is not None:
+            used = _used(session)
+        else:
+            from .db import SessionLocal
+
+            with SessionLocal() as db:
+                used = _used(db)
+    except Exception:  # pragma: no cover - defensive
+        logger.exception("admin_sign_in_marker_unreadable")
         return False
-    except Exception:  # malformed hash config
-        logger.warning(
-            "invalid_main_admin_password_hash",
-            message="MAIN_ADMIN_PASSWORD_HASH is not a valid Argon2id PHC string",
-        )
-        return False
+    return used

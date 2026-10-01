@@ -84,27 +84,15 @@ class Settings(BaseSettings):
     )
     magic_link_secret: str | None = None
     integrations_secret: str | None = None
-    secret_phrase: str | None = None
-    expected_phrase: str | None = None
-    secret_phrase_file: str | None = None
     access_token_expire_minutes: int = 60
     algorithm: str = "HS256"
     email_encryption_key: str | None = None
 
-    # Main-admin identity (C5): the Argon2id hash of the main admin's email is
-    # supplied via env and MUST NOT be committed to source. Auto-promotion on
-    # login is disabled by default and should only be enabled transiently for
-    # first-time bootstrap, then turned off again.
+    # One-time Admin sign-in (/admin-login, see core/admin_identity.py): hashes
+    # of the site owner's e-mail and one-time password, made with
+    # scripts/make_admin_hash.py. Never committed to source.
     main_admin_email_hash: str | None = None
-    main_admin_auto_promote_enabled: bool = False
-    # Admin sign-in (/admin-login): Argon2id hash of the main admin's password.
-    # With it set, the main admin signs in with email + this password + an
-    # authenticator code -- no Google, Microsoft or e-mail involved -- and a
-    # stolen inbox or Google account alone can never open admin features.
     main_admin_password_hash: str | None = None
-    # Roadmap item 15: main admins must enrol a second factor (TOTP) before
-    # they can use admin routes. Off by default so nobody is locked out.
-    admin_2fa_required: bool = False
 
     # Email
     email_backend: str | None = None
@@ -305,23 +293,6 @@ class Settings(BaseSettings):
             env = (self.app_env or "").strip().lower()
             if env in {"staging", "stage", "production", "prod"}:
                 self.alembic_check_on_startup = True
-
-        # C5 / item 30: main-admin auto-promotion is a privileged bootstrap
-        # path. If it is enabled but no MAIN_ADMIN_EMAIL_HASH is configured, the
-        # promotion would silently never fire — an operator who set the flag
-        # believing bootstrap is armed gets nothing, with no signal. Fail loud
-        # rather than degrade silently: either configure the hash, or turn the
-        # flag off.
-        if (
-            self.main_admin_auto_promote_enabled
-            and not (self.main_admin_email_hash or "").strip()
-        ):
-            raise ValueError(
-                "MAIN_ADMIN_AUTO_PROMOTE_ENABLED is set but MAIN_ADMIN_EMAIL_HASH "
-                "is missing — auto-promotion would silently never fire. Configure "
-                "MAIN_ADMIN_EMAIL_HASH (an Argon2id hash of the main admin's "
-                "email), or disable MAIN_ADMIN_AUTO_PROMOTE_ENABLED."
-            )
 
         return self
 

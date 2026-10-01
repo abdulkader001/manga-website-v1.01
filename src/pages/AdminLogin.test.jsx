@@ -21,13 +21,13 @@ describe("Admin sign-in", () => {
     const assign = vi.fn();
     Object.defineProperty(window, "location", { value: { ...window.location, assign }, writable: true });
     apiFetch
-      .mockImplementationOnce(() => reply({ enabled: true }))
+      .mockImplementationOnce(() => reply({ open: true }))
       .mockImplementationOnce(() => reply({ step: "enrol", secret: "ABCDEF", otpauth_uri: "otpauth://totp/x" }))
       .mockImplementationOnce(() => reply({ step: "done" }));
     const user = userEvent.setup();
     renderAt(<AdminLogin />);
 
-    await user.type(screen.getByPlaceholderText("you@example.com"), "owner@example.com");
+    await user.type(await screen.findByPlaceholderText("you@example.com"), "owner@example.com");
     await user.type(screen.getByPlaceholderText("One-time admin password"), "long password here");
     await user.click(screen.getByRole("button", { name: "Continue" }));
 
@@ -42,25 +42,33 @@ describe("Admin sign-in", () => {
 
   it("shows the server's answer for a wrong password", async () => {
     apiFetch
-      .mockImplementationOnce(() => reply({ enabled: true }))
+      .mockImplementationOnce(() => reply({ open: true }))
       .mockImplementationOnce(() => reply({ error: { message: "Email, password or code is not right." } }, 401));
     const user = userEvent.setup();
     renderAt(<AdminLogin />);
-    await user.type(screen.getByPlaceholderText("you@example.com"), "owner@example.com");
+    await user.type(await screen.findByPlaceholderText("you@example.com"), "owner@example.com");
     await user.type(screen.getByPlaceholderText("One-time admin password"), "wrong");
     await user.click(screen.getByRole("button", { name: "Continue" }));
     expect(await screen.findByText("Email, password or code is not right.")).toBeInTheDocument();
   });
 
-  it("says when the one-time password has been used", async () => {
-    apiFetch.mockImplementationOnce(() => reply({ enabled: false, used: true }));
+  it("is a plain 'not found' page once the one-time password is used (or none is set)", async () => {
+    apiFetch.mockImplementationOnce(() => reply({ error: { message: "Not found." } }, 404));
     renderAt(<AdminLogin />);
-    expect(await screen.findByText(/already been used/)).toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByPlaceholderText("you@example.com")).not.toBeInTheDocument());
+    expect(screen.queryByText(/Admin sign-in/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/one-time/i)).not.toBeInTheDocument();
   });
 
-  it("explains how to set it up when the server has no admin password", async () => {
-    apiFetch.mockImplementationOnce(() => reply({ enabled: false }));
+  it("turns into 'not found' if the page closes while it is open", async () => {
+    apiFetch
+      .mockImplementationOnce(() => reply({ open: true }))
+      .mockImplementationOnce(() => reply({ error: { message: "Not found." } }, 404));
+    const user = userEvent.setup();
     renderAt(<AdminLogin />);
-    expect(await screen.findByText(/not set up on this server yet/)).toBeInTheDocument();
+    await user.type(await screen.findByPlaceholderText("you@example.com"), "owner@example.com");
+    await user.type(screen.getByPlaceholderText("One-time admin password"), "long password here");
+    await user.click(screen.getByRole("button", { name: "Continue" }));
+    await waitFor(() => expect(screen.queryByPlaceholderText("you@example.com")).not.toBeInTheDocument());
   });
 });

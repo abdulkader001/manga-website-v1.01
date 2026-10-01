@@ -12,8 +12,10 @@ from fastapi import APIRouter, Depends, Request, Response
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
+from sqlalchemy.orm import object_session
+
+from ...core.admin_identity import admin_sign_in_in_use
 from ...core.api_errors import ApiError, ErrorCode
-from ...core.admin_identity import admin_password_configured
 from ...core.db import get_db
 from ...core.settings import settings
 from ...dependencies.auth import (
@@ -40,16 +42,20 @@ async def _admin_only(current_user: User = Depends(get_current_user)) -> User:
     return current_user
 
 
-def _managed_by_admin_sign_in(user: User) -> None:
-    """With admin sign-in set up, a main admin's authenticator is changed only
-    there (email + server password) or on the server -- never from a session
-    that a stolen Google account or inbox could have produced."""
+def _owner_managed(user: User) -> bool:
+    return is_main_admin(user) and admin_sign_in_in_use(object_session(user))
 
-    if admin_password_configured() and is_main_admin(user):
+
+def _managed_by_admin_sign_in(user: User) -> None:
+    """The main admin's authenticator is set up only by the one-time Admin
+    sign-in (e-mail + server password) or reset on the server -- never from a
+    session that a stolen Google account or inbox could have produced."""
+
+    if _owner_managed(user):
         raise ApiError(
             ErrorCode.FORBIDDEN,
-            "Your authenticator is managed by Admin sign-in (/admin-login). "
-            "Lost your phone? Reset it on the server: cli_bootstrap reset-2fa.",
+            "The site owner's authenticator can only be changed on the server. "
+            "Lost your phone? See the guide: reset-2fa, then a new one-time password.",
             details={"reason": "managed_by_admin_sign_in"},
         )
 
@@ -87,10 +93,8 @@ def _status(request: Request, user: User) -> Dict[str, Any]:
     return {
         "enabled": enabled,
         "unlocked": bool(unlocked),
-        "required": bool(
-            (settings.admin_2fa_required or admin_password_configured()) and is_main_admin(user)
-        ),
-        "managed_by_admin_sign_in": bool(admin_password_configured() and is_main_admin(user)),
+        "required": _owner_managed(user),
+        "managed_by_admin_sign_in": _owner_managed(user),
     }
 
 

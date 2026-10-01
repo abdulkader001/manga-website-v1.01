@@ -88,7 +88,7 @@ def test_bootstrap_keys_are_never_manageable():
         "JWT_SECRET_KEY",
         "INTEGRATIONS_SECRET",
         "MAIN_ADMIN_EMAIL_HASH",
-        "ADMIN_2FA_REQUIRED",
+        "MAIN_ADMIN_PASSWORD_HASH",
         "EMAIL_ENCRYPTION_KEY",
         "EMAIL_HASH_SECRET",
     ):

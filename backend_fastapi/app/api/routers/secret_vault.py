@@ -5,7 +5,7 @@ Access is deliberately narrower than every other admin page:
 * Main admin only (``require_main_admin_user``). This is a role-tier check,
   not a catalogue permission, so no permission override or preset can ever
   extend it to a secondary admin or moderator.
-* An authenticator app must be enrolled, whatever ``ADMIN_2FA_REQUIRED`` says.
+* An authenticator app must be enrolled.
 * Reading the listing needs the usual admin step-up; changing, removing or
   revealing a value additionally needs a vault unlock -- a fresh TOTP code
   that opens a 10-minute window bound to this admin.

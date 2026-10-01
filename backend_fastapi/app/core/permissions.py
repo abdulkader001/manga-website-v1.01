@@ -188,9 +188,8 @@ def effective_role(user) -> UserRole:
     # downstream ever distinguishes the two return values (every consumer
     # checks ``effective_role(...) in {ADMIN, PERMANENT}``, or feeds into
     # ``role_default``, which grants both identical permissions). Nothing
-    # newly assigns ``UserRole.ADMIN`` any more (see
-    # ``auth_service._apply_main_admin_role`` and
-    # ``admin_bootstrap.redeem_admin_token``, which both grant PERMANENT) --
+    # newly assigns ``UserRole.ADMIN`` any more (the one-time Admin sign-in,
+    # ``routers/admin_login.py``, grants PERMANENT) --
     # the ADMIN branch below exists solely so pre-existing ``role=ADMIN`` rows
     # keep resolving to the owner tier.
     if getattr(user, "permanent", False) or role == UserRole.PERMANENT:

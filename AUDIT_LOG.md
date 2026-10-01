@@ -41,7 +41,7 @@ Contents
 
 ### People and roles
 
-- **Main admin**: one owner. Proves it at `/admin-login` with e-mail, a **one-time** password from `.env` and an authenticator code. After that, every admin page asks for the authenticator code.
+- **Main admin**: one owner. Proves it **once** at `/admin-login` with e-mail, a **one-time** password from `.env` and an authenticator code. After that the page is gone (404, no link anywhere), the owner signs in like readers, and every admin page asks for the authenticator code. A new password hash in `.env` (server access) re-opens the page once, for recovery. Signing in with the owner's e-mail alone never grants admin.
 - **Sub-admin**: a user with per-person permission toggles (Role Management). Can never get the Secret Vault, Admin Settings, branding or role management.
 - **User (reader)**: signs in with a magic link, Google or Microsoft. **No passwords.** One inbox gives one account for life.
 
@@ -53,7 +53,10 @@ Contents
 
 | Command | Does |
 | --- | --- |
-| `cli_bootstrap admin-hashes` | Prints the two `.env` lines for Admin sign-in (a new one-time password) |
+| `make_admin_hash.py [--write .env \| --check .env]` | Makes the two `.env` lines for the one-time Admin sign-in (`$`-free `a2:` form), writes them into `.env`, or checks an e-mail/password against `.env`. Needs only Python + `cryptography`; runs without the site (`guide/` shows the `docker run` form) |
+| `make_env.py [--local]` | Creates a new `.env` with random secrets and matching DB/Redis passwords. Never overwrites an existing `.env`. Standard-library Python only |
+| `cli_bootstrap admin-status` | Is `/admin-login` open, used up or not set up, and can the server see both lines |
+| `cli_bootstrap admin-hashes` | Same as `make_admin_hash.py` (prints the lines) |
 | `cli_bootstrap reset-2fa --email …` | Removes a lost authenticator |
 | `cli_bootstrap login-link --email …` | Prints a one-time sign-in link (no e-mail sent) |
 | `set_site_domain new-domain.com` / `--clear` | Moves the site to a new domain when the admin page can't be reached |
@@ -117,7 +120,28 @@ exceptions; for those, restore the database backup taken before the update.
 
 ## Change entries
 
-### 2026-10-01 — Audit log and update/rollback guide (this PR)
+### 2026-10-01 — PR #29: one-time admin page that disappears; admin hash fixes; legacy bootstrap removed; install guides per OS
+
+| Change | Why | Main files |
+| --- | --- | --- |
+| **`/admin-login` disappears after one use.** Once the one-time password has signed the owner in (or when none is set) the page and its API answer **404** like an address that never existed. The "Site owner? Admin sign-in" link is gone from the login page, and the page is a separate code chunk regular visitors never download. A new hash in `.env` re-opens it once (recovery) | Owner asked for a one-time page with no trace on the site afterwards | `app/api/routers/admin_login.py`, `src/pages/AdminLogin.jsx`, `src/app.js`, `src/components/Login.js` |
+| **Admin hashes that can't be mangled.** New `scripts/make_admin_hash.py` prints `a2:<base64>` values with no `$`; `--write .env` puts them in `.env`, `--check .env` tests an e-mail/password. The server also accepts the old raw form, strips stray quotes, and ignores spaces around the password. `cli_bootstrap` no longer needs the database to run `admin-hashes` | The hash command crashed without a configured database; raw `$argon2id$…` hashes were silently cut by Compose / `source .env` / PowerShell; the page then greyed out **Continue** | `scripts/make_admin_hash.py`, `app/core/admin_identity.py`, `scripts/cli_bootstrap.py` |
+| **`cli_bootstrap admin-status`** says whether the page is open, used or not set up, and whether the server sees both lines | "Password doesn't work" had no way to diagnose; `docker compose restart` doesn't re-read `.env` | `scripts/cli_bootstrap.py` |
+| **Authenticator stays required after the hash is deleted.** The main admin needs the authenticator whenever the one-time sign-in is set up **or has been used** (marker in `system_settings`), so removing the used line from `.env` doesn't switch it off. The owner's authenticator can only be (re)set via that sign-in or on the server | Before, deleting `MAIN_ADMIN_PASSWORD_HASH` silently dropped the requirement | `app/core/admin_identity.py` (`admin_sign_in_in_use`), `app/dependencies/auth.py`, `app/api/routers/admin_2fa.py` |
+| **Legacy bootstrap removed:** `SECRET_PHRASE`, `SECRET_PHRASE_FILE`, `EXPECTED_PHRASE` (never read), `ADMIN_PROMOTION_SECRET`/`_TTL`/`_MAX_TTL` + `POST /system/admin-token/redeem` + `GET /system/bootstrap` + `cli_bootstrap issue-admin-token`/`promote-user` + `services/admin_bootstrap.py`, `MAIN_ADMIN_AUTO_PROMOTE_ENABLED` (e-mail-only promotion), `ADMIN_2FA_REQUIRED` (replaced by the rule above), `REACT_APP_ADMIN_TOKEN_HINT`, and the `secret_phrase_used` flag in the manga list | Redundant ways to become admin, some weaker than the one-time sign-in; the manga list ran an extra query per request for an unused flag | `app/core/settings.py`, `app/services/auth_service.py`, `app/api/routers/system_state.py`, `app/api/routers/manga.py`, `app/services/catalogue_service.py`, `.env.example` |
+| **`/system/health` is OK on a fresh install.** It no longer requires the retired `secret_phrase_used` flag; `admin_configured` now means a main admin account exists | Health stayed "not ok" for ever on sites set up through Admin sign-in | `app/api/routers/system_state.py` |
+| **Install guides per OS** in `guide/` (Windows, macOS, Linux), plus `scripts/make_env.py` (creates `.env` with random secrets) and `.gitattributes` (LF for shell scripts, so Windows checkouts don't break the containers) | Owner asked for detailed, separate top-to-bottom guides | `guide/`, `backend_fastapi/scripts/make_env.py`, `.gitattributes`, `GUIDE.md` §1, §3, §6, §10, §11 |
+
+- **Database:** none. The old `admin_bootstrap_state`, `admin_promotion_tokens` tables and the `system_state.secret_phrase_used` column stay (unused, history only; `GET /admin/admin-tokens` still lists old tokens).
+- **Settings:** `.env` keys removed from the template and ignored if still present: `SECRET_PHRASE`, `SECRET_PHRASE_FILE`, `EXPECTED_PHRASE`, `ADMIN_PROMOTION_SECRET`, `ADMIN_PROMOTION_TOKEN_TTL_SECONDS`, `ADMIN_PROMOTION_TOKEN_MAX_TTL_SECONDS`, `MAIN_ADMIN_AUTO_PROMOTE_ENABLED`, `ADMIN_2FA_REQUIRED`, `REACT_APP_ADMIN_TOKEN_HINT`. `MAIN_ADMIN_EMAIL_HASH` / `MAIN_ADMIN_PASSWORD_HASH` now also accept the `a2:` form.
+- **API:** `GET /auth/admin/status` returns `{"open": true}` or 404 (was `{"enabled", "used"}`); `POST /auth/admin/login` returns 404 when closed (was 403 / 401 "already used"). `GET /system/state` returns only `admin_configured`. Removed: `POST /system/admin-token/redeem`, `GET /system/bootstrap`. The manga list no longer has `secret_phrase_used`.
+- **Check:** `cli_bootstrap admin-status` says OPEN → sign in at `/admin-login` (e-mail, password, authenticator) → `admin-status` says CLOSED and `/admin-login` shows "Page Not Found"; `/login` has no admin link; `/api/system/health` → `"ok": true`. Verified in Chromium against the real API (SQLite): wrong password refused, `#$` in a password accepted, page 404 after use, a new hash re-opens it once, a magic-link session gets "Confirm it's you" on `/admin`, and a valid code opens the Administrator Control Hub. The full Docker stack could not be built in the review sandbox (image registry blocked by its proxy).
+- **Undo:** `git revert` this PR's merge commit, then `docker compose up -d --build --force-recreate`. No migration to undo. The old raw-hash lines keep working after a revert; `a2:` lines do **not** (make raw ones with the reverted `cli_bootstrap admin-hashes`). Old `.env` files with the removed keys work either way.
+
+### 2026-10-01 — PR #28: Audit log and update/rollback guide
+
+Merge `d831bc0`. Commit `fc0d566`.
+
 
 - **What:** added this `AUDIT_LOG.md`, `CLAUDE.md` (working rules: every change gets an entry here and a `GUIDE.md` update), a PR template with the same checklist, and `GUIDE.md` §12 "Updating safely and rolling back".
 - **Why:** to keep a record of what was changed, why, and how to undo it.

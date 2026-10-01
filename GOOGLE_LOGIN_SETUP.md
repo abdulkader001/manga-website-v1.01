@@ -40,24 +40,16 @@ FORCE_HTTPS_REDIRECTS=false   # local plain-HTTP only, otherwise cookies are not
 
 ## Step 3 - Make your Gmail the admin
 
-`MAIN_ADMIN_EMAIL_HASH` holds an Argon2id hash of the admin email (lowercase):
-
-```bash
-python -c "import os;from cryptography.hazmat.primitives.kdf.argon2 import Argon2id;print(Argon2id(salt=os.urandom(16),length=32,iterations=3,lanes=4,memory_cost=65536).derive_phc_encoded(b'abdulkaderjaliny702@gmail.com'))"
-```
-
-Put the output in `.env` **inside single quotes** (it contains `$`):
-
-```
-MAIN_ADMIN_EMAIL_HASH='$argon2id$v=19$...'
-MAIN_ADMIN_AUTO_PROMOTE_ENABLED=true
-```
-
-After your first successful login, set `MAIN_ADMIN_AUTO_PROMOTE_ENABLED=false` again.
+Your Gmail alone never makes an account admin, so a stolen inbox can't either.
+The owner becomes admin once, through the one-time Admin sign-in, using the
+same Gmail address: follow Steps 6-7 of your install guide in
+[`guide/`](guide/README.md). After that, **Continue with Google** with that
+Gmail signs you into the admin account, and admin pages ask for your
+authenticator code.
 
 ## Step 4 - Restart and sign in
 
-1. Restart the backend (and `docker compose up -d` if you use Docker) so the new env is loaded.
+1. Load the new `.env`: `docker compose up -d --force-recreate` (a plain `restart` keeps the old settings). Without Docker, restart the backend.
 2. Check `http://localhost:8000/api/auth/options`: the `providers` list should now include `"google"`.
 3. Go to `http://localhost:8080/login`, click **Continue with Google**, pick the Gmail you added as test user.
 
@@ -66,5 +58,5 @@ After your first successful login, set `MAIN_ADMIN_AUTO_PROMOTE_ENABLED=false` a
 - `redirect_uri_mismatch`: the URI in Google Console differs from `GOOGLE_OAUTH_REDIRECT_URI`.
 - `access_denied` / "app not verified": add your Gmail under *Test users*.
 - Back on `/login?magic=oauth_error`: wrong client secret, or cookies blocked (check `FORCE_HTTPS_REDIRECTS=false` on HTTP).
-- Logged in but not admin: the hash was made from a different email/case, or auto-promote is still `false`.
+- Logged in but not admin: do the one-time Admin sign-in first (Step 3), with the same Gmail you use for Google.
 - Magic link (optional later): set `EMAIL_BACKEND=smtp` plus `SMTP_HOST/PORT/USERNAME/PASSWORD` (e.g. Gmail app password) and run the Celery worker.

@@ -41,47 +41,6 @@ def test_no_hardcoded_argon2id_hash_in_core_source():
     assert offenders == [], f"Hardcoded Argon2id hash found in: {offenders}"
 
 
-# ---- the main-admin hash must not be missing while auto-promote is enabled ----
-
-
-def test_boot_fails_when_auto_promote_enabled_but_hash_missing(monkeypatch):
-    monkeypatch.setattr(settings_module, "allow_plaintext_fallback", lambda: True)
-    with pytest.raises(ValueError, match="MAIN_ADMIN_EMAIL_HASH"):
-        Settings(
-            secret_key="x" * 12,
-            jwt_secret_key="y" * 12,
-            email_encryption_key=None,
-            main_admin_auto_promote_enabled=True,
-            main_admin_email_hash=None,
-        )
-
-
-def test_boot_ok_when_auto_promote_enabled_with_hash(monkeypatch):
-    monkeypatch.setattr(settings_module, "allow_plaintext_fallback", lambda: True)
-    # A configured hash + enabled flag is the legitimate bootstrap combination.
-    s = Settings(
-        secret_key="x" * 12,
-        jwt_secret_key="y" * 12,
-        email_encryption_key=None,
-        main_admin_auto_promote_enabled=True,
-        main_admin_email_hash="$argon2id$v=19$m=65536,t=3,p=4$c2FsdHNhbHQ$aGFzaA",
-    )
-    assert s.main_admin_auto_promote_enabled is True
-
-
-def test_boot_ok_when_auto_promote_disabled_and_hash_missing(monkeypatch):
-    monkeypatch.setattr(settings_module, "allow_plaintext_fallback", lambda: True)
-    # The default posture: flag off, no hash — must not raise.
-    s = Settings(
-        secret_key="x" * 12,
-        jwt_secret_key="y" * 12,
-        email_encryption_key=None,
-        main_admin_auto_promote_enabled=False,
-        main_admin_email_hash=None,
-    )
-    assert s.main_admin_auto_promote_enabled is False
-
-
 # ---- Redis must fail loud when required ----
 
 

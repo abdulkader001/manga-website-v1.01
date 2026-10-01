@@ -200,14 +200,13 @@ def enforce_admin_second_factor(request: Request, user: User) -> None:
 
     Applies to admin-tier accounts only. With a second factor enrolled, admin
     routes need the short-lived step-up cookie (see ``POST /admin/2fa/verify``).
-    With ``ADMIN_2FA_REQUIRED`` a main admin who has not enrolled yet is held
-    back until they do.
+    Once the one-time Admin sign-in is in use, a main admin who has no
+    authenticator is held back until that sign-in has set one up.
     """
 
     if not is_secondary_or_higher(user):
         return
 
-    from ..core.settings import settings
     from ..services import admin_second_factor as second_factor
 
     if getattr(user, "totp_enabled", False):
@@ -220,9 +219,15 @@ def enforce_admin_second_factor(request: Request, user: User) -> None:
             )
         return
 
-    from ..core.admin_identity import admin_password_configured
+    # With the one-time Admin sign-in in use (set up now, or used before -- even
+    # if the hash has since been deleted from .env) the main admin always needs
+    # the authenticator. It is set up only through that sign-in, never from a
+    # session that a stolen inbox or Google account could have produced.
+    from sqlalchemy.orm import object_session
 
-    if (settings.admin_2fa_required or admin_password_configured()) and is_main_admin(user):
+    from ..core.admin_identity import admin_sign_in_in_use
+
+    if is_main_admin(user) and admin_sign_in_in_use(object_session(user)):
         raise ApiError(
             ErrorCode.REVERIFICATION_REQUIRED,
             "Set up your authenticator app before using admin features.",

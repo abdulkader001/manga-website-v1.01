@@ -1,0 +1,7 @@
+# Shell scripts, Dockerfiles and the nginx entrypoint run inside Linux
+# containers. With Windows line endings (CRLF) they fail with "exec ... no such
+# file or directory", so keep them LF on every checkout, Windows included.
+*.sh        text eol=lf
+Dockerfile  text eol=lf
+*.conf      text eol=lf
+.env.example text eol=lf

@@ -14,6 +14,12 @@ translation, e-mail, notifications) and the admin account.
 > - **[`AUDIT_LOG.md`](AUDIT_LOG.md)** is *what was changed, why, and how to undo it*. It also has a one-page map of the site, the database migration ledger, and rollback steps.
 >
 > Updating an existing site? Go to [Section 12](#12-updating-safely-and-rolling-back).
+>
+> **First install? Use the step-by-step guide for your computer** in
+> [`guide/`](guide/README.md): [Windows](guide/INSTALL-WINDOWS.md),
+> [macOS](guide/INSTALL-MACOS.md), [Linux](guide/INSTALL-LINUX.md). They cover
+> everything from installing Docker to the first admin sign-in, with every
+> command spelled out. This file is the full reference behind them.
 
 ---
 
@@ -100,7 +106,7 @@ attention; everything else has a safe default.
 > **Two places for settings.** `.env` holds only the server's foundation:
 > the database and Redis connection, the site address (`FRONTEND_URL`,
 > CORS, HTTPS), the signing/encryption keys and the admin identity
-> (`MAIN_ADMIN_EMAIL_HASH`, 2-step login). **Everything else** — Google /
+> (`MAIN_ADMIN_EMAIL_HASH`, `MAIN_ADMIN_PASSWORD_HASH`). **Everything else** — Google /
 > Microsoft sign-in, SMTP and magic links, OCR and translation, API keys,
 > Sentry, limits, image storage — is set later in the admin panel under
 > **Admin → Secret Vault** (Section 6.1), encrypted in the database. A vault
@@ -113,10 +119,15 @@ attention; everything else has a safe default.
 Run these and paste each output into the matching variable. **Every secret must
 be different from the others.**
 
+**Easiest:** on a new install, skip the `cp` above and let
+`python3 backend_fastapi/scripts/make_env.py` (add `--local` for a trial on
+`http://localhost`) create `.env` with all of these filled in and the
+passwords matching inside the URLs. It never overwrites an existing `.env`.
+By hand:
+
 ```bash
-openssl rand -hex 32        # run 5 times: SECRET_KEY, JWT_SECRET_KEY,
-                            #   MAGIC_LINK_SECRET, INTEGRATIONS_SECRET,
-                            #   ADMIN_PROMOTION_SECRET
+openssl rand -hex 32        # run 4 times: SECRET_KEY, JWT_SECRET_KEY,
+                            #   MAGIC_LINK_SECRET, INTEGRATIONS_SECRET
 openssl rand -hex 16        # POSTGRES_PASSWORD
 openssl rand -hex 16        # REDIS_PASSWORD
 
@@ -135,7 +146,6 @@ docker run --rm python:3.11-slim sh -c \
 | `MAGIC_LINK_SECRET` | random hex | E-mail login links. |
 | `INTEGRATIONS_SECRET` | random hex | Encrypts API keys you store in the admin panel. **If you lose it, stored keys become unreadable.** |
 | `EMAIL_ENCRYPTION_KEY` | Fernet key (above) | Encrypts user e-mails in the database. **Back it up; losing it means losing every e-mail.** |
-| `ADMIN_PROMOTION_SECRET` | random hex | Lets you create the first admin (Section 6). |
 | `POSTGRES_PASSWORD` | random string | Database password. |
 | `REDIS_PASSWORD` | random string | Redis password. |
 | `DATABASE_URL` | `postgresql+psycopg2://manga:<POSTGRES_PASSWORD>@db:5432/manga` | Must contain the same password. Keep the `+psycopg2` part. |
@@ -192,7 +202,6 @@ All of these can be set in **Admin → Secret Vault** instead of `.env`
 | **Error tracking** | `SENTRY_DSN`, `ENABLE_SENTRY` | Set `ENABLE_SENTRY=false` if unused. |
 | **Virus scanning of uploads** | `CLAMAV_HOST`, `CLAMAV_PORT` | Needs a ClamAV container. |
 | **Image storage limits** | `PAGE_MAX_WIDTH` (1440), `MIRROR_PAGE_IMAGES` (true), `STORAGE_ALERT_PERCENT` (80) | Defaults are fine. |
-| **Admin 2-step login** | `ADMIN_2FA_REQUIRED` | Leave `false` until the admin has enrolled at `/admin/security`. |
 
 ### 3.6 Sanity-check the file
 
@@ -213,7 +222,7 @@ docker compose up -d --build
 ```
 
 This builds and starts, in order: PostgreSQL → Redis → **migrations** (creates
-every table, seeds bootstrap state) → API → 8 Celery workers → Celery beat →
+every table) → API → 8 Celery workers → Celery beat →
 nginx + website.
 
 First build takes several minutes. Watch progress:
@@ -385,62 +394,74 @@ Celery worker reliably.
 
 ---
 
-## 6. Create the first admin account (Admin sign-in)
+## 6. Create the first admin account (one-time Admin sign-in)
 
 Nobody is admin on a fresh install, and on day one Google / Microsoft sign-in
 and e-mail aren't set up yet (their keys live in the Secret Vault, which only
-the admin can open). So the owner signs in a different way, with three things
-a thief who took your Gmail does **not** have:
+the admin can open). So the owner signs in **once** at `/admin-login` with
+three things a thief who took your Gmail does **not** have:
 
 1. **your e-mail**, matched against `MAIN_ADMIN_EMAIL_HASH` in `.env`;
-2. **a one-time admin password**, matched against `MAIN_ADMIN_PASSWORD_HASH`
-   in `.env` (only a hash is stored). It works **once**: after it signs you in,
-   it is void, even if someone later reads it from your notes;
+2. **a one-time password**, matched against `MAIN_ADMIN_PASSWORD_HASH` in
+   `.env` (only hashes are stored);
 3. **a 6-digit code from an authenticator app on your phone** (Google
-   Authenticator, Aegis, 1Password…).
+   Authenticator, Aegis, 1Password…), set up during that sign-in.
 
-Set it up once:
+After that one sign-in **the page is gone**: `/admin-login` and its API answer
+"not found", exactly like an address that never existed, and nothing on the
+site links to it. The used password can never work again.
 
-1. On the server, create the two `.env` lines (it asks for your e-mail and a
-   password of 12+ characters, typed twice):
+Set it up (the same steps, per OS and in more detail: `guide/`, Steps 6–7):
+
+1. Write the two lines into `.env`. No Python needed on the host; it asks
+   for your e-mail and a password (12+ characters, typed twice; press Enter
+   without typing to get a generated one):
 
    ```bash
-   docker compose exec backend python -m backend_fastapi.scripts.cli_bootstrap admin-hashes
+   docker run --rm -it -v "$PWD":/w -w /w python:3.11-slim sh -c "pip install -q --disable-pip-version-check --root-user-action=ignore 'cryptography>=45' && python backend_fastapi/scripts/make_admin_hash.py --write .env"
    ```
 
-2. Paste the two printed lines into `.env` **with the single quotes**, then
-   `docker compose up -d --force-recreate`.
-3. Open **`https://your-site/admin-login`** (also linked as "Site owner? Admin
-   sign-in" under the normal login form). Enter the e-mail and password.
-4. The first time, it shows a setup key: add it to your authenticator app and
-   type the 6-digit code. You are signed in as the main admin and land on
-   `/admin`.
-5. The password is now used up. Set up Google / Microsoft / e-mail in the
-   Secret Vault (6.1) and from then on sign in normally; every admin page asks
-   for the code from your authenticator app.
+   (PowerShell: write `"${PWD}:/w"` instead of `"$PWD":/w`.) Without
+   `--write` it only prints the two lines. They start with `a2:` and contain
+   no `$`, so they need no quotes and nothing (Compose, `source .env`,
+   PowerShell) can mangle them. Older raw `$argon2id$…` lines still work if
+   they were single-quoted.
+
+2. `docker compose up -d --force-recreate`. **Not** `restart`: a restart keeps
+   the old environment and the server never sees the new lines.
+3. Check: `docker compose exec backend python -m backend_fastapi.scripts.cli_bootstrap admin-status`
+   must say both lines are `set` and `/admin-login: OPEN`.
+4. Open **`https://your-site/admin-login`** (type it, there is no link).
+   Enter the e-mail and password, add the setup key it shows to your
+   authenticator app, type the 6-digit code. You land on `/admin` as the main
+   admin.
+5. The page is now gone (`admin-status` says `CLOSED`). You may delete the
+   `MAIN_ADMIN_PASSWORD_HASH` line; keep `MAIN_ADMIN_EMAIL_HASH`. Set up
+   Google / Microsoft / e-mail in the Secret Vault (6.1); from then on sign
+   in normally, and every admin page asks for the authenticator code.
+   Until e-mail works, `cli_bootstrap login-link --email you@example.com`
+   prints a sign-in link.
 
 **Why a stolen Gmail isn't enough:** someone who gets into your Gmail can at
-most sign in as a normal reader with Google or a magic link. Every admin page,
-Admin Settings and the Secret Vault still ask for the authenticator code, and
-the authenticator can't be replaced or removed from the website, only through
-Admin sign-in (which needs the password) or on the server.
+most sign in as a normal reader. Once the one-time sign-in has been used (even
+if you delete the password line afterwards), every admin page, Admin Settings
+and the Secret Vault ask for the authenticator code, and the owner's
+authenticator can't be replaced or removed from the website at all, only on
+the server.
 
-**Locked out** (Google/e-mail broken, or a new phone)? Make a new one-time
-password on the server: run `admin-hashes` again, replace the
-`MAIN_ADMIN_PASSWORD_HASH` line in `.env`, recreate the containers, and sign in
-at `/admin-login`. A new hash works once again.
-**Lost your phone as well?** First run
-`docker compose exec backend python -m backend_fastapi.scripts.cli_bootstrap reset-2fa --email you@example.com`;
-the next `/admin-login` sets up a new authenticator.
+**Password not accepted?** `python backend_fastapi/scripts/make_admin_hash.py --check .env`
+(or the same `docker run …` line with `--check .env` instead of
+`--write .env`) tests an e-mail and password against `.env` and tells you
+which one doesn't match, or whether a line is damaged.
 
-Other server-side tools (only needed in special cases):
+**Lost your phone?** `docker compose exec backend python -m backend_fastapi.scripts.cli_bootstrap reset-2fa --email you@example.com`,
+then a new one-time password (step 1), `up -d --force-recreate`, and
+`/admin-login` sets up the new phone. A new password opens the page once more.
+
+Other server-side tools:
 
 - `cli_bootstrap login-link --email …` prints a one-time sign-in link without
-  sending an e-mail (a normal session, not admin access on its own).
-- `cli_bootstrap issue-admin-token` / `promote-user` is the older promotion
-  path; Admin sign-in replaces it.
-
-Keep `MAIN_ADMIN_AUTO_PROMOTE_ENABLED=false`.
+  sending an e-mail (a normal session; admin pages still ask for the code).
 
 (Non-Docker: same commands without `docker compose exec backend`, venv active.)
 
@@ -637,14 +658,15 @@ procedure: `backend_fastapi/deployment/backups.md` and `deployment/runbook.md`.
 | `ModuleNotFoundError: psycopg` | `DATABASE_URL` must start `postgresql+psycopg2://`. |
 | Imports stay "queued" forever | Workers or beat not running: `docker compose ps`; for non-Docker, start the worker with **all** queues (Section 5). |
 | Chapter has no pictures / slow | Check `celery_worker_compress` logs; ensure enough disk (`docker system df`). |
-| `$argon2id...` value turns into garbage | Wrap values containing `$` in single quotes in `.env`. |
+| `$argon2id...` value turns into garbage | Wrap values containing `$` in single quotes in `.env`. Admin hash lines made by `make_admin_hash.py` start with `a2:` and have no `$`. |
 | Translation/OCR overlay does nothing | Reader: *Settings → Reading & Translation* must be on. Server: vault *Server OCR enabled* = true and restarted (4.1). |
 | Reader says "Text was found but not translated" | OCR works but nothing translates: add an AI key in *Settings → AI & OCR Engines* (press **Test connection**), or a site default in Admin → API Management. |
 | `tesseract: not found` / OCR "engine not available" | The backend image is old: rebuild it (Section 4.1) and check `docker compose exec backend tesseract --list-langs`. |
 | Korean/Chinese pages read as garbage | Set the series' *Text language on pages* (Series → layout) to the language actually printed on the pages. |
-| Secret Vault says "Set up your authenticator app" | Sign in through Admin sign-in (`/admin-login`, Section 6); it sets up the authenticator. |
-| `/admin-login`: "one-time admin password has already been used" | Expected after the first use. Sign in with Google, Microsoft or a magic link. Locked out? Run `cli_bootstrap admin-hashes`, replace `MAIN_ADMIN_PASSWORD_HASH` in `.env`, recreate the containers (Section 6). |
-| `/admin-login`: "not set up on this server yet" | `MAIN_ADMIN_EMAIL_HASH` or `MAIN_ADMIN_PASSWORD_HASH` is missing or not single-quoted in `.env` (Section 6). |
+| Secret Vault / admin pages say "Set up your authenticator app" | Do the one-time Admin sign-in (Section 6); it sets up the authenticator. |
+| `/admin-login` shows "Page not found" after the first sign-in | Expected: the page is gone after one use. Sign in with Google, Microsoft, a magic link or `cli_bootstrap login-link`. |
+| `/admin-login` shows "Page not found" before any sign-in (older versions: greyed-out **Continue**) | The server doesn't see the admin lines. `cli_bootstrap admin-status` says why: *not set* → you used `restart`; run `docker compose up -d --force-recreate`. *DAMAGED* → an old raw hash pasted without quotes; make new lines (Section 6). |
+| `/admin-login`: "Email, password or code is not right" | `make_admin_hash.py --check .env` tells you whether the e-mail or the password doesn't match. Make new lines if needed (Section 6). |
 | Lost the phone with the authenticator | `cli_bootstrap reset-2fa --email you@example.com`, then a new one-time password and `/admin-login` (Section 6). |
 | Visitors are sent to the login page | Admin Settings → *Sign-in required* is on (Section 6.2). |
 | Someone can't open a second account with another Gmail spelling | Intended: `john.doe@gmail.com`, `johndoe+x@gmail.com` and `@googlemail.com` are one inbox and one account. |
@@ -664,7 +686,7 @@ procedure: `backend_fastapi/deployment/backups.md` and `deployment/runbook.md`.
 - [ ] `.env` created; 6 random secrets + 2 passwords + Fernet key set; URLs/passwords consistent
 - [ ] `docker compose build --pull && docker compose up -d --force-recreate`; all services healthy
 - [ ] `docker compose exec backend tesseract --list-langs` lists `kor jpn chi_sim`
-- [ ] `cli_bootstrap admin-hashes` lines in `.env`; first sign-in at `/admin-login` done (authenticator enrolled, one-time password now used)
+- [ ] `make_admin_hash.py --write .env`, `up -d --force-recreate`, `admin-status` says OPEN; first sign-in at `/admin-login` done (authenticator enrolled); `admin-status` now says CLOSED
 - [ ] OCR, e-mail and sign-in settings entered in **Admin → Secret Vault**
 - [ ] Sign-in required on/off chosen (Admin Settings); donation links added if wanted
 - [ ] First series imported; new chapters arrive via beat

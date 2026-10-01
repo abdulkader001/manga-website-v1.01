@@ -1,7 +1,7 @@
 /**
  * Email Masking & Privacy Guard
  * Masks email addresses to prevent phishing, scraping, and social engineering.
- * Example: "abdulkaderjaliny702@gmail.com" -> "ab••••••••••••••02@gmail.com"
+ * Example: "reader.name42@gmail.com" -> "re•••••••••42@gmail.com"
  * Example: "admin@mangareader.local" -> "ad•••••n@mangareader.local"
  */
 export function maskEmail(email) {

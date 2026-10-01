@@ -66,7 +66,6 @@ class MangaListResponse(BaseModel):
     per_page: int
     genres: List[str]
     cache_hit: bool
-    secret_phrase_used: bool
 
 
 class MangaDetailResponse(MangaBase):

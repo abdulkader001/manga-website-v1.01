@@ -528,10 +528,6 @@ const api = {
 
   // ---- System state ----
   system: {
-    redeemAdminToken: ({ token }) => api.post("/system/admin-token/redeem", { token }),
-    // Requires a session (F-77) — used to decide whether the one-time
-    // admin-claim form is worth showing at all.
-    bootstrap: () => api.get("/system/bootstrap"),
     state: () => api.get("/system/state"),
     // Per-process uptime/RSS/CPU snapshot. Formerly served at /metrics, which
     // now belongs exclusively to the Prometheus exposition endpoint.
