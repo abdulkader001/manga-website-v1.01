@@ -64,3 +64,32 @@ def is_configured_main_admin_email(email: str | None) -> bool:
             "ignoring auto-promotion",
         )
         return False
+
+
+def get_main_admin_password_hash() -> str | None:
+    value = getattr(settings, "main_admin_password_hash", None)
+    value = str(value).strip() if value is not None else ""
+    return value or None
+
+
+def admin_password_configured() -> bool:
+    """Admin sign-in is set up: both the email hash and the password hash."""
+
+    return bool(get_main_admin_email_hash() and get_main_admin_password_hash())
+
+
+def verify_main_admin_password(password: str | None) -> bool:
+    hash_value = get_main_admin_password_hash()
+    if not hash_value or not password:
+        return False
+    try:
+        Argon2id.verify_phc_encoded(password.encode("utf-8"), hash_value)
+        return True
+    except InvalidKey:
+        return False
+    except Exception:  # malformed hash config
+        logger.warning(
+            "invalid_main_admin_password_hash",
+            message="MAIN_ADMIN_PASSWORD_HASH is not a valid Argon2id PHC string",
+        )
+        return False

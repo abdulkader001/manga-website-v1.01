@@ -105,6 +105,22 @@ export function Enrolment({ onDone }) {
   );
 }
 
+// With Admin sign-in set up on the server, the main admin's authenticator is
+// enrolled there (email + server password), never from a plain session.
+export function AdminSignInHint() {
+  return (
+    <div className="space-y-3 text-xs text-[#8b93a3]">
+      <p>
+        This site uses Admin sign-in. Sign in at the admin page with your e-mail, the admin
+        password and your authenticator app; it sets the app up the first time.
+      </p>
+      <a className={button + " inline-block"} href="/admin-login">
+        Go to Admin sign-in
+      </a>
+    </div>
+  );
+}
+
 export default function AdminSecondFactor({ children }) {
   const [state, setState] = useState(null); // {enabled, unlocked, required}
   const [busy, setBusy] = useState(false);
@@ -150,7 +166,7 @@ export default function AdminSecondFactor({ children }) {
     return (
       <div className={box}>
         <h2 className="text-sm font-bold text-white">Set up two-step sign-in</h2>
-        <Enrolment onDone={refresh} />
+        {state.managed_by_admin_sign_in ? <AdminSignInHint /> : <Enrolment onDone={refresh} />}
       </div>
     );
   }

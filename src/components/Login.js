@@ -243,6 +243,11 @@ export default function Login() {
             </form>
           )}
         </div>
+        <p className="text-center text-[11px] text-[#8b93a3] mt-3">
+          <a href="/admin-login" className="hover:text-white">
+            Site owner? Admin sign-in
+          </a>
+        </p>
       </div>
     </div>
   );

@@ -13,6 +13,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from ...core.api_errors import ApiError, ErrorCode
+from ...core.admin_identity import admin_password_configured
 from ...core.db import get_db
 from ...core.settings import settings
 from ...dependencies.auth import (
@@ -37,6 +38,20 @@ async def _admin_only(current_user: User = Depends(get_current_user)) -> User:
     if not is_secondary_or_higher(current_user):
         raise ApiError(ErrorCode.FORBIDDEN, "Admin privileges required")
     return current_user
+
+
+def _managed_by_admin_sign_in(user: User) -> None:
+    """With admin sign-in set up, a main admin's authenticator is changed only
+    there (email + server password) or on the server -- never from a session
+    that a stolen Google account or inbox could have produced."""
+
+    if admin_password_configured() and is_main_admin(user):
+        raise ApiError(
+            ErrorCode.FORBIDDEN,
+            "Your authenticator is managed by Admin sign-in (/admin-login). "
+            "Lost your phone? Reset it on the server: cli_bootstrap reset-2fa.",
+            details={"reason": "managed_by_admin_sign_in"},
+        )
 
 
 async def _limit_codes(request: Request, user: User) -> None:
@@ -72,7 +87,10 @@ def _status(request: Request, user: User) -> Dict[str, Any]:
     return {
         "enabled": enabled,
         "unlocked": bool(unlocked),
-        "required": bool(settings.admin_2fa_required and is_main_admin(user)),
+        "required": bool(
+            (settings.admin_2fa_required or admin_password_configured()) and is_main_admin(user)
+        ),
+        "managed_by_admin_sign_in": bool(admin_password_configured() and is_main_admin(user)),
     }
 
 
@@ -88,6 +106,8 @@ def two_factor_setup(
     user: User = Depends(_admin_only), db: Session = Depends(get_db)
 ) -> Dict[str, Any]:
     """Create a secret to scan into an authenticator app (not active yet)."""
+
+    _managed_by_admin_sign_in(user)
 
     if user.totp_enabled:
         raise ApiError(
@@ -110,6 +130,7 @@ async def two_factor_enable(
     user: User = Depends(_admin_only),
     db: Session = Depends(get_db),
 ) -> Dict[str, Any]:
+    _managed_by_admin_sign_in(user)
     await _limit_codes(request, user)
     if not second_factor.enable(db, user, payload.code):
         raise ApiError(ErrorCode.VALIDATION_FAILED, "That code is not valid.", field="code")
@@ -145,6 +166,7 @@ async def two_factor_disable(
     user: User = Depends(_admin_only),
     db: Session = Depends(get_db),
 ) -> Dict[str, Any]:
+    _managed_by_admin_sign_in(user)
     await _limit_codes(request, user)
     if not second_factor.verify_user_code(db, user, payload.code, enabled_only=True):
         raise ApiError(ErrorCode.VALIDATION_FAILED, "That code is not valid.", field="code")

@@ -103,3 +103,51 @@ def test_login_link_prints_a_working_one_time_link():
 def test_login_link_refuses_a_non_address():
     result = CliRunner().invoke(cli_bootstrap.cli, ["login-link", "--email", "nope"])
     assert result.exit_code != 0
+
+
+def test_admin_hashes_prints_env_lines_that_verify():
+    from cryptography.hazmat.primitives.kdf.argon2 import Argon2id
+
+    result = CliRunner().invoke(
+        cli_bootstrap.cli,
+        ["admin-hashes", "--email", "Owner@Example.com", "--password", "a long pass phrase"],
+    )
+    assert result.exit_code == 0, result.output
+    lines = dict(
+        line.split("=", 1) for line in result.output.splitlines() if line.startswith("MAIN_ADMIN_")
+    )
+    pw_hash = lines["MAIN_ADMIN_PASSWORD_HASH"].strip("'")
+    mail_hash = lines["MAIN_ADMIN_EMAIL_HASH"].strip("'")
+    Argon2id.verify_phc_encoded(b"a long pass phrase", pw_hash)
+    Argon2id.verify_phc_encoded(b"owner@example.com", mail_hash)
+
+
+def test_admin_hashes_refuses_a_short_password():
+    result = CliRunner().invoke(
+        cli_bootstrap.cli, ["admin-hashes", "--email", "a@example.com", "--password", "short"]
+    )
+    assert result.exit_code != 0
+
+
+def test_reset_2fa_removes_the_authenticator():
+    from backend_fastapi.app.services import admin_second_factor as sf
+
+    email = "cli-reset-2fa@example.com"
+    CliRunner().invoke(cli_bootstrap.cli, ["login-link", "--email", email])
+    session = SessionLocal()
+    try:
+        user = cli_bootstrap._resolve_user(session, user_id=None, email=email)
+        sf.start_enrolment(session, user)
+        user.totp_enabled = True
+        session.commit()
+    finally:
+        session.close()
+
+    result = CliRunner().invoke(cli_bootstrap.cli, ["reset-2fa", "--email", email])
+    assert result.exit_code == 0, result.output
+    session = SessionLocal()
+    try:
+        user = cli_bootstrap._resolve_user(session, user_id=None, email=email)
+        assert not user.totp_enabled and user.totp_secret_encrypted is None
+    finally:
+        session.close()

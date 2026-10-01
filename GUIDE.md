@@ -376,59 +376,65 @@ Celery worker reliably.
 
 ---
 
-## 6. Create the first admin account
+## 6. Create the first admin account (Admin sign-in)
 
-Nobody is admin on a fresh install. **How the site knows it's you:** you are
-the person with a shell on the server. Nothing below needs Google, Microsoft
-or working e-mail; each step is a command you run on the server, which no
-visitor can do.
+Nobody is admin on a fresh install, and on day one Google / Microsoft sign-in
+and e-mail aren't set up yet (their keys live in the Secret Vault, which only
+the admin can open). So the owner signs in a different way, with three things
+a thief who took your Gmail does **not** have:
 
-1. Make sure `ADMIN_PROMOTION_SECRET` is set in `.env` (Section 3.2).
-2. Get a one-time sign-in link for your e-mail, printed in the terminal (no
-   e-mail is sent; the account is created if it doesn't exist):
+1. **your e-mail**, matched against `MAIN_ADMIN_EMAIL_HASH` in `.env`;
+2. **an admin password**, matched against `MAIN_ADMIN_PASSWORD_HASH` in `.env`
+   (only a hash is stored; the password itself is only in your head or your
+   password manager);
+3. **a 6-digit code from an authenticator app on your phone** (Google
+   Authenticator, Aegis, 1Password…).
 
-   ```bash
-   docker compose exec backend python -m backend_fastapi.scripts.cli_bootstrap \
-     login-link --email you@example.com
-   ```
+Set it up once:
 
-   Open the printed link in your browser (single use, expires in ~15 min)
-   and finish the short profile form.
-3. Generate a one-time promotion token:
-
-   ```bash
-   docker compose exec backend python -m backend_fastapi.scripts.cli_bootstrap \
-     issue-admin-token --email you@example.com
-   ```
-
-   It prints a token (valid 30 min by default).
-4. Redeem it:
+1. On the server, create the two `.env` lines (it asks for your e-mail and a
+   password of 12+ characters, typed twice):
 
    ```bash
-   docker compose exec backend python -m backend_fastapi.scripts.cli_bootstrap \
-     promote-user --token <TOKEN> --email you@example.com
+   docker compose exec backend python -m backend_fastapi.scripts.cli_bootstrap admin-hashes
    ```
 
-5. Log out and in again (step 2 again if you have no other sign-in yet). The
-   admin menu now appears.
-6. **Lock it down:** enrol an authenticator app at `/admin/security` and set
-   `ADMIN_2FA_REQUIRED=true`. From then on, even someone who gets into your
-   e-mail or Google account can't open Admin Settings or the Secret Vault
-   without the 6-digit code from your phone. Then empty
-   `ADMIN_PROMOTION_SECRET` (or rotate it) and keep
-   `MAIN_ADMIN_AUTO_PROMOTE_ENABLED=false`.
+2. Paste the two printed lines into `.env` **with the single quotes**, then
+   `docker compose up -d --force-recreate`.
+3. Open **`https://your-site/admin-login`** (also linked as "Site owner? Admin
+   sign-in" under the normal login form). Enter the e-mail and password.
+4. The first time, it shows a setup key: add it to your authenticator app and
+   type the 6-digit code. You are signed in as the main admin and land on
+   `/admin`.
+5. From now on, every Admin sign-in asks for e-mail + password + code.
 
-Locked out later (lost e-mail access, Google sign-in broken, domain moved)?
-Run step 2 again on the server: `login-link` always works, whatever is set in
-the vault or Admin Settings.
+**Why a stolen Gmail isn't enough:** someone who gets into your Gmail can at
+most sign in as a normal reader with Google or a magic link. Every admin page,
+Admin Settings and the Secret Vault still ask for the authenticator code, and
+the authenticator can't be replaced or removed from the website, only through
+Admin sign-in (which needs the password) or on the server.
+
+**Lost your phone?** On the server:
+`docker compose exec backend python -m backend_fastapi.scripts.cli_bootstrap reset-2fa --email you@example.com`,
+then sign in at `/admin-login` again; it sets up a new authenticator.
+**Forgot the password?** Run `admin-hashes` again, replace the line in `.env`
+and recreate the containers.
+
+Other server-side tools (only needed in special cases):
+
+- `cli_bootstrap login-link --email …` prints a one-time sign-in link without
+  sending an e-mail (a normal session, not admin access on its own).
+- `cli_bootstrap issue-admin-token` / `promote-user` is the older promotion
+  path; Admin sign-in replaces it.
+
+Keep `MAIN_ADMIN_AUTO_PROMOTE_ENABLED=false`.
 
 (Non-Docker: same commands without `docker compose exec backend`, venv active.)
 
 ### 6.1 Move the remaining settings into the Secret Vault
 
-1. As the admin, open **`/admin/security`** and enrol an authenticator app
-   (Google Authenticator, Aegis, 1Password …). The vault refuses to open
-   without it.
+1. Sign in through Admin sign-in (Section 6); that also set up your
+   authenticator, which the vault requires.
 2. Open **Admin → Secret Vault**, enter a 6-digit code to unlock it (10
    minutes), and set what you need — at minimum:
    - **Translation & OCR → Server OCR enabled = true** (then restart, 4.1);
@@ -449,10 +455,9 @@ be granted to a sub-admin).
 - **Off:** anyone can read; signing in is only needed for bookmarks sync,
   translation, comments and settings.
 
-The sign-in page, sign-up, the admin area and `login-link` (Section 6) are
-never behind this switch, so turning it on can't lock you out. Sites
-upgraded from an older version start with it **on** (that was the old
-behaviour).
+The sign-in page, sign-up, Admin sign-in (`/admin-login`), the admin area
+and the server commands (Section 6) are never behind this switch, so turning
+it on can't lock you out. It starts **off**.
 
 ---
 
@@ -591,7 +596,7 @@ docker compose exec backend python -m backend_fastapi.scripts.set_site_domain ne
 docker compose exec backend python -m backend_fastapi.scripts.set_site_domain --clear
 ```
 
-and sign in with `cli_bootstrap login-link` (Section 6). A value you set
+and sign in at `/admin-login` on the new domain (Section 6). A value you set
 explicitly in the vault for one of the derived keys (e.g. `FRONTEND_URL`)
 wins over the domain; remove it if the switch seems to have no effect. If a
 bad vault value ever stops the site from starting, set

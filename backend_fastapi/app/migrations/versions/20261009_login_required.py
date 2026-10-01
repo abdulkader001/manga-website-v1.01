@@ -28,16 +28,6 @@ def upgrade() -> None:
             TABLE,
             sa.Column(COLUMN, sa.Boolean(), nullable=False, server_default=sa.false()),
         )
-        # Until now every page required sign-in; keep that for sites being
-        # upgraded. The main admin can switch it off in Admin Settings.
-        bind = op.get_bind()
-        has_row = bind.execute(sa.text(f"SELECT 1 FROM {TABLE} LIMIT 1")).first()
-        if has_row:
-            bind.execute(sa.text(f"UPDATE {TABLE} SET {COLUMN} = :on"), {"on": True})
-        else:
-            bind.execute(
-                sa.text(f"INSERT INTO {TABLE} (id, {COLUMN}) VALUES (1, :on)"), {"on": True}
-            )
 
 
 def downgrade() -> None:
