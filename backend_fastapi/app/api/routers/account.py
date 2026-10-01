@@ -1,5 +1,6 @@
-"""Reader account endpoints: password sign-in, Microsoft sign-in, username
-availability and the one-time profile completion step.
+"""Reader account endpoints: Microsoft sign-in, username availability and the
+one-time profile completion step. There are no passwords: readers sign in
+with a magic link, Google or Microsoft.
 
 Registered BEFORE the main auth router, whose catch-all ``GET /auth/{provider}``
 would otherwise shadow these paths.
@@ -15,7 +16,7 @@ from urllib.parse import urlencode
 
 import structlog
 from fastapi import APIRouter, Depends, Query, Request, status
-from fastapi.responses import JSONResponse, RedirectResponse
+from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import func
 from sqlalchemy.orm import Session
@@ -25,10 +26,8 @@ from ...core.db import get_db
 from ...core.settings import settings
 from ...dependencies.auth import get_current_user
 from ...models import User
-from ...services import microsoft_oauth, password_service
-from ...services.auth_service import get_user_by_email, issue_tokens_for_user
-from ...utils.client_ip import resolve_client_ip
-from ...utils.csrf_middleware import CSRF_COOKIE, CSRF_HEADER
+from ...services import microsoft_oauth
+from ...services.auth_service import issue_tokens_for_user
 from ...utils.endpoint_limiter import async_endpoint_limiter
 from ...utils.sanitizer import strip_all_html
 from .auth import _set_auth_cookies
@@ -141,60 +140,6 @@ def _user_payload(user: User) -> Dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------
-# Password sign-in
-# ---------------------------------------------------------------------------
-
-
-class PasswordLoginPayload(BaseModel):
-    email: str = Field(..., max_length=320)
-    password: str = Field(..., max_length=password_service.MAX_PASSWORD_LENGTH)
-
-
-GENERIC_LOGIN_ERROR = (
-    "Invalid email or password. You can also sign in instantly using the Magic Link."
-)
-
-
-@router.post("/login-password")
-async def login_with_password(
-    request: Request, payload: PasswordLoginPayload, db: Session = Depends(get_db)
-) -> JSONResponse:
-    # Login CSRF: require the double-submit token even though no session
-    # exists yet, so another site cannot sign a visitor into its own account.
-    header_token = request.headers.get(CSRF_HEADER)
-    cookie_token = request.cookies.get(CSRF_COOKIE)
-    if not header_token or not cookie_token or not secrets.compare_digest(header_token, cookie_token):
-        raise ApiError(ErrorCode.FORBIDDEN, "Please reload the page and try again.")
-
-    email = (payload.email or "").strip().lower()
-    await async_endpoint_limiter.check_limit(
-        request, f"password_login_ip:{resolve_client_ip(request)}", limit=20, window_seconds=900
-    )
-    await async_endpoint_limiter.check_limit(
-        request, f"password_login_email:{email}", limit=10, window_seconds=900
-    )
-
-    user = get_user_by_email(db, email) if "@" in email else None
-    if user is not None and password_service.is_locked(user):
-        raise ApiError(
-            ErrorCode.RATE_LIMITED,
-            "Too many failed attempts. Try again in 15 minutes, or use the Magic Link.",
-        )
-
-    ok = password_service.check_password(user, payload.password)
-    if user is not None:
-        db.commit()
-    if not ok or user is None or not user.is_active:
-        logger.info("password_login_failed")
-        raise ApiError(ErrorCode.UNAUTHENTICATED, GENERIC_LOGIN_ERROR)
-
-    pair = issue_tokens_for_user(user, db)
-    response = JSONResponse({"success": True, "user": _user_payload(user)})
-    _set_auth_cookies(response, db, pair.access_token, pair.refresh_token)
-    return response
-
-
-# ---------------------------------------------------------------------------
 # Username + profile
 # ---------------------------------------------------------------------------
 
@@ -220,7 +165,6 @@ class CompleteProfilePayload(BaseModel):
     name: str = Field(..., max_length=200)
     username: str = Field(..., max_length=64)
     birth_date: str = Field(..., max_length=10)
-    password: Optional[str] = Field(None, max_length=password_service.MAX_PASSWORD_LENGTH)
 
 
 @router.post("/complete-profile")
@@ -239,12 +183,6 @@ async def complete_profile(
     if problem:
         raise ApiError(ErrorCode.VALIDATION_FAILED, problem, field="username")
     _apply_birth_date(current_user, payload.birth_date)
-
-    if payload.password:
-        error = password_service.validate_new_password(payload.password)
-        if error:
-            raise ApiError(ErrorCode.VALIDATION_FAILED, error, field="password")
-        current_user.password_hash = password_service.hash_password(payload.password)
 
     current_user.name = name
     current_user.username = username

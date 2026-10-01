@@ -302,7 +302,6 @@ const api = {
       }
     },
     options: () => api.get("/auth/options"),
-    loginPassword: (email, password) => api.post("/auth/login-password", { email, password }),
     checkUsername: (username) =>
       api.get("/auth/check-username", { params: { username } }),
     completeProfile: (payload) => api.post("/auth/complete-profile", payload),

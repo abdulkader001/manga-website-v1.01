@@ -36,7 +36,6 @@ export default function CompleteProfile() {
   const [birthMonth, setBirthMonth] = useState("");
   const [birthYear, setBirthYear] = useState("");
 
-  const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
@@ -121,7 +120,6 @@ export default function CompleteProfile() {
           name: name.trim(),
           username: username.trim(),
           birth_date: formattedBirthDate,
-          password: password.trim() || undefined,
         }),
       });
 
@@ -288,20 +286,6 @@ export default function CompleteProfile() {
                 </select>
               </div>
             </div>
-          </div>
-
-          {/* 4. Optional Password */}
-          <div className="space-y-1">
-            <label className="text-xs font-semibold text-gray-300 block">
-              Account Password <span className="text-gray-500 font-normal">(Optional for direct password login)</span>
-            </label>
-            <input
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder="Create a password or leave blank for magic-link only"
-              className="w-full px-3.5 py-2.5 rounded-xl bg-[#101216] border border-[#262a33] text-sm text-white placeholder:text-gray-500 focus:outline-none focus:border-[#00AEF0]"
-            />
           </div>
 
           <button

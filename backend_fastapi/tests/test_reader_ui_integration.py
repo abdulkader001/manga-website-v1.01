@@ -1,5 +1,5 @@
 """Backend behaviour the reader UI depends on: MangaUpdates metadata, parser
-auto-detection for unknown / moved sites, signed image proxy, passwords, the
+auto-detection for unknown / moved sites, signed image proxy, the
 ratings / likes / reports / announcements endpoints and the import gate.
 
 Every fixture here is synthetic; nothing touches the network.
@@ -8,7 +8,6 @@ Every fixture here is synthetic; nothing touches the network.
 from __future__ import annotations
 
 import uuid
-from types import SimpleNamespace
 
 import pytest
 from bs4 import BeautifulSoup
@@ -17,7 +16,7 @@ from backend_fastapi.app.core.db import SessionLocal
 from backend_fastapi.app.core.security import create_access_token
 from backend_fastapi.app.models import Chapter, Manga, User, UserRole
 from backend_fastapi.app.scrapers import autodetect, parsing, presets
-from backend_fastapi.app.services import image_proxy, mangaupdates_service as mu, password_service
+from backend_fastapi.app.services import image_proxy, mangaupdates_service as mu
 
 
 # --------------------------------------------------------------------------- MangaUpdates
@@ -159,21 +158,6 @@ def test_image_proxy_signature_rejects_tampering():
     assert image_proxy.decode_request(other, query["r"], query["s"]) is None
     assert image_proxy.decode_request(query["u"], query["r"], "0" * 40) is None
     assert image_proxy.decode_request("!!!", "!!!", "x") is None
-
-
-# --------------------------------------------------------------------------- passwords
-def test_password_hash_is_salted_argon2_and_verifies():
-    a, b = password_service.hash_password("correct horse 9!"), password_service.hash_password("correct horse 9!")
-    assert a != b and a.startswith("$argon2id$")
-    user = SimpleNamespace(password_hash=a, failed_login_count=0, login_locked_until=None)
-    assert password_service.check_password(user, "correct horse 9!")
-    assert not password_service.check_password(user, "wrong")
-    assert not password_service.check_password(None, "anything")
-
-
-def test_weak_passwords_are_refused():
-    assert password_service.validate_new_password("short") is not None
-    assert password_service.validate_new_password("a-long-enough-Passw0rd!") is None
 
 
 # --------------------------------------------------------------------------- reader endpoints

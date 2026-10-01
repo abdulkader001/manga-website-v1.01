@@ -14,7 +14,7 @@ from ..core.admin_identity import (
 )
 from ..schemas.auth import TokenPair
 
-from ..utils.email_crypto import email_lookup, hash_email
+from ..utils.email_crypto import email_identity, email_lookup, hash_email
 
 logger = structlog.get_logger("backend_fastapi.auth_service")
 
@@ -68,10 +68,26 @@ def get_user_by_email(db: Session, email: str) -> User | None:
     if norm_email is None:
         return None
 
+    # One inbox, one account: every spelling of the same mailbox (gmail dots,
+    # googlemail.com, +tags) finds the account that owns it.
+    identity = email_identity(norm_email)
+    if identity is not None:
+        user = db.query(User).filter(User.email_identity_hash == identity).first()
+        if user is not None:
+            lookup = email_lookup(norm_email)
+            if (
+                lookup is not None
+                and not user.email_lookup_hash
+                and normalize_email(user.email_plaintext) == norm_email
+            ):
+                user.email_lookup_hash = lookup
+            return user
+
     lookup = email_lookup(norm_email)
     if lookup is not None:
         user = db.query(User).filter(User.email_lookup_hash == lookup).first()
         if user is not None:
+            _heal_identity(db, user, identity)
             return user
 
     # Fallback for rows written before the lookup-hash column was backfilled.
@@ -83,8 +99,25 @@ def get_user_by_email(db: Session, email: str) -> User | None:
         if user is not None:
             if lookup is not None and not user.email_lookup_hash:
                 user.email_lookup_hash = lookup
+            _heal_identity(db, user, identity)
             return user
     return None
+
+
+def _heal_identity(db: Session, user: User, identity: str | None) -> None:
+    """Fill in the identity key on rows created before it existed. Skipped
+    when another account already holds it (an old duplicate the admin can
+    review); new duplicates are impossible because the column is unique."""
+
+    if not identity or user.email_identity_hash:
+        return
+    taken = (
+        db.query(User.id)
+        .filter(User.email_identity_hash == identity, User.id != user.id)
+        .first()
+    )
+    if taken is None:
+        user.email_identity_hash = identity
 
 
 def _apply_main_admin_role(user: User, email: str) -> bool:

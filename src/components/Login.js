@@ -1,17 +1,13 @@
 import React, { useState } from "react";
-import { useNavigate } from "react-router";
-import api, { apiFetch } from "../services/api";
+import api from "../services/api";
 import useAuth from "../hooks/useAuth";
 
 export default function Login() {
-  const [authMode, setAuthMode] = useState("magic"); // "magic" | "password"
   const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [sent, setSent] = useState(false);
   const [error, setError] = useState("");
-  const { login, refetchUser } = useAuth();
-  const navigate = useNavigate();
+  const { login } = useAuth();
 
   const handleMagicLink = async (e) => {
     e.preventDefault();
@@ -26,37 +22,6 @@ export default function Login() {
       setSent(true);
     } catch (err) {
       setError(err.message || "Failed to request sign-in link.");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handlePasswordLogin = async (e) => {
-    e.preventDefault();
-    if (!email || !email.includes("@")) {
-      setError("Please enter a valid email address.");
-      return;
-    }
-    if (!password) {
-      setError("Please enter your account password.");
-      return;
-    }
-    setLoading(true);
-    setError("");
-    try {
-      const res = await apiFetch("/api/v1/auth/login-password", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: email.trim(), password }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.error?.message || "Invalid credentials.");
-      }
-      if (refetchUser) await refetchUser();
-      navigate("/", { replace: true });
-    } catch (err) {
-      setError(err.message || "Sign-in failed.");
     } finally {
       setLoading(false);
     }
@@ -134,42 +99,7 @@ export default function Login() {
             <div className="flex-grow border-t border-[#262a33]"></div>
           </div>
 
-          {/* Mode Switch Tabs */}
-          <div className="flex rounded-xl bg-[#101216] p-1 border border-[#262a33] text-xs font-semibold">
-            <button
-              type="button"
-              onClick={() => {
-                setAuthMode("magic");
-                setError("");
-              }}
-              className={`flex-1 py-1.5 rounded-lg transition text-center ${
-                authMode === "magic"
-                  ? "bg-[#00AEF0] text-white shadow"
-                  : "text-gray-400 hover:text-white"
-              }`}
-            >
-              <i className="fas fa-magic mr-1.5 text-[10px]"></i>
-              <span>1-Click Magic Link</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setAuthMode("password");
-                setError("");
-              }}
-              className={`flex-1 py-1.5 rounded-lg transition text-center ${
-                authMode === "password"
-                  ? "bg-[#00AEF0] text-white shadow"
-                  : "text-gray-400 hover:text-white"
-              }`}
-            >
-              <i className="fas fa-key mr-1.5 text-[10px]"></i>
-              <span>Password</span>
-            </button>
-          </div>
-
-          {authMode === "magic" ? (
-            sent ? (
+          {sent ? (
               <div className="p-4 bg-emerald-500/15 border border-emerald-500/30 rounded-xl text-center space-y-2">
                 <i className="fas fa-paper-plane text-emerald-400 text-xl"></i>
                 <h3 className="text-sm font-bold text-white">Sign-in Link Sent!</h3>
@@ -206,42 +136,7 @@ export default function Login() {
                   {loading ? <span>Sending link…</span> : <span>Send Sign-In Link</span>}
                 </button>
               </form>
-            )
-          ) : (
-            <form onSubmit={handlePasswordLogin} className="space-y-3.5">
-              <div className="space-y-1">
-                <label className="text-xs font-semibold text-gray-300 block">Email Address</label>
-                <input
-                  type="email"
-                  required
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  placeholder="you@example.com"
-                  className="w-full px-4 py-2.5 rounded-xl bg-[#101216] border border-[#262a33] text-sm text-white placeholder:text-gray-500 focus:outline-none focus:border-[#00AEF0]"
-                />
-              </div>
-
-              <div className="space-y-1">
-                <label className="text-xs font-semibold text-gray-300 block">Password</label>
-                <input
-                  type="password"
-                  required
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  placeholder="••••••••"
-                  className="w-full px-4 py-2.5 rounded-xl bg-[#101216] border border-[#262a33] text-sm text-white placeholder:text-gray-500 focus:outline-none focus:border-[#00AEF0]"
-                />
-              </div>
-
-              <button
-                type="submit"
-                disabled={loading}
-                className="w-full py-2.5 rounded-xl bg-[#00AEF0] hover:bg-[#0F5065] text-white font-bold text-sm shadow-lg transition flex items-center justify-center gap-2 disabled:opacity-50"
-              >
-                {loading ? <span>Signing in…</span> : <span>Sign In with Password</span>}
-              </button>
-            </form>
-          )}
+            )}
         </div>
         <p className="text-center text-[11px] text-[#8b93a3] mt-3">
           <a href="/admin-login" className="hover:text-white">
