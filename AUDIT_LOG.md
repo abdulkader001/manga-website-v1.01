@@ -120,7 +120,7 @@ exceptions; for those, restore the database backup taken before the update.
 
 ## Change entries
 
-### 2026-10-01 — One-time admin page that disappears; admin hash fixes; legacy bootstrap removed; install guides per OS (this PR)
+### 2026-10-01 — PR #29: one-time admin page that disappears; admin hash fixes; legacy bootstrap removed; install guides per OS
 
 | Change | Why | Main files |
 | --- | --- | --- |
