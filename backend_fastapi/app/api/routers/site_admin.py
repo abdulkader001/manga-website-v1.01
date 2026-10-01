@@ -67,7 +67,7 @@ def list_social_links(db: Session = Depends(get_db)) -> Dict[str, Any]:
 def save_social_links(
     payload: SocialLinksPayload,
     db: Session = Depends(get_db),
-    _: User = Depends(require_admin_user),
+    _: User = Depends(require_main_admin_user),
 ) -> Dict[str, Any]:
     return {"success": True, "links": content.replace_social_links(db, payload.links)}
 
@@ -76,7 +76,7 @@ def save_social_links(
 def add_social_link(
     payload: Dict[str, Any],
     db: Session = Depends(get_db),
-    _: User = Depends(require_admin_user),
+    _: User = Depends(require_main_admin_user),
 ) -> Dict[str, Any]:
     link = content.normalize_social_link({**payload, "id": None})
     if link is None:
@@ -96,7 +96,7 @@ def update_social_link(
     link_id: str,
     payload: Dict[str, Any],
     db: Session = Depends(get_db),
-    _: User = Depends(require_admin_user),
+    _: User = Depends(require_main_admin_user),
 ) -> Dict[str, Any]:
     links = content.get_social_links(db)
     for index, existing in enumerate(links):
@@ -118,7 +118,7 @@ def update_social_link(
 def delete_social_link(
     link_id: str,
     db: Session = Depends(get_db),
-    _: User = Depends(require_admin_user),
+    _: User = Depends(require_main_admin_user),
 ) -> Dict[str, Any]:
     links = [link for link in content.get_social_links(db) if link["id"] != link_id]
     return {"success": True, "links": content.replace_social_links(db, links)}
@@ -141,7 +141,7 @@ def broadcast_announcement(
     request: Request,
     payload: BroadcastPayload,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin_user),
+    current_user: User = Depends(require_permission("broadcast")),
 ) -> Dict[str, Any]:
     kind = strip_all_html(payload.type).strip().lower()[:32] or "info"
     item = Announcement(
@@ -179,7 +179,7 @@ def delete_announcement(
     request: Request,
     announcement_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin_user),
+    current_user: User = Depends(require_permission("broadcast")),
 ) -> Dict[str, Any]:
     item = db.get(Announcement, announcement_id)
     if item is None:
@@ -590,6 +590,74 @@ def _find_provider(db: Session, category: str, provider_id: str):
     )
 
 
+def site_default_engines(db: Session) -> List[Dict[str, Any]]:
+    """The engines every reader falls back to until they add their own.
+
+    A reader who saves their own OCR / translation / AI provider overrides the
+    matching default for their account (see services.processing_plan), so
+    these only serve readers who have configured nothing.
+    """
+
+    from ...models.provider_management import SystemProviderInstance
+    from ...services.ocr_service import tesseract_langs_installed
+    from ...services.provider_resolver import env_translation_config
+    from ...services.system_settings_service import get_or_create_system_settings
+
+    settings_row = get_or_create_system_settings(db)
+    langs = tesseract_langs_installed()
+    ocr_ready = bool(settings_row.local_ocr_enabled) and bool(langs)
+    translator = env_translation_config()
+    configured_ocr = db.query(SystemProviderInstance).filter_by(service="ocr", status="active").count()
+    configured_tr = db.query(SystemProviderInstance).filter_by(service="translation", status="active").count()
+    return [
+        {
+            "service": "ocr",
+            "id": "tesseract_server",
+            "label": "Tesseract (built in)",
+            "where": "server",
+            "active": ocr_ready,
+            "detail": (
+                "Reads Korean, Japanese, Chinese and English on our server. "
+                + ("Languages installed: " + ", ".join(sorted(langs)) + "." if langs else "Tesseract is not installed in this image: rebuild the backend (GUIDE.md 4.1).")
+                + ("" if settings_row.local_ocr_enabled else " Switched off: turn on local OCR in Admin Settings or set OCR_ENABLED in the Secret Vault.")
+            ),
+            "overridden_by_reader": True,
+        },
+        {
+            "service": "ocr",
+            "id": "ppocr_browser",
+            "label": "PP-OCR (in the reader's browser)",
+            "where": "browser",
+            "active": False,
+            "detail": "Not active: the browser OCR models are not hosted yet, so nothing is downloaded. Server Tesseract is used meanwhile.",
+            "overridden_by_reader": True,
+        },
+        {
+            "service": "translation",
+            "id": "libretranslate",
+            "label": "LibreTranslate",
+            "where": "server",
+            "active": bool(translator) or configured_tr > 0,
+            "detail": (
+                "Default translator for readers without their own. "
+                + (f"Using {translator['api_url']}." if translator else (
+                    "Using a provider added below." if configured_tr else
+                    "Not configured: set LIBRETRANSLATE_URL (and key if it needs one) in the Secret Vault, or add a provider below."
+                ))
+            ),
+            "overridden_by_reader": True,
+        },
+    ] + ([{
+        "service": "ocr",
+        "id": "custom_defaults",
+        "label": "Providers added below",
+        "where": "server",
+        "active": True,
+        "detail": f"{configured_ocr} OCR provider(s) take priority over the built-in engine.",
+        "overridden_by_reader": True,
+    }] if configured_ocr else [])
+
+
 @router.get("/admin/api-registry")
 def get_api_registry(
     request: Request,
@@ -603,7 +671,7 @@ def get_api_registry(
     for record in pms.list_providers(db):
         if record.service in registry:
             registry[record.service].append(_registry_entry(record, decrypt))
-    return registry
+    return {**registry, "site_defaults": site_default_engines(db)}
 
 
 class RegistryProviderPayload(BaseModel):

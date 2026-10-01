@@ -10,7 +10,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from ...core.db import get_db
-from ...dependencies.auth import require_admin_user
+from ...dependencies.auth import require_permission
 from ...models import AdSlot, GlobalAdProvider, User
 from ...schemas.ad_slots import AdSlotCreate, AdSlotUpdate
 from ...services.ad_placements import is_valid_placement
@@ -156,7 +156,7 @@ def _clean_dimension(value: Any) -> Optional[int]:
 def create_ad_slot(
     payload: AdSlotCreate,
     db: Session = Depends(get_db),
-    _: User = Depends(require_admin_user),
+    _: User = Depends(require_permission("manage_ads")),
 ) -> dict[str, Any]:
     """Create a new advertisement slot."""
 
@@ -217,7 +217,7 @@ def update_ad_slot(
     slot_id: int,
     payload: AdSlotUpdate,
     db: Session = Depends(get_db),
-    _: User = Depends(require_admin_user),
+    _: User = Depends(require_permission("manage_ads")),
 ) -> dict[str, Any]:
     """Update an existing advertisement slot."""
 
@@ -301,7 +301,7 @@ def update_ad_slot(
 def delete_ad_slot(
     slot_id: int,
     db: Session = Depends(get_db),
-    _: User = Depends(require_admin_user),
+    _: User = Depends(require_permission("manage_ads")),
 ) -> dict[str, Any]:
     """Delete an advertisement slot."""
 

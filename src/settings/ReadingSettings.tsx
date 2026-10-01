@@ -1,3 +1,4 @@
+import { formatUtcTime } from "../utils/gstTime";
 import React, { useEffect, useMemo, useState } from "react";
 import useReaderSettings, { READER_DEFAULTS } from "../hooks/useReaderSettings";
 import OverlayBox from "../components/OverlayBox";
@@ -375,7 +376,7 @@ export default function ReadingSettings() {
             </div>
             <p className="text-[10px] text-[#8b93a3]">
               Used {used} of {limit} {settings.usage_limit_unit} this {settings.usage_limit_window}
-              {settings.usage_reset_at ? ` · resets ${new Date(settings.usage_reset_at).toLocaleString()}` : ""}.
+              {settings.usage_reset_at ? ` · resets ${formatUtcTime(settings.usage_reset_at)}` : ""}.
             </p>
           </div>
         )}

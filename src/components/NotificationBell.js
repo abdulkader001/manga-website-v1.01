@@ -1,3 +1,4 @@
+import { formatUtcTime } from "../utils/gstTime";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 import api from "../services/api";
@@ -8,8 +9,7 @@ const POLL_INTERVAL_MS = 20000;
 function formatTimestamp(iso) {
   if (!iso) return "";
   try {
-    const date = new Date(iso);
-    return date.toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+    return formatUtcTime(iso);
   } catch {
     return "";
   }

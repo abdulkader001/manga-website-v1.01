@@ -63,7 +63,7 @@ def user_provider_config(
     return record_to_service_config(record, decrypt=decrypt)
 
 
-def _env_translation_config() -> Optional[Dict[str, Any]]:
+def env_translation_config() -> Optional[Dict[str, Any]]:
     url = (
         os.getenv("TRANSLATION_API_URL")
         or os.getenv("LIBRETRANSLATE_URL")
@@ -125,7 +125,7 @@ def resolve_translation_service(
             if state_config:
                 candidate_config = copy.deepcopy(state_config)
         if candidate_config is None:
-            env_config = _env_translation_config()
+            env_config = env_translation_config()
             if env_config:
                 candidate_config = copy.deepcopy(env_config)
 

@@ -1,3 +1,4 @@
+import { formatUtcTime } from "../../utils/gstTime";
 import React, { useState } from "react";
 import { Link } from "react-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -295,7 +296,7 @@ export default function ChapterReports() {
                       Reported by: <strong className="text-gray-200">{report.user_name || "Reader"}</strong>
                     </span>
                     <span className="font-mono text-[10px]">
-                      {new Date(report.created_at).toLocaleString()}
+                      {formatUtcTime(report.created_at)}
                     </span>
                   </div>
                   {report.details ? (

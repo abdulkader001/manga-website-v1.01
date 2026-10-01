@@ -4,6 +4,19 @@
  */
 
 /**
+ * The server stores and sends UTC, but its ISO strings carry no "Z" or offset
+ * ("2026-10-01T10:00:00"). JavaScript reads such a string as LOCAL time, which
+ * shifted every date by the viewer's offset. Treat offset-less strings as UTC.
+ */
+export function parseUtc(input) {
+  if (input instanceof Date) return input;
+  if (typeof input === "string" && /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}/.test(input) && !/(Z|[+-]\d{2}:?\d{2})$/i.test(input)) {
+    return new Date(input.replace(" ", "T") + "Z");
+  }
+  return new Date(input);
+}
+
+/**
  * Returns current Date in UTC
  */
 export function getNowInUtc() {
@@ -17,7 +30,7 @@ export function getNowInUtc() {
 export function formatUtcTime(dateInput, includeDate = true) {
   if (!dateInput) return "Recently";
   try {
-    const d = new Date(dateInput);
+    const d = parseUtc(dateInput);
     if (isNaN(d.getTime())) return "Recently";
 
     const hours = String(d.getUTCHours()).padStart(2, "0");
@@ -50,7 +63,7 @@ export const formatGstTime = formatUtcTime;
 export function formatTimeAgo(dateInput) {
   if (!dateInput) return "Just now";
   try {
-    const d = new Date(dateInput);
+    const d = parseUtc(dateInput);
     const timeMs = d.getTime();
     if (isNaN(timeMs)) return "Just now";
 

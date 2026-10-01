@@ -1,3 +1,4 @@
+import { formatUtcTime } from "../utils/gstTime";
 import React, { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import api from "../services/api";
@@ -109,7 +110,7 @@ export default function CommentSection({ targetType = "manga", targetId }) {
                   )}
                   <div>
                     <span className="text-xs font-bold text-white block">{cmt.user_name || "Reader"}</span>
-                    <span className="text-[10px] text-[#8b93a3]">{cmt.created_at ? new Date(cmt.created_at).toLocaleDateString() : "Recently"}</span>
+                    <span className="text-[10px] text-[#8b93a3]">{cmt.created_at ? formatUtcTime(cmt.created_at, false) + " · " + formatUtcTime(cmt.created_at).split(",")[0] : "Recently"}</span>
                   </div>
                 </div>
                 {cmt.score != null && (

@@ -3,6 +3,7 @@ import React, { useMemo } from "react";
 import { Link } from "react-router";
 import api from "../services/api";
 import useAuth from "../hooks/useAuth";
+import useStaffPermissions from "../hooks/useStaffPermissions";
 import { ADMIN_FEATURE_LINKS } from "../constants/adminFeatures";
 
 // Real counts only: a missing value renders as a dash, never a placeholder.
@@ -80,17 +81,19 @@ function QuickLink({ to, label, description, keyName }) {
 
 export default function AdminPanel() {
   const { isAdmin, isSecondaryAdmin } = useAuth();
+  const { can } = useStaffPermissions();
 
   const quickLinks = useMemo(() => {
     if (!isAdmin && !isSecondaryAdmin) return [];
 
+    // Main-admin tiles (settings, roles, API keys, vault, audit) have no
+    // permission and are shown to the main admin only. Every other tile
+    // follows the sub-admin's toggle on the Role Management page.
     return ADMIN_FEATURE_LINKS.filter((link) => {
-      if (link.minRole === "secondary") {
-        return isSecondaryAdmin || isAdmin;
-      }
-      return isAdmin;
+      if (isAdmin) return true;
+      return Boolean(link.permission) && can(link.permission);
     });
-  }, [isAdmin, isSecondaryAdmin]);
+  }, [isAdmin, isSecondaryAdmin, can]);
 
   // Synchronized System Health Query
   const { data: health, isLoading: loading } = useQuery({

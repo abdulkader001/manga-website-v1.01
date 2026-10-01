@@ -48,3 +48,72 @@ body {
   scrollbar-width: none;
 }
 
+
+/* ------------------------------------------------------------------
+   Day mode. Most screens hard-code the dark palette in utility classes
+   (bg-[#15171c], text-white, ...), which left pale text on a pale page.
+   These rules remap that palette when the day theme is on; colour accents
+   (the blue buttons, status colours) are untouched.
+   ------------------------------------------------------------------ */
+body.light-mode {
+  --lm-surface: #ffffff;
+  --lm-surface-2: #f1f5f9;
+  --lm-surface-3: #e2e8f0;
+  --lm-border: #cbd5e1;
+  --lm-text: #0f172a;
+  --lm-text-2: #334155;
+  --lm-text-3: #475569;
+  --lm-accent: #0369a1;
+}
+
+/* surfaces */
+body.light-mode [class*="bg-[#15171c]"],
+body.light-mode [class*="bg-[#1a1d24]"],
+body.light-mode [class*="bg-[#1a1d28]"] { background-color: var(--lm-surface) !important; }
+body.light-mode [class*="bg-[#101216]"],
+body.light-mode [class*="bg-[#0b0d10]"],
+body.light-mode [class*="bg-[#0a0c0f]"] { background-color: var(--lm-surface-2) !important; }
+body.light-mode [class*="bg-[#1f2330]"],
+body.light-mode [class*="bg-[#252a38]"],
+body.light-mode [class*="bg-[#262a33]"],
+body.light-mode [class*="bg-[#374151]"] { background-color: var(--lm-surface-3) !important; }
+body.light-mode [class*="bg-black/"] { background-color: rgba(15, 23, 42, 0.55) !important; }
+body.light-mode [class*="hover:bg-[#1f2330]"]:hover,
+body.light-mode [class*="hover:bg-[#252a38]"]:hover { background-color: var(--lm-surface-3) !important; }
+
+/* borders */
+body.light-mode [class*="border-[#262a33]"],
+body.light-mode [class*="border-[#374151]"],
+body.light-mode [class*="border-[#2d3340]"] { border-color: var(--lm-border) !important; }
+
+/* text on the page / cards (not on coloured buttons or dark image overlays) */
+body.light-mode .text-white:not([class*="bg-[#00AEF0]"]):not([class*="bg-[#0F5065]"]):not([class*="bg-[#ef4444]"]):not([class*="bg-[#10b981]"]):not([class*="bg-emerald"]):not([class*="bg-red"]):not([class*="bg-purple"]):not([class*="bg-amber"]):not([class*="bg-blue"]):not([class*="bg-black"]):not(.keep-white),
+body.light-mode .text-gray-200 { color: var(--lm-text) !important; }
+body.light-mode .text-gray-300 { color: var(--lm-text-2) !important; }
+body.light-mode .text-gray-400,
+body.light-mode .text-gray-500,
+body.light-mode [class*="text-[#8b93a3]"] { color: var(--lm-text-3) !important; }
+body.light-mode [class*="text-[#00AEF0]"] { color: var(--lm-accent) !important; }
+body.light-mode [class*="hover:text-white"]:hover { color: var(--lm-text) !important; }
+
+/* things that must stay light-on-dark */
+body.light-mode [class*="bg-[#00AEF0]"] .text-white,
+body.light-mode [class*="bg-[#00AEF0]"] [class*="text-[#00AEF0]"],
+body.light-mode .keep-white,
+body.light-mode .keep-white * { color: #ffffff !important; }
+body.light-mode [class*="bg-[#00AEF0]"][class*="text-[#00AEF0]"] { color: #ffffff !important; }
+
+/* form controls */
+body.light-mode input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]),
+body.light-mode select,
+body.light-mode textarea {
+  color: var(--lm-text) !important;
+}
+body.light-mode ::placeholder { color: #64748b !important; opacity: 1; }
+
+/* generic shadows read as dirt on white */
+body.light-mode [class*="shadow-xl"], body.light-mode [class*="shadow-2xl"] { box-shadow: 0 4px 14px rgba(15, 23, 42, 0.10) !important; }
+
+/* translucent accent tints (selected cards, soft badges) are light, so their text must be dark */
+body.light-mode [class*="bg-[#00AEF0]/"].text-white,
+body.light-mode [class*="bg-[#00AEF0]/"] .text-white { color: var(--lm-text) !important; }

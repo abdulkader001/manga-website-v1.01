@@ -30,6 +30,7 @@ from ...services.processing_plan import (
     resolve_plan,
 )
 from ...services.provider_resolver import (
+    env_translation_config,
     integration_vault,
     provider_registry_state,
     user_provider_config,
@@ -78,7 +79,13 @@ def _platform_default(
         return cfg
 
     state = provider_registry_state(request)
-    return state.provider_for(service)
+    configured = state.provider_for(service)
+    if configured is None and service == "translation":
+        # The site's default translator (LibreTranslate etc.) set in the
+        # Secret Vault / .env. Without this, a configured default was never
+        # used by the reader and pages came back untranslated.
+        return env_translation_config()
+    return configured
 
 
 def _build_translation_service(

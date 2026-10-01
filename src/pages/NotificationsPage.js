@@ -1,3 +1,4 @@
+import { formatUtcTime } from "../utils/gstTime";
 import React, { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router";
 import api from "../services/api";
@@ -8,7 +9,7 @@ const PAGE_SIZE = 20;
 function formatTimestamp(iso) {
   if (!iso) return "";
   try {
-    return new Date(iso).toLocaleString();
+    return formatUtcTime(iso);
   } catch {
     return "";
   }
