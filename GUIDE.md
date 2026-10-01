@@ -8,6 +8,12 @@ translation, e-mail, notifications) and the admin account.
 > `.env.example`, `server.ts`, `deployment/`, `backend_fastapi/`). Commands have
 > not been run end-to-end on every OS, so treat the first run as a test and use
 > the [Troubleshooting](#10-troubleshooting) table if something differs.
+>
+> **Two documents, kept up to date with every change:**
+> - **`GUIDE.md`** (this file) is *how to run the site*.
+> - **[`AUDIT_LOG.md`](AUDIT_LOG.md)** is *what was changed, why, and how to undo it*. It also has a one-page map of the site, the database migration ledger, and rollback steps.
+>
+> Updating an existing site? Go to [Section 12](#12-updating-safely-and-rolling-back).
 
 ---
 
@@ -233,6 +239,9 @@ Open **http://localhost:8080** in a browser.
 | 8000 | API directly (for debugging; don't expose publicly — put only 80/443 on the internet) |
 
 ### 4.1 Rebuild after pulling an update (installs Tesseract)
+
+> On a live site, follow [Section 12](#12-updating-safely-and-rolling-back):
+> it adds the backup and "what's new" steps before these commands.
 
 The backend image is where Tesseract and its Korean/Japanese/Chinese language
 data are installed, so after `git pull` **rebuild it** — restarting is not
@@ -547,15 +556,8 @@ the list of supported/unsupported sources: `backend_fastapi/README.md` and
 
 ### Updating later
 
-Same as Section 4.1:
-
-```bash
-cd /var/www/manga
-git pull
-docker compose build --pull
-docker compose up -d --force-recreate   # migrations run automatically first
-docker compose exec backend tesseract --list-langs
-```
+Follow [Section 12](#12-updating-safely-and-rolling-back): back up, read
+what's new in `AUDIT_LOG.md`, then rebuild (Section 4.1).
 
 ### 8.1 If your domain is taken down: move to a new one
 
@@ -640,7 +642,16 @@ procedure: `backend_fastapi/deployment/backups.md` and `deployment/runbook.md`.
 | Reader says "Text was found but not translated" | OCR works but nothing translates: add an AI key in *Settings → AI & OCR Engines* (press **Test connection**), or a site default in Admin → API Management. |
 | `tesseract: not found` / OCR "engine not available" | The backend image is old: rebuild it (Section 4.1) and check `docker compose exec backend tesseract --list-langs`. |
 | Korean/Chinese pages read as garbage | Set the series' *Text language on pages* (Series → layout) to the language actually printed on the pages. |
-| Secret Vault says "Set up your authenticator app" | Enrol 2-step login at `/admin/security` first (Section 6.1). |
+| Secret Vault says "Set up your authenticator app" | Sign in through Admin sign-in (`/admin-login`, Section 6); it sets up the authenticator. |
+| `/admin-login`: "one-time admin password has already been used" | Expected after the first use. Sign in with Google, Microsoft or a magic link. Locked out? Run `cli_bootstrap admin-hashes`, replace `MAIN_ADMIN_PASSWORD_HASH` in `.env`, recreate the containers (Section 6). |
+| `/admin-login`: "not set up on this server yet" | `MAIN_ADMIN_EMAIL_HASH` or `MAIN_ADMIN_PASSWORD_HASH` is missing or not single-quoted in `.env` (Section 6). |
+| Lost the phone with the authenticator | `cli_bootstrap reset-2fa --email you@example.com`, then a new one-time password and `/admin-login` (Section 6). |
+| Visitors are sent to the login page | Admin Settings → *Sign-in required* is on (Section 6.2). |
+| Someone can't open a second account with another Gmail spelling | Intended: `john.doe@gmail.com`, `johndoe+x@gmail.com` and `@googlemail.com` are one inbox and one account. |
+| Update cards say "Just now" or show no time | Rebuild (Section 4.1). Old builds misread server times. A card without any chapter shows the series' added time. |
+| Donation link or address refused | Links must be `https://` on the platform's own domain; addresses must match the chosen network. The message names the entry. |
+| Site unreachable after switching the domain | DNS or HTTPS for the new name isn't ready. Run `set_site_domain --clear` on the server to go back (Section 8.1). |
+| A Secret Vault value stops the site from starting | Set `VAULT_PRELOAD_DISABLED=true` in `.env`, recreate the containers, fix the value, then remove the flag. |
 | Port already in use | Another program uses 8080/8000/5432; stop it or change the published port in `docker-compose.yml`. |
 | Windows: `exec ... no such file or directory` in a container | Line endings; clone inside WSL (Section 1) or run `git config core.autocrlf false` before cloning. |
 | API docs (`/docs`) missing | Intentional in production; set `EXPOSE_API_DOCS=true` on a private deploy. |
@@ -653,11 +664,99 @@ procedure: `backend_fastapi/deployment/backups.md` and `deployment/runbook.md`.
 - [ ] `.env` created; 6 random secrets + 2 passwords + Fernet key set; URLs/passwords consistent
 - [ ] `docker compose build --pull && docker compose up -d --force-recreate`; all services healthy
 - [ ] `docker compose exec backend tesseract --list-langs` lists `kor jpn chi_sim`
-- [ ] Authenticator enrolled; OCR, e-mail and sign-in settings entered in **Admin → Secret Vault**
-- [ ] First admin created and promoted (Section 6)
+- [ ] `cli_bootstrap admin-hashes` lines in `.env`; first sign-in at `/admin-login` done (authenticator enrolled, one-time password now used)
+- [ ] OCR, e-mail and sign-in settings entered in **Admin → Secret Vault**
+- [ ] Sign-in required on/off chosen (Admin Settings); donation links added if wanted
 - [ ] First series imported; new chapters arrive via beat
 - [ ] Domain + HTTPS in front (production)
 - [ ] `.env` and backups stored safely off the server
 
 More detail: `README.md`, `backend_fastapi/README.md`, `deployment/README.md`,
 `deployment/runbook.md`, `deployment/key-rotation.md`.
+- [ ] `AUDIT_LOG.md` read; a backup taken before every update (Section 12)
+
+---
+
+## 12. Updating safely and rolling back
+
+Do this every time you update a live site.
+
+### 12.1 Before updating
+
+```bash
+cd /path/to/manga-website
+
+# 1. Note where you are now (write these two lines down).
+git log -1 --oneline                                   # code version
+docker compose exec backend alembic current            # database version
+
+# 2. Back up the database, the images and .env (works with the Docker setup;
+#    Section 9 has the scheduled/encrypted backup scripts).
+mkdir -p ~/manga-backups
+docker compose exec -T db pg_dump -U manga -Fc manga > ~/manga-backups/db-$(date +%F-%H%M).dump
+docker compose exec -T backend tar czf - -C /app/storage . > ~/manga-backups/storage-$(date +%F-%H%M).tgz
+cp .env ~/manga-backups/env-$(date +%F-%H%M)
+
+# 3. Fetch the update and read what changed since your version.
+git fetch origin
+git log --oneline --first-parent HEAD..origin/main     # the PRs you're about to get
+git diff HEAD..origin/main -- AUDIT_LOG.md .env.example GUIDE.md
+```
+
+In that diff, look for:
+
+- **new `.env` keys** in `.env.example`: add them before restarting;
+- **Database** lines in the new `AUDIT_LOG.md` entries: a migration marked **lossy** makes the backup in step 2 essential;
+- **Settings** lines: new switches or vault values you may want to set.
+
+### 12.2 Update
+
+```bash
+git pull
+docker compose build --pull
+docker compose up -d --force-recreate          # runs database migrations first
+docker compose logs manga-stack-migrate | tail -n 20
+docker compose ps
+```
+
+Then do the **Check** steps listed in the new `AUDIT_LOG.md` entries.
+
+### 12.3 Roll back
+
+Pick the smallest step that fixes it (details in `AUDIT_LOG.md` §3):
+
+1. **Switch it off**: many features have a switch (Admin Settings, Secret Vault).
+2. **Go back to the previous code version** (keeps the database):
+
+   ```bash
+   git checkout <the version you wrote down in 12.1>
+   docker compose build --pull && docker compose up -d --force-recreate
+   ```
+
+   Newer database columns are ignored by older code. The migration service
+   will report the database is ahead, which is expected until you update again.
+3. **Also undo database changes**: before step 2, run
+   `docker compose run --rm manga-stack-migrate alembic downgrade <database version you wrote down>`.
+4. **Lossy migration, or data looks wrong**: restore the backup from 12.1:
+
+   ```bash
+   docker compose stop backend celery_beat $(docker compose config --services | grep celery_worker)
+   docker compose exec -T db pg_restore -U manga -d manga --clean --if-exists < ~/manga-backups/db-<date>.dump
+   docker compose up -d --force-recreate
+   ```
+
+   (More detail: `backend_fastapi/deployment/backups.md`.)
+
+To undo one change permanently, revert its merge commit on `main`
+(`git revert -m 1 <merge sha>`, listed in each `AUDIT_LOG.md` entry), push,
+and update as in 12.2.
+
+### 12.4 Keeping this guide useful
+
+Whenever the site changes, the same pull request:
+
+- adds an entry to `AUDIT_LOG.md` (what, why, files, database, settings, check, **undo**);
+- updates this guide where installing, configuring, updating or running the site changed: the section itself, the [Troubleshooting](#10-troubleshooting) table and the [Quick checklist](#11-quick-checklist).
+
+The PR template (`.github/pull_request_template.md`) and `CLAUDE.md` list
+these as required steps.

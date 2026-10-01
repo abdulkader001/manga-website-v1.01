@@ -1,0 +1,228 @@
+# Audit Log — MangaWorld
+
+This file records every change made to the website: **what** changed, **why**,
+**where** in the code, what it did to the **database and settings**, how to
+**check** it works, and how to **undo** it. It is the history book of the site.
+`GUIDE.md` is the manual for running it.
+
+**Rule:** every change that is merged adds an entry at the top of
+[Change entries](#change-entries), in the same pull request as the change.
+Use the [entry template](#entry-template). No entry, no merge.
+
+Contents
+
+1. [How the site is put together](#1-how-the-site-is-put-together) (read this first)
+2. [Database migration ledger](#2-database-migration-ledger)
+3. [How to undo a change](#3-how-to-undo-a-change)
+4. [Change entries](#change-entries) (newest first)
+5. [Open items and known limits](#5-open-items-and-known-limits)
+6. [Entry template](#entry-template)
+
+---
+
+## 1. How the site is put together
+
+| Part | What it is | Where |
+| --- | --- | --- |
+| Website | React 19 + Vite + Tailwind, served by the `web` container (nginx) | `src/` |
+| API | FastAPI, under `/api/v1/...` | `backend_fastapi/app/` |
+| Workers | Celery: scrape, compress, OCR, translation, e-mail, notifications, maintenance, plus `celery_beat` (schedules) | `backend_fastapi/app/tasks/` |
+| Database | PostgreSQL. Schema changes only through Alembic migrations | `backend_fastapi/app/migrations/versions/` |
+| Queue/cache | Redis | — |
+| Deploy | `docker-compose.yml`. The one-shot `manga-stack-migrate` runs `alembic upgrade head` before the API starts | repo root |
+
+### Where settings live (three layers)
+
+| Layer | Holds | Who changes it | Undo |
+| --- | --- | --- | --- |
+| `.env` on the server | Foundation only: database/Redis, signing and encryption keys, `INTEGRATIONS_SECRET`, admin identity (`MAIN_ADMIN_EMAIL_HASH`, `MAIN_ADMIN_PASSWORD_HASH`), starting site address | Whoever has the server | Edit the file and recreate the containers |
+| **Secret Vault** (Admin → Secret Vault) | Everything else: Google/Microsoft sign-in, SMTP/magic links, OCR/translation, API keys, limits, Sentry, **website domain** | Main admin only, with an authenticator code and a 10-minute unlock | Remove the value and it falls back to `.env`. `VAULT_PRELOAD_DISABLED=true` skips the vault if a bad value stops start-up |
+| **Admin Settings** (database) | Site name/logo/footer, sign-in required switch, donations, maintenance, session policy | Main admin (sub-admins get only the toggles granted to them) | Change it back in the page |
+
+### People and roles
+
+- **Main admin**: one owner. Proves it at `/admin-login` with e-mail, a **one-time** password from `.env` and an authenticator code. After that, every admin page asks for the authenticator code.
+- **Sub-admin**: a user with per-person permission toggles (Role Management). Can never get the Secret Vault, Admin Settings, branding or role management.
+- **User (reader)**: signs in with a magic link, Google or Microsoft. **No passwords.** One inbox gives one account for life.
+
+### Data that is deliberately *not* on the server
+
+- Bookmarks, reading history and "where I stopped" live in the reader's browser (`localStorage` key `mw_library_v1`, `src/utils/library.js`). Readers move them between devices with export/import.
+
+### Server-side tools (run with `docker compose exec backend python -m backend_fastapi.scripts.<name>`)
+
+| Command | Does |
+| --- | --- |
+| `cli_bootstrap admin-hashes` | Prints the two `.env` lines for Admin sign-in (a new one-time password) |
+| `cli_bootstrap reset-2fa --email …` | Removes a lost authenticator |
+| `cli_bootstrap login-link --email …` | Prints a one-time sign-in link (no e-mail sent) |
+| `set_site_domain new-domain.com` / `--clear` | Moves the site to a new domain when the admin page can't be reached |
+
+---
+
+## 2. Database migration ledger
+
+Migrations run in this order. "Undo" is `alembic downgrade <the revision before>`
+(see [§3](#3-how-to-undo-a-change)). **Lossy** means the downgrade can't bring
+back what the upgrade removed, so restore a backup instead.
+
+| Revision | PR | What it does | Downgrade |
+| --- | --- | --- | --- |
+| `20261004_vault_secrets` | #23 | New `vault_secrets` table (encrypted settings) | Drops the table. **Vault values are lost**; the site falls back to `.env` |
+| `20261005_local_ocr_default_on` | #24 | Built-in OCR on by default; existing rows switched on | Default goes back to off (rows stay on) |
+| `20261006_reader_overlay_settings` | #24 | Reader overlay columns (on/off, target language, colours, context AI, limits) | Drops the columns. Readers' overlay choices are lost |
+| `20261007_three_roles` | #24 | Moderators become users; moderator columns dropped | **Lossy**: the columns come back empty and former moderators can't be identified |
+| `20261008_chapter_title_translations` | #25 | `chapters.title_translations` cache | Drops the cache (it rebuilds itself) |
+| `20261009_login_required` | #27 | `system_settings.login_required` (default off) | Drops it, so the site is open to guests |
+| `20261010_email_identity` | #27 | Unique `users.email_identity_hash` (one inbox, one account), backfilled | Drops it. Gmail-alias duplicates become possible again |
+| `20261011_admin_password_single_use` | #27 | `system_settings.admin_setup_password_used` | Drops it, so the **current admin password works again** |
+
+Check where a server is: `docker compose exec backend alembic current`.
+
+---
+
+## 3. How to undo a change
+
+Always **back up first** (`GUIDE.md` §12.1 has copy-paste commands). Then pick the smallest undo that works.
+
+**A. Switch a feature off (no code change)**. Many features have a switch:
+sign-in required (Admin Settings), donations (untick "Shown" or remove),
+domain (Secret Vault → Website domain → *Go back to .env address*), vault
+values (remove → `.env` value).
+
+**B. Undo a whole pull request in git.** Every PR is one merge commit on `main`:
+
+```bash
+git log --oneline --first-parent main      # find the merge commit, e.g. 6412a23
+git revert -m 1 6412a23                     # makes a new commit that undoes it
+git push origin main                         # (or open a PR with the revert)
+```
+
+**C. Undo its database changes too.** Do this **before** deploying the
+reverted code if the PR added migrations. Downgrade to the revision listed
+just before that PR's first migration in [§2](#2-database-migration-ledger):
+
+```bash
+docker compose run --rm manga-stack-migrate alembic downgrade 20261008_chapter_title_translations
+docker compose run --rm manga-stack-migrate alembic current   # confirm
+```
+
+Undoing only the code and keeping the new columns is usually safe: the old
+code ignores columns it doesn't know. The **lossy** rows in §2 are the
+exceptions; for those, restore the database backup taken before the update.
+
+**D. Deploy the result:** `docker compose build --pull && docker compose up -d --force-recreate`.
+
+---
+
+## Change entries
+
+### 2026-10-01 — Audit log and update/rollback guide (this PR)
+
+- **What:** added this `AUDIT_LOG.md`, `CLAUDE.md` (working rules: every change gets an entry here and a `GUIDE.md` update), a PR template with the same checklist, and `GUIDE.md` §12 "Updating safely and rolling back".
+- **Why:** to keep a record of what was changed, why, and how to undo it.
+- **Database / settings:** none.
+- **Undo:** revert the PR. Documentation only.
+
+### 2026-10-01 — PR #27: domain switch, sign-in switch, admin sign-in, one email per account, chapter times, donations, right-click
+
+Merge `6412a23`. Commits `a8b5d41`, `604b742`, `2c89797`, `66b5a0f`, `e285735`, `8c287f4`, `38a0fc3`.
+
+| Change | Why | Main files |
+| --- | --- | --- |
+| **Website domain** in the Secret Vault drives the site address, CORS origins and Google/Microsoft/magic-link return addresses, live, no restart. Check → Switch → Go back card. Rescue command `set_site_domain` | Move to a new domain in a few clicks after a takedown | `app/vault_keys.py`, `app/services/secret_vault.py`, `app/bootstrap/middleware.py` (`LiveCORSMiddleware`), `app/api/routers/secret_vault.py`, `scripts/set_site_domain.py`, `src/pages/Admin/SecretVault.jsx` |
+| **Sign-in required** switch (Admin Settings, main admin only, starts **off**). When on, guests get `LOGIN_REQUIRED` from reading routes; sign-in and admin routes are never gated | Owner's choice whether the site is members-only | `app/dependencies/site_access.py`, `app/bootstrap/routers.py`, `src/components/AuthGuard.js`, `AdminSettings.jsx` |
+| **Admin sign-in** `/admin-login`: e-mail + **one-time** password (hash in `.env`) + authenticator. The password is void after it is used once. With it set, admin routes always need the authenticator, and the authenticator can't be changed from a normal session | Prove ownership without Google/e-mail; a stolen Gmail gets a reader session at most | `app/api/routers/admin_login.py`, `app/core/admin_identity.py`, `app/api/routers/admin_2fa.py`, `scripts/cli_bootstrap.py`, `src/pages/AdminLogin.jsx` |
+| **One inbox, one account, for life**: unique canonical-email key (Gmail dots and `googlemail.com` folded, `+tags` dropped). The email can't be changed. Deleted accounts keep their email | Stop one inbox opening many accounts | `app/utils/email_crypto.py`, `app/models/user.py`, `app/services/auth_service.py` |
+| **Reader passwords removed** (endpoint, profile field, Login tab, `password_service`) | Magic link / Google / Microsoft only; nothing to forget | `app/api/routers/account.py`, `src/components/Login.js`, `src/pages/CompleteProfile.js` |
+| **Chapter times**: update cards show when the newest chapter arrived; each chapter shows "Xh ago"; "latest" sorts by newest chapter; times sent as UTC with `Z`; a missing time shows nothing instead of "Just now" | Cards said "Just now" and the order changed whenever a series was viewed | `app/services/catalogue_service.py`, `app/services/manga_service.py`, `src/utils/gstTime.js`, `Homepage.js`, `MangaDetail.js` |
+| **Donation links** (Admin Settings → Donations): allow-listed platforms over https, crypto addresses checked against their network, all-or-nothing saves, audit log + bell notice on change; footer "Support the site" | Accept donations safely | `app/services/donation_service.py`, `app/api/routers/support.py`, `src/components/DonationEditor.jsx`, `SupportLinks.jsx` |
+| **Right-click a manga card** opens it in a new tab; Shift(/Win/Cmd)+right-click opens a new window; right-click stays blocked elsewhere | Open series without leaving the page | `src/utils/mangaLinkMenu.js`, `src/components/AntiTamperGuard.jsx` |
+
+- **Database:** `20261009_login_required`, `20261010_email_identity`, `20261011_admin_password_single_use`.
+- **Settings:** new `.env` `MAIN_ADMIN_PASSWORD_HASH`. New vault key `SITE_DOMAIN`.
+- **Check:**
+  - `/admin-login` works once, then shows "already been used".
+  - Admin Settings shows the *Sign-in required* card and the *Donations* tab.
+  - Update cards show "Xh ago".
+  - The Secret Vault shows the *Website domain* card.
+- **Undo:** `git revert -m 1 6412a23`, then `alembic downgrade 20261008_chapter_title_translations`. After that, the admin password is reusable, Gmail aliases can open separate accounts again, and reader password login comes back for accounts that had one (the `password_hash` column was kept).
+
+### 2026-10-01 — PR #26: library in the browser, day mode, silent re-login, Anime-Planet, permissions, UTC
+
+Merge `b73171f`. Commits `c26d351`, `34f4273`, `987e112`.
+
+- **Anime-Planet** metadata source (manga, manhwa and manhua only). The same metadata page can't be imported twice. Files: `app/services/animeplanet_service.py`, `metadata_sources.py`, `series_import.py`.
+- **Bookmarks and history in the browser.** The server stops recording history. Only chapters actually opened count as read. One history entry per series. New public `GET /manga/batch`. Stock photos replaced with SVG placeholders. Files: `src/utils/library.js`, `src/utils/placeholders.js`, `BookmarkHistoryTab.jsx`.
+- **Day mode** palette remap (`src/index.css`). **Silent session refresh** on 401 (`src/services/api.js`), which fixed "Mark resolved logs me out". The **default translator** now uses the LibreTranslate URL.
+- **Permissions**: new `broadcast` and `manage_ads` toggles. Branding is main-admin only. Adds `GET /admin/permissions/me`.
+- **Times**: server times are read as UTC.
+- **Database:** none.
+- **Undo:** `git revert -m 1 b73171f`. Readers' browser libraries stay in their browsers.
+
+### 2026-10-01 — PR #25: vault holds every non-foundation setting, chapter titles, OCR language fix
+
+Merge `f1f230a`. Commits `6a62fa2`, `1c8474a`, `8ae9a70`.
+
+- **Tesseract language bug**: `-l <lang>` came after `tsv`, so every page was read as English. Neighbouring CJK glyphs are now joined. File: `app/services/ocr_service.py`.
+- **Readable chapter titles**: "522 원준 522화 2024-11-07" becomes "Chapter 522". Real subtitles are translated once and cached. Files: `chapter_title_service.py`, `GET /manga/{id}/chapter-titles`.
+- **Vault grows to 79 settings**, applied at start-up by `vault_preload.py`. Removing a value restores `.env`. `VAULT_PRELOAD_DISABLED` exists for recovery.
+- **Database:** `20261008_chapter_title_translations`.
+- **Undo:** `git revert -m 1 f1f230a`, then `alembic downgrade 20261007_three_roles`.
+
+### 2026-10-01 — PR #24: modals and cards, reader translation overlay, notifications, three roles
+
+Merge `5f2034b`. Commits `e6e98b8`, `64e00cb`, `97b78f1`, `907e387`.
+
+- **Fixes**: modals scroll, cards open, real views and ratings. AI/OCR providers save to the account with Test buttons, and the Gemini request format is fixed. The backend image ships Tesseract with CJK language data.
+- **Overlay**: driven by settings; ten open-licence fonts; colours; usage limits; higher-quality page images.
+- **Notifications**: readers only get their own (new chapter, finished series, broadcasts, account notices). Operational notices go to the main admin.
+- **Three roles** (admin, sub-admin, user): the moderator role is retired, and Role Management rewritten against the real API.
+- **Database:** `20261005_local_ocr_default_on`, `20261006_reader_overlay_settings`, `20261007_three_roles` (**lossy**).
+- **Undo:** `git revert -m 1 5f2034b`. For the database, restore the pre-update backup (the moderator data is gone), or `alembic downgrade 20261004_vault_secrets` for the columns only.
+
+### 2026-10-01 — PR #23: real admin metrics, Secret Vault
+
+Merge `58ca9af`. Commit `9e90f5a`.
+
+- **Admin hub and Health page** show real counts; placeholder and random numbers removed.
+- **Secret Vault** (main admin, authenticator, 10-minute unlock, values encrypted with `INTEGRATIONS_SECRET`, audit log never records values).
+- **Database:** `20261004_vault_secrets`.
+- **Undo:** `git revert -m 1 58ca9af`, then `alembic downgrade 20261003_merge_totp_custom_tabs` (vault values are lost, and `.env` takes over).
+
+### Before 2026-10-01
+
+PRs #1–#22 predate this log. Their summaries are in the merge commits
+(`git log --first-parent main`) and the pull requests on GitHub.
+
+---
+
+## 5. Open items and known limits
+
+- **Anime-Planet parser** was tested on synthetic pages only (the build sandbox couldn't reach the site). Check a real link in the import preview.
+- **Domain "is this site" check** asks `/healthz`, which any copy of this software answers. It confirms the domain reaches *a* MangaWorld server, not necessarily yours.
+- **Win + right-click**: Windows often swallows the Windows key. Shift + right-click is the reliable way to get a new window.
+- **Crypto addresses** are checked for format, not ownership. Send yourself a small test amount after every change.
+- **Comment and cultivation systems**: postponed by the owner ("fix our issues first").
+- **`users.password_hash`** column is unused since PR #27. It was kept so that undoing PR #27 restores old password logins. It can be dropped in a later migration.
+
+---
+
+## Entry template
+
+Copy this to the top of [Change entries](#change-entries):
+
+```markdown
+### YYYY-MM-DD — PR #NN: short title
+
+Merge `<merge sha>`. Commits `<sha>`, `<sha>`.
+
+| Change | Why | Main files |
+| --- | --- | --- |
+| What a user/admin will notice | The problem it solves | `path/one`, `path/two` |
+
+- **Database:** new migrations (and add them to §2 with their downgrade effect), or "none".
+- **Settings:** new/changed `.env` keys, vault keys, Admin Settings switches, or "none".
+- **Check:** how to see it works after deploying.
+- **Undo:** the exact `git revert` / `alembic downgrade` / switch, and what is lost.
+```
