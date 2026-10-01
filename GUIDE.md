@@ -384,9 +384,9 @@ the admin can open). So the owner signs in a different way, with three things
 a thief who took your Gmail does **not** have:
 
 1. **your e-mail**, matched against `MAIN_ADMIN_EMAIL_HASH` in `.env`;
-2. **an admin password**, matched against `MAIN_ADMIN_PASSWORD_HASH` in `.env`
-   (only a hash is stored; the password itself is only in your head or your
-   password manager);
+2. **a one-time admin password**, matched against `MAIN_ADMIN_PASSWORD_HASH`
+   in `.env` (only a hash is stored). It works **once**: after it signs you in,
+   it is void, even if someone later reads it from your notes;
 3. **a 6-digit code from an authenticator app on your phone** (Google
    Authenticator, Aegis, 1Password…).
 
@@ -406,7 +406,9 @@ Set it up once:
 4. The first time, it shows a setup key: add it to your authenticator app and
    type the 6-digit code. You are signed in as the main admin and land on
    `/admin`.
-5. From now on, every Admin sign-in asks for e-mail + password + code.
+5. The password is now used up. Set up Google / Microsoft / e-mail in the
+   Secret Vault (6.1) and from then on sign in normally; every admin page asks
+   for the code from your authenticator app.
 
 **Why a stolen Gmail isn't enough:** someone who gets into your Gmail can at
 most sign in as a normal reader with Google or a magic link. Every admin page,
@@ -414,11 +416,13 @@ Admin Settings and the Secret Vault still ask for the authenticator code, and
 the authenticator can't be replaced or removed from the website, only through
 Admin sign-in (which needs the password) or on the server.
 
-**Lost your phone?** On the server:
-`docker compose exec backend python -m backend_fastapi.scripts.cli_bootstrap reset-2fa --email you@example.com`,
-then sign in at `/admin-login` again; it sets up a new authenticator.
-**Forgot the password?** Run `admin-hashes` again, replace the line in `.env`
-and recreate the containers.
+**Locked out** (Google/e-mail broken, or a new phone)? Make a new one-time
+password on the server: run `admin-hashes` again, replace the
+`MAIN_ADMIN_PASSWORD_HASH` line in `.env`, recreate the containers, and sign in
+at `/admin-login`. A new hash works once again.
+**Lost your phone as well?** First run
+`docker compose exec backend python -m backend_fastapi.scripts.cli_bootstrap reset-2fa --email you@example.com`;
+the next `/admin-login` sets up a new authenticator.
 
 Other server-side tools (only needed in special cases):
 

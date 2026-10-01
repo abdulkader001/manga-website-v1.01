@@ -111,8 +111,8 @@ export function AdminSignInHint() {
   return (
     <div className="space-y-3 text-xs text-[#8b93a3]">
       <p>
-        This site uses Admin sign-in. Sign in at the admin page with your e-mail, the admin
-        password and your authenticator app; it sets the app up the first time.
+        This site uses Admin sign-in. Sign in there with your e-mail, the one-time admin
+        password from the server and your authenticator app; it sets the app up.
       </p>
       <a className={button + " inline-block"} href="/admin-login">
         Go to Admin sign-in

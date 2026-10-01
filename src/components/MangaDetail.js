@@ -3,6 +3,7 @@ import React, { useState, useEffect, useMemo, useCallback } from "react";
 import { useParams, Link } from "react-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import api from "../services/api";
+import { formatGstTime, formatTimeAgo } from "../utils/gstTime";
 import useChapterTitles from "../hooks/useChapterTitles";
 import { isBookmarked, readSet, recordRead, toggleBookmark as toggleLocalBookmark, useLibrary } from "../utils/library";
 import CommentSection from "./CommentSection";
@@ -434,6 +435,11 @@ const MangaDetail = () => {
                         <span className={`font-bold text-xs block truncate ${read ? "text-[#00AEF0]" : "text-white"}`}>
                           {chapterLabel(ch)}
                         </span>
+                        {ch.created_at && (
+                          <span className="text-[10px] text-[#8b93a3] block" title={`Added ${formatGstTime(ch.created_at)}`}>
+                            {formatTimeAgo(ch.created_at)}
+                          </span>
+                        )}
                       </div>
                     </div>
 
@@ -492,6 +498,11 @@ const MangaDetail = () => {
                     </div>
 
                     <div className="flex items-center gap-3 flex-none text-xs">
+                      {ch.created_at && (
+                        <span className="text-[#8b93a3] text-[11px]" title={`Added ${formatGstTime(ch.created_at)}`}>
+                          {formatTimeAgo(ch.created_at)}
+                        </span>
+                      )}
                       <span className="text-[#8b93a3] hidden sm:flex items-center gap-1 text-[11px]">
                         <i className="fas fa-eye text-[10px]"></i>
                         <span>{formattedChapterViews} reads</span>

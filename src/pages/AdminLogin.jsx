@@ -24,6 +24,7 @@ async function post(body) {
 
 export default function AdminLogin() {
   const [enabled, setEnabled] = useState(null);
+  const [used, setUsed] = useState(false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [code, setCode] = useState("");
@@ -35,7 +36,10 @@ export default function AdminLogin() {
   useEffect(() => {
     apiFetch("/api/v1/auth/admin/status")
       .then((r) => r.json())
-      .then((d) => setEnabled(Boolean(d?.enabled)))
+      .then((d) => {
+        setEnabled(Boolean(d?.enabled));
+        setUsed(Boolean(d?.used));
+      })
       .catch(() => setEnabled(false));
   }, []);
 
@@ -72,12 +76,21 @@ export default function AdminLogin() {
             <i className="fas fa-user-shield text-[#00AEF0]"></i> Admin sign-in
           </h1>
           <p className="text-xs text-[#8b93a3] mt-1">
-            For the site owner: your e-mail, the admin password from the server, and your
-            authenticator app.
+            For the site owner&apos;s first sign-in: your e-mail, the one-time admin password
+            from the server, and your authenticator app. The password stops working after it
+            is used.
           </p>
         </div>
 
-        {enabled === false && (
+        {enabled === false && used && (
+          <p className="text-xs text-amber-300">
+            The one-time admin password has already been used. Sign in normally (Google,
+            Microsoft or magic link); admin pages ask for your authenticator code. Locked out?
+            Make a new one-time password on the server with{" "}
+            <span className="font-mono">cli_bootstrap admin-hashes</span>.
+          </p>
+        )}
+        {enabled === false && !used && (
           <p className="text-xs text-amber-300">
             Admin sign-in is not set up on this server yet. Run{" "}
             <span className="font-mono">cli_bootstrap admin-hashes</span> on the server and add the
@@ -100,7 +113,7 @@ export default function AdminLogin() {
               className={field}
               type="password"
               autoComplete="current-password"
-              placeholder="Admin password"
+              placeholder="One-time admin password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               required

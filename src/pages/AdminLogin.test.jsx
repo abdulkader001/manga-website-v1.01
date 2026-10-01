@@ -28,7 +28,7 @@ describe("Admin sign-in", () => {
     renderAt(<AdminLogin />);
 
     await user.type(screen.getByPlaceholderText("you@example.com"), "owner@example.com");
-    await user.type(screen.getByPlaceholderText("Admin password"), "long password here");
+    await user.type(screen.getByPlaceholderText("One-time admin password"), "long password here");
     await user.click(screen.getByRole("button", { name: "Continue" }));
 
     expect(await screen.findByText("ABCDEF")).toBeInTheDocument();
@@ -47,9 +47,15 @@ describe("Admin sign-in", () => {
     const user = userEvent.setup();
     renderAt(<AdminLogin />);
     await user.type(screen.getByPlaceholderText("you@example.com"), "owner@example.com");
-    await user.type(screen.getByPlaceholderText("Admin password"), "wrong");
+    await user.type(screen.getByPlaceholderText("One-time admin password"), "wrong");
     await user.click(screen.getByRole("button", { name: "Continue" }));
     expect(await screen.findByText("Email, password or code is not right.")).toBeInTheDocument();
+  });
+
+  it("says when the one-time password has been used", async () => {
+    apiFetch.mockImplementationOnce(() => reply({ enabled: false, used: true }));
+    renderAt(<AdminLogin />);
+    expect(await screen.findByText(/already been used/)).toBeInTheDocument();
   });
 
   it("explains how to set it up when the server has no admin password", async () => {

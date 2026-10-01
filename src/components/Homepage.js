@@ -941,8 +941,8 @@ export default function Homepage() {
                   </div>
 
                   <div className="mgeko-update-meta">
-                    <span className="flex items-center gap-1 font-mono text-[11px]" title={`Added at: ${formatGstTime(manga.created_at || manga.updated_at)}`}>
-                      <i className="material-icons text-[11px]">update</i> {formatTimeAgo(manga.created_at || manga.updated_at || manga.last_scraped_at)}
+                    <span className="flex items-center gap-1 font-mono text-[11px]" title={`Newest chapter added: ${formatGstTime(manga.last_chapter_at || manga.created_at)}`}>
+                      <i className="material-icons text-[11px]">update</i> {formatTimeAgo(manga.last_chapter_at || manga.created_at)}
                     </span>
                     <span className="mgeko-flag">
                       {getCountryBadge(manga.country, manga.type)}

@@ -192,7 +192,20 @@ def _apply_sort(db: Session, query, sort: str):
         return query.order_by(Manga.created_at.desc(), Manga.id.desc())
     if sort == "random":
         return query.order_by(func.random())
-    return query.order_by(Manga.updated_at.desc().nullslast(), Manga.id.desc())
+    # "latest": the series whose newest chapter arrived most recently comes
+    # first (a series with no chapters yet counts from when it was added).
+    # Not Manga.updated_at: that moves on every edit or view count bump.
+    newest = (
+        db.query(
+            Chapter.manga_id.label("manga_id"),
+            func.max(Chapter.created_at).label("newest_chapter_at"),
+        )
+        .group_by(Chapter.manga_id)
+        .subquery()
+    )
+    return query.outerjoin(newest, newest.c.manga_id == Manga.id).order_by(
+        func.coalesce(newest.c.newest_chapter_at, Manga.created_at).desc(), Manga.id.desc()
+    )
 
 
 def get_manga_list(

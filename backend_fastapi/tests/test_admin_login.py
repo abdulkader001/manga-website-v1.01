@@ -61,9 +61,9 @@ def _cookies(resp):
 
 
 def test_status_says_whether_it_is_set_up(fastapi_client, admin_email, monkeypatch):
-    assert fastapi_client.get("/api/v1/auth/admin/status").json() == {"enabled": True}
+    assert fastapi_client.get("/api/v1/auth/admin/status").json() == {"enabled": True, "used": False}
     monkeypatch.setattr(settings, "main_admin_password_hash", None, raising=False)
-    assert fastapi_client.get("/api/v1/auth/admin/status").json() == {"enabled": False}
+    assert fastapi_client.get("/api/v1/auth/admin/status").json() == {"enabled": False, "used": False}
     resp = fastapi_client.post(URL, json={"email": admin_email, "password": PASSWORD})
     assert resp.status_code == 403
 
@@ -98,13 +98,34 @@ def test_first_sign_in_enrols_the_authenticator_then_makes_the_main_admin(
     user = _user(admin_email)
     assert user.is_main_admin and user.totp_enabled
 
-    # Next time: password alone is not enough, it asks for the code.
-    again = fastapi_client.post(URL, json={"email": admin_email, "password": PASSWORD})
-    assert again.json() == {"step": "code"}
-    ok = fastapi_client.post(
+    # The password was single-use: it is void now, even with a valid code.
+    again = fastapi_client.post(
         URL, json={"email": admin_email, "password": PASSWORD, "code": _code(admin_email, 1)}
     )
-    assert ok.json() == {"step": "done"}
+    assert again.status_code == 401
+    assert again.json()["error"]["details"]["reason"] == "password_used"
+    assert fastapi_client.get("/api/v1/auth/admin/status").json() == {"enabled": False, "used": True}
+
+
+def test_a_new_one_time_password_from_the_server_works_once_again(
+    fastapi_client, admin_email, monkeypatch
+):
+    fastapi_client.post(URL, json={"email": admin_email, "password": PASSWORD})
+    fastapi_client.post(URL, json={"email": admin_email, "password": PASSWORD, "code": _code(admin_email)})
+
+    # Recovery: the owner runs admin-hashes again and puts the new hash in .env.
+    monkeypatch.setattr(settings, "main_admin_password_hash", _phc("brand new one-time pass"), raising=False)
+    assert fastapi_client.get("/api/v1/auth/admin/status").json() == {"enabled": True, "used": False}
+    # Authenticator already enrolled: the new password still needs the code.
+    step = fastapi_client.post(URL, json={"email": admin_email, "password": "brand new one-time pass"})
+    assert step.json() == {"step": "code"}
+    done = fastapi_client.post(
+        URL,
+        json={"email": admin_email, "password": "brand new one-time pass", "code": _code(admin_email, 1)},
+    )
+    assert done.json() == {"step": "done"}
+    reuse = fastapi_client.post(URL, json={"email": admin_email, "password": "brand new one-time pass"})
+    assert reuse.json()["error"]["details"]["reason"] == "password_used"
 
 
 def test_a_stolen_inbox_session_cannot_reach_admin_features(fastapi_client, admin_email):
