@@ -6,6 +6,7 @@ export const ADMIN_FEATURE_LINKS = [
     description:
       "Scrape new manga, rescrape chapters, and configure automatic scraper schedule.",
     minRole: "secondary",
+    permission: "edit_series",
   },
   {
     key: "roles",
@@ -20,6 +21,7 @@ export const ADMIN_FEATURE_LINKS = [
     to: "/admin/users",
     description: "Search the full user directory, handle badges, and inspect accounts.",
     minRole: "admin",
+    permission: "view_user_list",
   },
   {
     key: "ads",
@@ -27,6 +29,7 @@ export const ADMIN_FEATURE_LINKS = [
     to: "/admin/ads",
     description: "Create ad slots, configure banner creatives, and manage page placements.",
     minRole: "admin",
+    permission: "manage_ads",
   },
   {
     key: "health",
@@ -34,12 +37,13 @@ export const ADMIN_FEATURE_LINKS = [
     to: "/admin/health",
     description: "Check service telemetry, uptime, background jobs, and diagnostic signals.",
     minRole: "secondary",
+    permission: "view_dashboard",
   },
   {
     key: "audit-report",
     label: "Operations & Traffic Audit",
     to: "/admin/audit-report",
-    description: "24-hr BST cycle audit, concurrent watchers per manga, uptime, and daily logins.",
+    description: "24-hr UTC cycle audit, concurrent watchers per manga, uptime, and daily logins.",
     minRole: "admin",
   },
   {
@@ -48,6 +52,7 @@ export const ADMIN_FEATURE_LINKS = [
     to: "/admin/chapter-reports",
     description: "Inspect reader error reports and re-scrape single chapters cleanly.",
     minRole: "secondary",
+    permission: "handle_reports",
   },
   {
     key: "api-management",

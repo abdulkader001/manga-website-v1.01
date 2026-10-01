@@ -5,7 +5,7 @@ import useAuth from "../../hooks/useAuth";
 import { apiFetch } from "../../services/api";
 
 const TIME_RANGES = [
-  { id: "1d", label: "1 Day (24h)", desc: "Current 24-hr BST cycle" },
+  { id: "1d", label: "1 Day (24h)", desc: "Current 24-hr UTC cycle" },
   { id: "7d", label: "7 Days", desc: "Past week audit" },
   { id: "1m", label: "1 Month (30d)", desc: "Monthly operational roll-up" },
   { id: "1y", label: "1 Year", desc: "Annual traffic report" },
@@ -30,7 +30,7 @@ export default function AuditReport() {
     refetchInterval: 15000,
   });
 
-  // Local tick for the 24-hour BST countdown timer
+  // Local tick for the 24-hour UTC countdown timer
   useEffect(() => {
     if (reportData?.timer?.seconds_remaining != null) {
       setLocalSecondsRemaining(reportData.timer.seconds_remaining);
@@ -104,7 +104,7 @@ export default function AuditReport() {
             <span>Website Operations &amp; Traffic Audit Report</span>
           </h1>
           <p className="text-xs sm:text-sm text-[#8b93a3] mt-0.5">
-            Live operational telemetry, concurrent readers per manga, daily logins, and 24-hr BST cycle audit.
+            Live operational telemetry, concurrent readers per manga, daily logins, and 24-hr UTC cycle audit.
           </p>
         </div>
 
@@ -130,7 +130,7 @@ export default function AuditReport() {
         </div>
       </div>
 
-      {/* 24-Hour BST Audit Timer Banner */}
+      {/* 24-Hour UTC Audit Timer Banner */}
       <div className="bg-gradient-to-r from-[#15171c] via-[#1a1e28] to-[#15171c] border border-emerald-500/40 p-5 rounded-2xl shadow-xl space-y-3">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div className="space-y-1">

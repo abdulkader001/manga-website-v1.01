@@ -66,6 +66,7 @@ _CATALOGUE: dict[str, tuple[Group, bool, bool]] = {
     "block_user": (Group.COMMUNITY, True, True),
     "timeout_user": (Group.COMMUNITY, True, True),
     "handle_reports": (Group.COMMUNITY, True, True),
+    "broadcast": (Group.COMMUNITY, True, True),
     "moderate_images": (Group.COMMUNITY, True, True),
     # User administration
     "view_user_list": (Group.USER_ADMIN, True, True),
@@ -83,6 +84,7 @@ _CATALOGUE: dict[str, tuple[Group, bool, bool]] = {
     "set_session_policy": (Group.PLATFORM, True, False),
     "set_resource_policy": (Group.PLATFORM, True, False),
     "configure_branding": (Group.PLATFORM, True, False),
+    "manage_ads": (Group.PLATFORM, True, False),
     # Observability
     "view_dashboard": (Group.OBSERVABILITY, True, True),
     "view_scraper_health": (Group.OBSERVABILITY, True, True),
@@ -102,6 +104,58 @@ NEVER_GRANTABLE: frozenset[str] = frozenset(
         "alter_rank",
     }
 )
+
+# Plain-language meaning of each toggle, shown on the Role Management page.
+DESCRIPTIONS: dict[str, str] = {
+    "submit_manga_url": "Import a new series from a source site.",
+    "edit_series": "Edit series details, schedules, page layout and delete single pages.",
+    "delete_series": "Delete a whole series.",
+    "rescrape_chapter": "Re-scrape one chapter (reader Re-Scrape button and report fixes).",
+    "rescrape_series": "Re-scrape every chapter of a series.",
+    "rollback_series": "Roll a series back to an earlier scrape.",
+    "set_rights_records": "Record who owns the rights to a series and whether it may be translated.",
+    "view_websites": "See the approved source websites.",
+    "approve_website": "Approve a new source website for scraping.",
+    "modify_website": "Change an approved website's settings.",
+    "remove_website": "Remove an approved website.",
+    "trigger_scraper_ai": "Ask the scraper AI to write a parser for a new site.",
+    "approve_parser": "Approve a generated parser.",
+    "activate_parser": "Switch a parser on.",
+    "rollback_parser": "Go back to an earlier parser version.",
+    "view_providers": "See the OCR / translation / AI provider list (keys stay hidden).",
+    "configure_ocr": "Change OCR providers.",
+    "configure_translation": "Change translation providers.",
+    "configure_ai": "Change AI providers.",
+    "configure_scraper_ai": "Change the scraper AI.",
+    "set_provider_priority": "Reorder providers.",
+    "correct_translation": "Fix a wrong translation.",
+    "force_regen_translation": "Throw away a cached translation and make it again.",
+    "review_quality_flags": "Review translations flagged as poor.",
+    "remove_comments": "Delete comments.",
+    "block_user": "Block a user from commenting.",
+    "timeout_user": "Temporarily stop a user from commenting.",
+    "handle_reports": "See and resolve chapter reports.",
+    "broadcast": "Write site announcements and pop-up messages.",
+    "moderate_images": "Remove reported images.",
+    "view_user_list": "Browse the user list.",
+    "view_user_detail": "Open a user's account details.",
+    "suspend_account": "Suspend an account.",
+    "ban_account": "Ban an account.",
+    "restore_account": "Restore a suspended or banned account.",
+    "revoke_user_sessions": "Sign a user out everywhere.",
+    "promote_secondary": "Appoint sub-admins.",
+    "demote_secondary": "Remove sub-admins.",
+    "view_limits": "See usage limits.",
+    "set_limits": "Change usage limits.",
+    "set_session_policy": "Change how long logins last.",
+    "set_resource_policy": "Change resource policies.",
+    "configure_branding": "Reserved: logo, footer and social links are main-admin only.",
+    "manage_ads": "Create and edit ad slots.",
+    "view_dashboard": "See the admin dashboard.",
+    "view_scraper_health": "See scraper and source health.",
+    "view_scope_audit": "See the audit log for their own actions.",
+    "view_full_audit": "See the full audit log.",
+}
 
 ALL_PERMISSIONS: tuple[str, ...] = tuple(_CATALOGUE.keys())
 
@@ -276,6 +330,7 @@ def catalogue() -> list[dict]:
             {
                 "key": key,
                 "group": group.value,
+                "description": DESCRIPTIONS.get(key, ""),
                 "defaults": {
                     "permanent_admin": True,
                     "admin": admin_d,

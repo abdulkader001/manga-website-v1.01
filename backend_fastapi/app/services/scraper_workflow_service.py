@@ -219,13 +219,13 @@ class ScraperWorkflowService:
         mu_url = options.get("mangaupdates_url")
         if mu_url and "metadata" not in options:
             from ..scrapers.errors import ExtractionError
-            from .mangaupdates_service import MangaUpdatesError, fetch_series
+            from . import metadata_sources
 
             try:
-                metadata = fetch_series(mu_url).to_dict()
-            except MangaUpdatesError as exc:
+                metadata = metadata_sources.fetch(mu_url).to_dict()
+            except metadata_sources.MetadataLinkError as exc:
                 raise ExtractionError(
-                    f"MangaUpdates: {exc}", url=mu_url, missing_field="metadata"
+                    f"{metadata_sources.label(mu_url)}: {exc}", url=mu_url, missing_field="metadata"
                 ) from exc
             options["metadata"] = metadata
             changed = True

@@ -167,9 +167,11 @@ def test_manga_read_history_sync(fastapi_client, sample_data):
     )
     assert detail.status_code == 200
 
+    # Reading history lives in the reader's browser (src/utils/library.js);
+    # opening a chapter must not create a server-side history row.
     updated = fastapi_client.get(f"/api/manga/{manga.id}/chapters", headers=headers)
     after = _first(updated.json(), "id", chapter.id)
-    assert after["read"] is True
+    assert after["read"] is False
 
 
 def test_admin_user_management_and_audit(fastapi_client, sample_data):

@@ -4,11 +4,14 @@ import api, { apiFetch } from "../services/api";
 import AdPlacement from "./AdPlacement";
 import AdSection from "./GlobalAds";
 import useAuth from "../hooks/useAuth";
-import { formatTimeAgo, formatGstTime } from "../utils/gstTime";
+import useStaffPermissions from "../hooks/useStaffPermissions";
+import { formatTimeAgo, formatGstTime, parseUtc } from "../utils/gstTime";
 
 export default function Homepage() {
   const { user, isAdmin, isSecondaryAdmin } = useAuth();
-  const isUserAdmin = user?.is_admin === true || isAdmin || isSecondaryAdmin;
+  const { can } = useStaffPermissions();
+  const canBroadcast = can("broadcast"); // main admin, or a sub-admin with the toggle on
+  const isUserAdmin = canBroadcast || isAdmin; // header editing below is main-admin only
 
   // Header and Notice configuration
   const [headerTitle, setHeaderTitle] = useState(() => {
@@ -205,8 +208,8 @@ export default function Homepage() {
   const displayedNewManga = useMemo(() => {
     return [...mangaList]
       .sort((a, b) => {
-        const timeB = new Date(b.created_at || b.updated_at || 0).getTime();
-        const timeA = new Date(a.created_at || a.updated_at || 0).getTime();
+        const timeB = parseUtc(b.created_at || b.updated_at || 0).getTime();
+        const timeA = parseUtc(a.created_at || a.updated_at || 0).getTime();
         if (timeB !== timeA) return timeB - timeA;
         return Number(b.id || 0) - Number(a.id || 0);
       })
@@ -335,6 +338,7 @@ export default function Homepage() {
         {/* Admin Broadcast / Edit Controls */}
         {isUserAdmin && (
           <div className="absolute top-2.5 right-2.5 sm:top-3 sm:right-3 flex items-center gap-1.5 sm:gap-2">
+            {canBroadcast && (
             <button
               type="button"
               onClick={() => setBroadcastModalOpen(true)}
@@ -344,6 +348,8 @@ export default function Homepage() {
               <span>📢</span>
               <span className="hidden sm:inline">Broadcast</span>
             </button>
+            )}
+            {isAdmin && (
             <button
               type="button"
               onClick={() => {
@@ -356,6 +362,7 @@ export default function Homepage() {
             >
               <i className="fas fa-pencil-alt"></i>
             </button>
+            )}
           </div>
         )}
 

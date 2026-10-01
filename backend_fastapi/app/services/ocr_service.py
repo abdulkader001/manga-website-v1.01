@@ -94,6 +94,18 @@ def _join_words(words: List[Dict[str, Any]]) -> str:
     return out.strip()
 
 
+def tesseract_langs_installed() -> List[str]:
+    """Traineddata names the local Tesseract can load (empty if not installed)."""
+
+    try:
+        out = subprocess.run(
+            [TESSERACT_CMD, "--list-langs"], capture_output=True, text=True, timeout=10, check=True
+        ).stdout
+    except Exception:
+        return []
+    return [line.strip() for line in out.splitlines()[1:] if line.strip() and line.strip() != "osd"]
+
+
 def tesseract_lang_for(language_hint: Optional[str]) -> Optional[str]:
     if not language_hint:
         return None

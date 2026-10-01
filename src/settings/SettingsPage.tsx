@@ -18,12 +18,17 @@ const TARGET_LANGUAGES: Array<{ value: string; label: string }> = [
   { value: "ar", label: "Arabic" },
 ];
 
+// Original, license-free avatars (inline SVG): a coloured disc with a simple face.
+const avatar = (bg: string, fg: string) =>
+  `data:image/svg+xml;utf8,${encodeURIComponent(
+    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect width="100" height="100" fill="${bg}"/><circle cx="50" cy="40" r="19" fill="${fg}"/><path d="M12 100c4-28 21-40 38-40s34 12 38 40z" fill="${fg}"/></svg>`
+  )}`;
 const PRESET_AVATARS = [
-  { label: "Jinwoo (Shadow)", url: "https://images.unsplash.com/photo-1578632767115-351597cf2477?w=150&auto=format&fit=crop&q=80" },
-  { label: "Luffy (Strawhat)", url: "https://images.unsplash.com/photo-1534447677768-be436bb09401?w=150&auto=format&fit=crop&q=80" },
-  { label: "Gojo (Limitless)", url: "https://images.unsplash.com/photo-1563089145-599997674d42?w=150&auto=format&fit=crop&q=80" },
-  { label: "Frieren (Mage)", url: "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150&auto=format&fit=crop&q=80" },
-  { label: "Zoro (Hunter)", url: "https://images.unsplash.com/photo-1570295999919-56ceb5ecca61?w=150&auto=format&fit=crop&q=80" },
+  { label: "Ocean", url: avatar("#0e7490", "#a5f3fc") },
+  { label: "Sunset", url: avatar("#c2410c", "#fed7aa") },
+  { label: "Forest", url: avatar("#166534", "#bbf7d0") },
+  { label: "Violet", url: avatar("#6d28d9", "#ddd6fe") },
+  { label: "Slate", url: avatar("#334155", "#cbd5e1") },
 ];
 
 const INPUT_CLASSES =

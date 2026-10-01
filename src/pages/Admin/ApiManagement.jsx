@@ -38,6 +38,7 @@ export default function ApiManagement() {
 
   const [activeCategoryFilter, setActiveCategoryFilter] = useState("all"); // "all" | "ocr" | "ai" | "translation"
   const [providers, setProviders] = useState({ ocr: [], ai: [], translation: [] });
+  const [siteDefaults, setSiteDefaults] = useState([]);
   const [loading, setLoading] = useState(true);
   const [modalOpen, setModalOpen] = useState(false);
   const [notice, setNotice] = useState(null);
@@ -62,6 +63,7 @@ export default function ApiManagement() {
     setLoading(true);
     try {
       const serverData = await api.admin.apiRegistry.get();
+      setSiteDefaults(Array.isArray(serverData?.site_defaults) ? serverData.site_defaults : []);
       if (serverData && (serverData.ocr || serverData.ai || serverData.translation)) {
         setProviders({
           ocr: serverData.ocr || [],
@@ -285,6 +287,38 @@ export default function ApiManagement() {
       )}
 
       {/* 3 Overview Stat Cards */}
+      {siteDefaults.length > 0 && (
+        <div className="bg-[#15171c] border border-[#262a33] rounded-2xl p-4 space-y-3">
+          <div>
+            <h2 className="text-sm font-bold text-white">Site defaults</h2>
+            <p className="text-[11px] text-[#8b93a3]">
+              What readers use until they add their own. A reader who saves their own OCR, translation or AI provider
+              switches the matching default off for their account automatically.
+            </p>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            {siteDefaults.map((d) => (
+              <div key={d.id} className="p-3 rounded-xl bg-[#101216] border border-[#262a33] space-y-1">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-xs font-bold text-white">{d.label}</span>
+                  <span
+                    className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
+                      d.active ? "bg-emerald-500/20 text-emerald-300" : "bg-[#262a33] text-[#8b93a3]"
+                    }`}
+                  >
+                    {d.active ? "ACTIVE" : "OFF"}
+                  </span>
+                </div>
+                <div className="text-[10px] text-[#8b93a3] uppercase tracking-wider">
+                  {d.service} · runs on {d.where === "browser" ? "the reader's browser" : "our server"}
+                </div>
+                <p className="text-[11px] text-gray-300 leading-relaxed">{d.detail}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         <button
           type="button"

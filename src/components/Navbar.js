@@ -1,3 +1,4 @@
+import { AVATAR_PLACEHOLDER } from "../utils/placeholders";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useLocation } from "react-router";
 import NotificationBell from "./NotificationBell";
@@ -231,7 +232,7 @@ export default function Navbar() {
                     className="flex items-center gap-1.5 text-[11px] sm:text-xs text-gray-200 hover:text-[#00AEF0] bg-[#15171c] border border-[#262a33] hover:border-[#00AEF0] px-2 py-1 rounded-xl transition shadow-sm"
                   >
                     <img
-                      src={user.profile_image || "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=100"}
+                      src={user.profile_image || AVATAR_PLACEHOLDER}
                       alt={username || name || "User"}
                       className="w-4 h-4 sm:w-5 sm:h-5 rounded-full object-cover border border-[#00AEF0]"
                     />
@@ -247,7 +248,7 @@ export default function Navbar() {
                       {/* User info banner */}
                       <div className="px-3.5 py-2 flex items-center gap-2.5">
                         <img
-                          src={user.profile_image || "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=100"}
+                          src={user.profile_image || AVATAR_PLACEHOLDER}
                           alt="Profile"
                           className="w-8 h-8 rounded-full object-cover border border-[#00AEF0]"
                         />
@@ -412,7 +413,7 @@ export default function Navbar() {
                     alt="Preview"
                     className="w-6 h-6 object-contain rounded"
                     onError={(e) => {
-                      e.target.src = "https://images.unsplash.com/photo-1578632767115-351597cf2477?w=100&auto=format&fit=crop&q=80";
+                      e.target.src = AVATAR_PLACEHOLDER;
                     }}
                   />
                 ) : (

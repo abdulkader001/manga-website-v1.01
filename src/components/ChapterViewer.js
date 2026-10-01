@@ -1,3 +1,4 @@
+import { PAGE_PLACEHOLDER } from "../utils/placeholders";
 import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { useParams, Link, useNavigate } from "react-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -10,6 +11,7 @@ import CommentSection from "./CommentSection";
 import useAuth from "../hooks/useAuth";
 import useReaderSettings from "../hooks/useReaderSettings";
 import useChapterTitles from "../hooks/useChapterTitles";
+import { isBookmarked, recordRead, toggleBookmark as toggleLocalBookmark, useLibrary } from "../utils/library";
 import "../fonts/overlayFonts";
 import "./ChapterViewer.css";
 
@@ -42,8 +44,6 @@ export default function ChapterViewer() {
   const [overlayNotice, setOverlayNotice] = useState("");
 
   // Bookmark / Marked state
-  const [bookmarked, setBookmarked] = useState(false);
-  const [bookmarkBusy, setBookmarkBusy] = useState(false);
   const [toastMessage, setToastMessage] = useState("");
 
   // Like state
@@ -104,63 +104,16 @@ export default function ChapterViewer() {
     return [];
   }, [chapter, allChaptersData]);
 
-  // Bookmarks check
-  const { data: bookmarks } = useQuery({
-    queryKey: ["bookmarks"],
-    queryFn: () => api.bookmarks.list(),
-    enabled: !!authUser,
-  });
+  // Bookmark (whole series) and read marks live in this browser.
+  const lib = useLibrary();
+  const bookmarked = isBookmarked(lib, mangaId);
 
+  // Remember that THIS chapter was opened (only this one) and where we stopped.
   useEffect(() => {
-    if (bookmarks && mangaId && chapterId) {
-      const chBookmarked =
-        Array.isArray(bookmarks) &&
-        bookmarks.some(
-          (b) =>
-            String(b.manga_id) === String(mangaId) &&
-            Number(b.chapter_id) === Number(chapterId)
-        );
-      setBookmarked(!!chBookmarked);
+    if (mangaId && chapterId && chapter) {
+      recordRead(mangaId, chapterId, chapter.chapter_number);
     }
-  }, [bookmarks, mangaId, chapterId]);
-
-  // Record history with automatic downward chapter read marking
-  useEffect(() => {
-    const recordHistory = async () => {
-      try {
-        if (!mangaId || !chapterId) return;
-        const chNum = chapter ? parseFloat(chapter.chapter_number) : null;
-
-        // 1. Immediately store in localStorage with full downward chapter sequence
-        try {
-          const key = `manga_read_chapters_${mangaId}`;
-          const currentList = JSON.parse(localStorage.getItem(key) || "[]");
-          const updated = new Set(currentList.map(String));
-          updated.add(String(chapterId));
-          if (chNum && !isNaN(chNum)) {
-            for (let i = 1; i <= Math.floor(chNum); i++) {
-              updated.add(String(i));
-            }
-          }
-          localStorage.setItem(key, JSON.stringify(Array.from(updated)));
-          localStorage.setItem(`manga_max_read_${mangaId}`, String(chNum || chapterId));
-        } catch (e) {}
-
-        // 2. Sync to server API (signed-in readers only)
-        if (!authUser) return;
-        await api.history.add({
-          mangaId: Number(mangaId),
-          chapterId: Number(chapterId),
-          chapterNumber: chNum,
-        });
-      } catch (err) {
-        console.warn("Failed to record history", err);
-      }
-    };
-    if (chapterId && chapter) {
-      recordHistory();
-    }
-  }, [mangaId, chapterId, chapter, authUser]);
+  }, [mangaId, chapterId, chapter]);
 
   const showToast = (msg) => {
     setToastMessage(msg);
@@ -192,28 +145,11 @@ export default function ChapterViewer() {
     ? allChapters[currentChIndex + 1]
     : null;
 
-  // Toggle Bookmark / Mark
-  const handleBookmarkToggle = useCallback(async () => {
-    if (!mangaId || !chapterId || bookmarkBusy) return;
-    setBookmarkBusy(true);
-    try {
-      if (bookmarked) {
-        await api.bookmarks.remove(Number(mangaId), Number(chapterId));
-        setBookmarked(false);
-        showToast("Marker removed from chapter");
-      } else {
-        await api.bookmarks.add(Number(mangaId), Number(chapterId));
-        setBookmarked(true);
-        showToast("Chapter marked successfully!");
-      }
-      queryClient.invalidateQueries({ queryKey: ["bookmarks"] });
-    } catch (err) {
-      console.error("Bookmark toggle failed", err);
-      showToast("Failed to update bookmark.");
-    } finally {
-      setBookmarkBusy(false);
-    }
-  }, [bookmarkBusy, bookmarked, chapterId, mangaId, queryClient]);
+  const handleBookmarkToggle = useCallback(() => {
+    if (!mangaId) return;
+    const now = toggleLocalBookmark(mangaId);
+    showToast(now ? "Series bookmarked" : "Bookmark removed");
+  }, [mangaId]);
 
   // Like chapter action
   const handleLike = async () => {
@@ -517,7 +453,7 @@ export default function ChapterViewer() {
                   decoding="async"
                   onError={(e) => {
                     e.currentTarget.onerror = null;
-                    e.currentTarget.src = "https://images.unsplash.com/photo-1578632767115-351597cf2477?w=1200&auto=format&fit=crop&q=80";
+                    e.currentTarget.src = PAGE_PLACEHOLDER;
                   }}
                 />
 

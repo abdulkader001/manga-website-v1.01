@@ -1613,6 +1613,22 @@ class PermissionOverridesPayload(BaseModel):
     overrides: List[PermissionOverrideItem]
 
 
+@router.get("/permissions/me")
+def my_permissions(
+    current_user: User = Depends(require_admin_user),
+    db: Session = Depends(get_db),
+) -> Dict[str, Any]:
+    """What the signed-in admin / sub-admin may do, so the UI only offers it."""
+
+    from ...core.permissions import ALL_PERMISSIONS
+    from ...services.permissions_service import has_permission
+
+    return {
+        "is_main_admin": is_main_admin(current_user),
+        "permissions": [key for key in ALL_PERMISSIONS if has_permission(db, current_user, key)],
+    }
+
+
 @router.get("/permissions/catalogue", dependencies=[Depends(require_admin_user)])
 def get_permission_catalogue() -> Dict[str, Any]:
     """Full permission catalogue, grouped (SRS 1F.7/1F.9.2)."""

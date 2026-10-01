@@ -29,7 +29,7 @@ export default function AdsManager() {
   const [newNetworkName, setNewNetworkName] = useState("");
   const [newNetworkPublisherId, setNewNetworkPublisherId] = useState("");
   const [newNetworkScript, setNewNetworkScript] = useState("");
-  const [newNetworkFallbackUrl, setNewNetworkFallbackUrl] = useState("https://images.unsplash.com/photo-1563089145-599997674d42?w=1200&auto=format&fit=crop&q=80");
+  const [newNetworkFallbackUrl, setNewNetworkFallbackUrl] = useState("");
   const [newNetworkFallbackLink, setNewNetworkFallbackLink] = useState("https://google.com");
 
   // --- Fetch Ad Slots ---
@@ -195,7 +195,7 @@ export default function AdsManager() {
       max_width_px: newSlotModal.width,
       type: "image",
       enabled: true,
-      image_url: "https://images.unsplash.com/photo-1563089145-599997674d42?w=1200&auto=format&fit=crop&q=80",
+      image_url: "",
       link_url: "https://google.com",
       alt_text: newSlotName,
     });
@@ -801,7 +801,7 @@ export default function AdsManager() {
                           type="url"
                           value={slot.image_url || ""}
                           onChange={(e) => updateSlotMutation.mutate({ id: slot.id, payload: { image_url: e.target.value } })}
-                          placeholder="https://images.unsplash.com/... banner.png"
+                          placeholder="https://your-cdn.example/banner.png"
                           className="w-full px-3 py-1.5 rounded-lg bg-[#15171c] border border-[#262a33] text-xs text-white focus:outline-none focus:border-[#00AEF0]"
                         />
                       </div>

@@ -81,11 +81,11 @@ async def start_preview(
     if series_url:
         body["url"] = _http_url(series_url, field="url")
     if mu:
-        from ...services.mangaupdates_service import MangaUpdatesError, series_id_from_url
+        from ...services import metadata_sources
 
         try:
-            series_id_from_url(mu)
-        except MangaUpdatesError as exc:
+            metadata_sources.identity(mu)
+        except metadata_sources.MetadataLinkError as exc:
             raise ApiError(ErrorCode.VALIDATION_FAILED, str(exc), field="mangaupdates_url")
         body["mangaupdates_url"] = mu
     row = _enqueue(db, "preview", current_user.id, body)
