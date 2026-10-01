@@ -61,14 +61,16 @@ export const formatGstTime = formatUtcTime;
  * Example: "Just now", "5m ago", "18m ago", "2h ago", "3d ago"
  */
 export function formatTimeAgo(dateInput) {
-  if (!dateInput) return "Just now";
+  // No time known is not "just now": show nothing rather than a wrong time.
+  if (!dateInput) return "";
   try {
     const d = parseUtc(dateInput);
     const timeMs = d.getTime();
-    if (isNaN(timeMs)) return "Just now";
+    if (isNaN(timeMs)) return "";
 
     const diffMs = Date.now() - timeMs;
-    if (diffMs < 0) return "Just now";
+    // A few seconds ahead is clock drift; further ahead is a bad timestamp.
+    if (diffMs < 0) return diffMs > -5 * 60 * 1000 ? "Just now" : "";
 
     const diffSeconds = Math.floor(diffMs / 1000);
     if (diffSeconds < 45) return "Just now";
@@ -88,6 +90,6 @@ export function formatTimeAgo(dateInput) {
     const diffYears = Math.floor(diffDays / 365);
     return `${diffYears}y ago`;
   } catch {
-    return "Just now";
+    return "";
   }
 }

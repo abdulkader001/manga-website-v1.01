@@ -20,7 +20,9 @@ Most integration settings (OAuth apps, SMTP, API keys) used to live only in
 
 from __future__ import annotations
 
+import json
 import os
+import re
 import threading
 import time
 from datetime import datetime
@@ -34,7 +36,7 @@ from sqlalchemy.orm import Session
 
 from .. import vault_preload
 from ..models import VaultSecret
-from ..vault_keys import MANAGED_KEYS, SPECS, SecretSpec
+from ..vault_keys import DOMAIN_DERIVED_KEYS, MANAGED_KEYS, SPECS, SecretSpec, with_domain
 from .integration_key_vault import IntegrationKeyVault
 
 logger = structlog.get_logger(__name__)
@@ -109,6 +111,8 @@ def normalize_value(key: str, raw: Any) -> str:
         if lowered in _FALSE:
             return "false"
         raise VaultError("Value must be true or false.")
+    if spec.kind == "domain":
+        return normalize_domain(value)
     if spec.kind == "url":
         parsed = urlparse(value)
         if parsed.scheme not in {"http", "https"} or not parsed.netloc:
@@ -120,6 +124,30 @@ def normalize_value(key: str, raw: Any) -> str:
         if not local or "." not in domain:
             raise VaultError("Value must be an email address.")
     return value
+
+
+_HOSTNAME = re.compile(
+    r"^(?=.{4,253}$)(?!-)([a-z0-9-]{1,63}(?<!-)\.)+[a-z]{2,63}$"
+)
+
+
+def normalize_domain(raw: str) -> str:
+    """A bare lower-case hostname ("example.com") from whatever was typed.
+
+    Accepts a pasted address (https://Example.com/path) and strips scheme,
+    path and port; refuses IPs, single-label names and anything that is not a
+    plain public hostname, so a typo cannot point the whole site somewhere odd.
+    """
+
+    text = (raw or "").strip().lower()
+    text = re.sub(r"^[a-z][a-z0-9+.-]*://", "", text)
+    text = text.split("/", 1)[0].split("?", 1)[0].split("#", 1)[0]
+    text = text.rsplit("@", 1)[-1].split(":", 1)[0].strip(".")
+    if not _HOSTNAME.match(text) or re.match(r"^\d+(\.\d+){3}$", text):
+        raise VaultError("Enter a domain name such as example.com (no IP address, port or path).")
+    if text.endswith((".local", ".localhost", ".internal", ".test", ".invalid", ".example")):
+        raise VaultError("That is not a public domain name.")
+    return text
 
 
 def mask(value: Optional[str], *, secret: bool) -> Optional[str]:
@@ -153,6 +181,25 @@ def _settings_obj():
     return get_settings()
 
 
+def _coerce(annotation, value: str):
+    """Typed value for a Settings field; JSON text becomes a list when the field is one."""
+
+    text = value.strip()
+    if text.startswith("["):
+        try:
+            return TypeAdapter(annotation).validate_python(json.loads(text))
+        except (ValueError, ValidationError):
+            pass
+    try:
+        return TypeAdapter(annotation).validate_python(value)
+    except ValidationError:
+        if "list" in str(annotation).lower():
+            return TypeAdapter(annotation).validate_python(
+                [p.strip() for p in text.split(",") if p.strip()]
+            )
+        raise
+
+
 def _set_setting(key: str, value: Optional[str]) -> None:
     settings = _settings_obj()
     field_name = key.lower()
@@ -165,7 +212,7 @@ def _set_setting(key: str, value: Optional[str]) -> None:
         coerced = None
     else:
         try:
-            coerced = TypeAdapter(field.annotation).validate_python(value)
+            coerced = _coerce(field.annotation, value)
         except ValidationError:
             logger.warning("vault_value_type_mismatch", key=key)
             return
@@ -177,7 +224,7 @@ def _restore_setting_from_env(settings, key: str, field, original: Optional[str]
         value = field.get_default(call_default_factory=True)
     else:
         try:
-            value = TypeAdapter(field.annotation).validate_python(original)
+            value = _coerce(field.annotation, original)
         except ValidationError:
             return
     setattr(settings, key.lower(), value)
@@ -257,7 +304,7 @@ def load_values(db: Session) -> Dict[str, str]:
             logger.error("vault_secret_undecryptable", key=row.key)
             continue
         values[row.key] = plaintext
-    return values
+    return with_domain(values)  # SITE_DOMAIN fills in the site's addresses
 
 
 def refresh(db: Session, *, force: bool = False) -> None:
@@ -342,9 +389,26 @@ def current_value(db: Session, key: str) -> Optional[str]:
     return env_value(key)
 
 
+def domain_status(db: Session) -> dict[str, Any]:
+    """Current site domain and the addresses it produces (for the domain card)."""
+
+    from ..vault_keys import derived_from_domain
+
+    stored = current_value(db, "SITE_DOMAIN")
+    env_url = env_value("FRONTEND_URL")
+    return {
+        "domain": stored,
+        "source": "vault" if stored else ("env" if env_url else "unset"),
+        "env_frontend_url": env_url,
+        "effective_frontend_url": os.environ.get("FRONTEND_URL") or env_url,
+        "derived": derived_from_domain(stored) if stored else {},
+    }
+
+
 def listing(db: Session) -> list[dict[str, Any]]:
     rows = {row.key: row for row in db.query(VaultSecret).all()}
     cipher = _cipher() if rows else None
+    domain_set = "SITE_DOMAIN" in rows
     entries = []
     for spec in _SPECS:
         row = rows.get(spec.key)
@@ -354,6 +418,8 @@ def listing(db: Session) -> list[dict[str, Any]]:
         else:
             value = env_value(spec.key)
             source = "env" if value else "unset"
+            if domain_set and spec.key in DOMAIN_DERIVED_KEYS:
+                source = "domain"  # filled in from the website domain
         entries.append(
             {
                 "key": spec.key,

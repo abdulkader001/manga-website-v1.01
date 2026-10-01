@@ -17,7 +17,7 @@ from backend_fastapi.app.core.settings import get_settings
 
 # Outermost first. Keep in sync with the docstring of configure_middleware.
 EXPECTED_ORDER = [
-    "CORSMiddleware",
+    "LiveCORSMiddleware",  # CORSMiddleware that follows the vault domain live
     "SecurityHeadersMiddleware",
     "PrometheusMiddleware",
     "ForwardedHeadersMiddleware",
@@ -76,7 +76,7 @@ def test_cors_is_outermost(fastapi_app):
     network error instead of the real status.
     """
 
-    assert _stack(fastapi_app)[0] == "CORSMiddleware"
+    assert _stack(fastapi_app)[0] == "LiveCORSMiddleware"
 
     stack = _stack(fastapi_app)
     for short_circuiting in (
@@ -84,7 +84,7 @@ def test_cors_is_outermost(fastapi_app):
         "BackpressureMiddleware",
         "TimeoutMiddleware",
     ):
-        assert stack.index("CORSMiddleware") < stack.index(short_circuiting)
+        assert stack.index("LiveCORSMiddleware") < stack.index(short_circuiting)
 
 
 def test_rate_limited_response_carries_cors_headers():

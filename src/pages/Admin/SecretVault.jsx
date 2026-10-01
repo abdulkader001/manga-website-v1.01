@@ -10,6 +10,7 @@ import { CodeForm } from "../../components/AdminSecondFactor";
 const SOURCE_BADGE = {
   vault: { label: "Vault", cls: "bg-[#00AEF0]/15 text-[#00AEF0] border-[#00AEF0]/40" },
   env: { label: ".env", cls: "bg-amber-500/10 text-amber-300 border-amber-500/30" },
+  domain: { label: "From domain", cls: "bg-emerald-500/10 text-emerald-300 border-emerald-500/30" },
   unset: { label: "Not set", cls: "bg-[#262a33] text-[#8b93a3] border-[#262a33]" },
 };
 
@@ -172,6 +173,193 @@ function Entry({ entry, unlocked, onChanged, onLocked }) {
   );
 }
 
+// Moving the site to a new domain (e.g. after a takedown): one value,
+// SITE_DOMAIN, rewrites the site address, CORS origins and the sign-in
+// callback addresses. Check first, then switch; removing it reverts to .env.
+function DomainCard({ unlocked, onLocked, onSwitched }) {
+  const [status, setStatus] = useState(null);
+  const [input, setInput] = useState("");
+  const [check, setCheck] = useState(null);
+  const [force, setForce] = useState(false);
+  const [busy, setBusy] = useState("");
+  const [error, setError] = useState("");
+
+  const loadStatus = useCallback(async () => {
+    try {
+      setStatus(await api.get("/admin/vault/domain"));
+    } catch (e) {
+      setError(e.message);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadStatus();
+  }, [loadStatus]);
+
+  const run = async (label, fn) => {
+    setBusy(label);
+    setError("");
+    try {
+      await fn();
+    } catch (e) {
+      if (e.body?.error?.details?.reason === "vault_locked") onLocked();
+      setError(e.message);
+    } finally {
+      setBusy("");
+    }
+  };
+
+  const runCheck = () =>
+    run("check", async () => {
+      setCheck(null);
+      setForce(false);
+      setCheck(await api.post("/admin/vault/domain/check", { domain: input }));
+    });
+
+  const ready = check && check.is_this_site && check.domain;
+  const canSwitch = unlocked && check?.domain && (ready || force);
+
+  const switchDomain = () => {
+    if (!window.confirm(`Move the site to https://${check.domain}? Sign-in links and callbacks will use the new address right away.`)) return;
+    run("switch", async () => {
+      await api.put("/admin/vault/SITE_DOMAIN", { value: check.domain });
+      setInput("");
+      setCheck(null);
+      setForce(false);
+      await loadStatus();
+      onSwitched();
+    });
+  };
+
+  const revert = () => {
+    if (!window.confirm("Go back to the address in .env (FRONTEND_URL)?")) return;
+    run("revert", async () => {
+      await api.del("/admin/vault/SITE_DOMAIN");
+      await loadStatus();
+      onSwitched();
+    });
+  };
+
+  const derived = status?.derived || {};
+
+  return (
+    <section className="p-4 rounded-2xl bg-[#15171c] border border-[#00AEF0]/40 space-y-3 text-xs">
+      <div>
+        <h2 className="text-sm font-bold text-white flex items-center gap-2">
+          <i className="fas fa-globe text-[#00AEF0]"></i>
+          Website domain
+        </h2>
+        <p className="text-[#8b93a3] mt-1">
+          If the domain is taken down: point a new domain at this server, check it here, then switch. The
+          site address, allowed origins and the Google, Microsoft and magic-link return addresses all
+          follow. Step-by-step: GUIDE.md, &quot;If your domain is taken down&quot;.
+        </p>
+      </div>
+
+      {status && (
+        <div className="rounded-lg bg-[#0b0d10] border border-[#262a33] p-3 space-y-1">
+          <div>
+            Now serving:{" "}
+            <span className="font-mono text-white">{status.effective_frontend_url || "not set"}</span>{" "}
+            <span className="text-[#8b93a3]">
+              ({status.source === "vault" ? "set here" : status.source === "env" ? "from .env" : "not set"})
+            </span>
+          </div>
+          {status.domain && (
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-[#8b93a3]">
+                .env address: <span className="font-mono">{status.env_frontend_url || "none"}</span>
+              </span>
+              {unlocked && (
+                <button
+                  type="button"
+                  onClick={revert}
+                  disabled={Boolean(busy)}
+                  className="px-2 py-1 rounded border border-[#262a33] text-gray-300 hover:text-white disabled:opacity-50"
+                >
+                  {busy === "revert" ? "Reverting…" : "Go back to .env address"}
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      <div className="flex gap-2 flex-wrap">
+        <input
+          className={`${inputCls} flex-1 min-w-[12rem]`}
+          placeholder="new-domain.com"
+          value={input}
+          onChange={(e) => {
+            setInput(e.target.value);
+            setCheck(null);
+          }}
+          onKeyDown={(e) => e.key === "Enter" && input.trim() && runCheck()}
+        />
+        <button
+          type="button"
+          onClick={runCheck}
+          disabled={!input.trim() || Boolean(busy)}
+          className="px-3 py-2 rounded-lg font-bold border border-[#262a33] text-gray-200 hover:border-[#00AEF0] disabled:opacity-50"
+        >
+          {busy === "check" ? "Checking…" : "1. Check"}
+        </button>
+        <button
+          type="button"
+          onClick={switchDomain}
+          disabled={!canSwitch || Boolean(busy)}
+          title={unlocked ? "" : "Unlock the vault first"}
+          className="px-3 py-2 rounded-lg font-bold bg-[#00AEF0] text-white disabled:opacity-40"
+        >
+          {busy === "switch" ? "Switching…" : "2. Switch to this domain"}
+        </button>
+      </div>
+
+      {check && (
+        <div className="rounded-lg bg-[#0b0d10] border border-[#262a33] p-3 space-y-1">
+          <div className="font-mono text-white">{check.domain}</div>
+          <ul className="space-y-0.5">
+            {[
+              ["DNS points somewhere", check.resolves],
+              ["HTTPS answers", check.https],
+              ["It is this site", check.is_this_site],
+            ].map(([label, ok]) => (
+              <li key={label} className={ok ? "text-emerald-400" : "text-amber-300"}>
+                <i className={`fas ${ok ? "fa-check" : "fa-xmark"} w-4`}></i> {label}
+              </li>
+            ))}
+          </ul>
+          {check.detail && <p className="text-[#8b93a3]">{check.detail}</p>}
+          {!ready && (
+            <label className="flex items-center gap-2 text-amber-300">
+              <input type="checkbox" checked={force} onChange={(e) => setForce(e.target.checked)} />
+              Switch anyway (I&apos;m setting up DNS/HTTPS right now)
+            </label>
+          )}
+        </div>
+      )}
+
+      {!unlocked && <p className="text-[#8b93a3]">Unlock the vault above to switch.</p>}
+      {error && <p className="text-red-400">{error}</p>}
+
+      {status?.domain && Object.keys(derived).length > 0 && (
+        <details className="text-[#8b93a3]">
+          <summary className="cursor-pointer">
+            After switching: add these return addresses in the Google and Microsoft consoles
+          </summary>
+          <ul className="mt-2 space-y-1 font-mono break-all">
+            {Object.entries(derived).map(([key, value]) => (
+              <li key={key}>
+                <span className="text-gray-400">{key}</span> = <span className="text-white">{value}</span>
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
+    </section>
+  );
+}
+
 export default function SecretVault() {
   const [data, setData] = useState(null);
   const [loadError, setLoadError] = useState(null);
@@ -247,8 +435,9 @@ export default function SecretVault() {
           <span className="font-mono">.env</span>, and removing it falls back to{" "}
           <span className="font-mono">.env</span>. Settings marked <b>Restart</b> apply after the next{" "}
           <span className="font-mono">docker compose restart</span>. Only the main admin can open this
-          page; it cannot be granted to anyone else. The database and Redis connection, the site address,
-          signing keys and the admin identity stay in <span className="font-mono">.env</span> on purpose.
+          page; it cannot be granted to anyone else. The database and Redis connection, signing keys and the
+          admin identity stay in <span className="font-mono">.env</span> on purpose; the site address
+          starts there and can be moved with the Website domain card below.
         </p>
       </div>
 
@@ -295,6 +484,8 @@ export default function SecretVault() {
               </div>
             )}
           </div>
+
+          <DomainCard unlocked={data.unlocked} onLocked={onLocked} onSwitched={load} />
 
           {groups.map(([group, entries]) => (
             <section key={group} className="space-y-2">

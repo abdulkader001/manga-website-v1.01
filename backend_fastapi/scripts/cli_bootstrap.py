@@ -116,5 +116,79 @@ def promote_user(
         click.echo("User promoted to admin.")
 
 
+@cli.command("login-link")
+@click.option("--email", type=str, required=True, help="Account to sign in as")
+def login_link(email: str) -> None:
+    """Print a one-time sign-in link, without sending any e-mail.
+
+    For the admin when Google/Microsoft sign-in or e-mail delivery is not set
+    up (or broken). Running it needs a shell on the server, which is the proof
+    of ownership. The link is single-use and expires like a normal magic link.
+    """
+
+    from backend_fastapi.app.core.settings import get_settings
+    from backend_fastapi.app.services.auth_service import (
+        create_magic_login_token,
+        ensure_magic_link_user,
+    )
+
+    normalized = normalize_email(email)
+    if not normalized or "@" not in normalized:
+        raise click.ClickException("Give a valid e-mail address")
+    base = (get_settings().frontend_url or "").rstrip("/")
+    with session_scope() as session:
+        user = ensure_magic_link_user(session, normalized)
+        record, token = create_magic_login_token(session, user)
+        expires = record.expires_at
+    click.echo("One-time sign-in link (open it in your browser):")
+    click.echo(f"{base}/magic-link/{token}" if base else f"/magic-link/{token}")
+    click.echo(f"Valid until {expires:%Y-%m-%d %H:%M} UTC, single use.")
+
+
+def _phc(value: str) -> str:
+    import os
+
+    from cryptography.hazmat.primitives.kdf.argon2 import Argon2id
+
+    kdf = Argon2id(salt=os.urandom(16), length=32, iterations=3, lanes=4, memory_cost=65536)
+    return kdf.derive_phc_encoded(value.encode("utf-8"))
+
+
+@cli.command("admin-hashes")
+@click.option("--email", type=str, prompt="Admin e-mail")
+@click.option(
+    "--password",
+    type=str,
+    prompt="Admin password (12+ characters)",
+    hide_input=True,
+    confirmation_prompt=True,
+)
+def admin_hashes(email: str, password: str) -> None:
+    """Print the two .env lines that set up Admin sign-in (/admin-login)."""
+
+    normalized = normalize_email(email)
+    if not normalized or "@" not in normalized:
+        raise click.ClickException("Give a valid e-mail address")
+    if len(password) < 12:
+        raise click.ClickException("Use at least 12 characters (a few words is easiest)")
+    click.echo("Add these two lines to .env (keep the single quotes), then restart:")
+    click.echo(f"MAIN_ADMIN_EMAIL_HASH='{_phc(normalized)}'")
+    click.echo(f"MAIN_ADMIN_PASSWORD_HASH='{_phc(password)}'")
+
+
+@cli.command("reset-2fa")
+@click.option("--email", type=str, required=True, help="Admin whose authenticator was lost")
+def reset_2fa(email: str) -> None:
+    """Remove an account's authenticator (lost phone). The next admin sign-in
+    enrols a new one."""
+
+    from backend_fastapi.app.services import admin_second_factor
+
+    with session_scope() as session:
+        user = _resolve_user(session, user_id=None, email=email)
+        admin_second_factor.disable(session, user)
+    click.echo("Authenticator removed. Sign in at /admin-login to set up a new one.")
+
+
 if __name__ == "__main__":
     cli()

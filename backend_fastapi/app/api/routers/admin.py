@@ -1600,6 +1600,44 @@ def update_session_policy(
 
 
 # --------------------------------------------------------------------------
+# Sign-in required (members-only site) — main admin only, never delegable
+# --------------------------------------------------------------------------
+
+
+class SiteAccessPayload(BaseModel):
+    login_required: bool
+
+
+@router.get("/config/access")
+def get_site_access(
+    db: Session = Depends(get_db),
+    _: User = Depends(require_main_admin_user),
+) -> Dict[str, Any]:
+    row = get_or_create_system_settings(db)
+    return {"login_required": bool(getattr(row, "login_required", False))}
+
+
+@router.put("/config/access")
+def update_site_access(
+    payload: SiteAccessPayload,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_main_admin_user),
+) -> Dict[str, Any]:
+    """Turn "readers must sign in" on or off. Sign-in pages and admin routes
+    are never gated, so turning it on can't lock the admin out."""
+
+    row = get_or_create_system_settings(db)
+    row.login_required = bool(payload.login_required)
+    db.commit()
+    log_admin_action(
+        db, request, current_user, "SITE_LOGIN_REQUIRED", "settings",
+        "on" if row.login_required else "off", "success",
+    )
+    return {"login_required": bool(row.login_required)}
+
+
+# --------------------------------------------------------------------------
 # Granular permission overrides (SRS 1F.6–1F.10) — Permanent Administrator only
 # --------------------------------------------------------------------------
 

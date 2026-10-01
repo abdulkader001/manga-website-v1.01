@@ -241,6 +241,44 @@ def hash_email(value: str | None) -> str | None:
     return kdf.derive_phc_encoded(normalized.encode("utf-8"))
 
 
+# Providers that deliver every spelling below to the same inbox. Gmail ignores
+# dots in the name and treats googlemail.com as gmail.com.
+_GMAIL_DOMAINS = {"gmail.com", "googlemail.com"}
+
+
+def canonical_email(value: str | None) -> str | None:
+    """The mailbox an address really reaches, for "one inbox, one account".
+
+    ``John.Doe+manga@googlemail.com`` -> ``johndoe@gmail.com``. A ``+tag`` is
+    dropped for every domain (Gmail, Outlook, iCloud, Proton, Fastmail ... all
+    deliver it to the same inbox); dots are dropped for Gmail only, because
+    elsewhere ``j.doe`` and ``jdoe`` can be two different people.
+    """
+
+    normalized = normalize_email(value)
+    if not normalized or normalized.count("@") != 1:
+        return normalized
+    local, domain = normalized.split("@")
+    local = local.split("+", 1)[0]
+    if domain in _GMAIL_DOMAINS:
+        domain = "gmail.com"
+        local = local.replace(".", "")
+    if not local:
+        return normalized
+    return f"{local}@{domain}"
+
+
+def email_identity(value: str | None) -> str | None:
+    """Deterministic HMAC of :func:`canonical_email`: the unique key that
+    stops one inbox from owning more than one account."""
+
+    canonical = canonical_email(value)
+    if canonical is None:
+        return None
+    secret = _load_hash_secret()
+    return hmac.new(secret, b"identity:" + canonical.encode("utf-8"), hashlib.sha256).hexdigest()
+
+
 def email_lookup(value: str | None) -> str | None:
     """Return a deterministic, indexable HMAC-SHA256 lookup value for ``value``.
 

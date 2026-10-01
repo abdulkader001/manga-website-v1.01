@@ -278,6 +278,7 @@ const api = {
   // ---- Configuration ----
   config: {
     providers: () => api.get("/config/providers"),
+    siteAccess: () => api.get("/config/site-access"),
   },
 
   // ---- Authentication ----
@@ -301,7 +302,6 @@ const api = {
       }
     },
     options: () => api.get("/auth/options"),
-    loginPassword: (email, password) => api.post("/auth/login-password", { email, password }),
     checkUsername: (username) =>
       api.get("/auth/check-username", { params: { username } }),
     completeProfile: (payload) => api.post("/auth/complete-profile", payload),
@@ -400,6 +400,9 @@ const api = {
       return request("/branding/logo", { method: "POST", body: form });
     },
   },
+  support: {
+    get: () => api.get("/support"),
+  },
   footer: {
     get: () => api.get("/footer"),
     update: (payload) => api.post("/footer", payload),
@@ -472,6 +475,17 @@ const api = {
       clearCache: () => api.post("/admin/settings/clear-cache"),
       deleteAllManga: () => api.post("/admin/maintenance/delete-all-manga"),
       purgeAllImages: () => api.post("/admin/maintenance/purge-all-images"),
+    },
+    // Main admin only: donation / support links.
+    support: {
+      get: () => api.get("/admin/support"),
+      update: (links) => api.put("/admin/support", { links }),
+    },
+    // Main admin only: "readers must sign in" switch.
+    siteAccess: {
+      get: () => api.get("/admin/config/access"),
+      update: (loginRequired) =>
+        api.put("/admin/config/access", { login_required: Boolean(loginRequired) }),
     },
     apiRegistry: {
       get: () => api.get("/admin/api-registry"),

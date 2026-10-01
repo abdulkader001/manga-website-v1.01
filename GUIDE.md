@@ -376,41 +376,69 @@ Celery worker reliably.
 
 ---
 
-## 6. Create the first admin account
+## 6. Create the first admin account (Admin sign-in)
 
-Nobody is admin on a fresh install. Do this once:
+Nobody is admin on a fresh install, and on day one Google / Microsoft sign-in
+and e-mail aren't set up yet (their keys live in the Secret Vault, which only
+the admin can open). So the owner signs in a different way, with three things
+a thief who took your Gmail does **not** have:
 
-1. Make sure `ADMIN_PROMOTION_SECRET` is set in `.env` (Section 3.2).
-2. Open the website and **sign up / log in** with the e-mail you want as admin
-   (with `EMAIL_BACKEND=console`, read the link from
-   `docker compose logs celery_worker_email`).
-3. Generate a one-time promotion token:
+1. **your e-mail**, matched against `MAIN_ADMIN_EMAIL_HASH` in `.env`;
+2. **a one-time admin password**, matched against `MAIN_ADMIN_PASSWORD_HASH`
+   in `.env` (only a hash is stored). It works **once**: after it signs you in,
+   it is void, even if someone later reads it from your notes;
+3. **a 6-digit code from an authenticator app on your phone** (Google
+   Authenticator, Aegis, 1Password…).
+
+Set it up once:
+
+1. On the server, create the two `.env` lines (it asks for your e-mail and a
+   password of 12+ characters, typed twice):
 
    ```bash
-   docker compose exec backend python -m backend_fastapi.scripts.cli_bootstrap \
-     issue-admin-token --email you@example.com
+   docker compose exec backend python -m backend_fastapi.scripts.cli_bootstrap admin-hashes
    ```
 
-   It prints a token (valid 30 min by default).
-4. Redeem it:
+2. Paste the two printed lines into `.env` **with the single quotes**, then
+   `docker compose up -d --force-recreate`.
+3. Open **`https://your-site/admin-login`** (also linked as "Site owner? Admin
+   sign-in" under the normal login form). Enter the e-mail and password.
+4. The first time, it shows a setup key: add it to your authenticator app and
+   type the 6-digit code. You are signed in as the main admin and land on
+   `/admin`.
+5. The password is now used up. Set up Google / Microsoft / e-mail in the
+   Secret Vault (6.1) and from then on sign in normally; every admin page asks
+   for the code from your authenticator app.
 
-   ```bash
-   docker compose exec backend python -m backend_fastapi.scripts.cli_bootstrap \
-     promote-user --token <TOKEN> --email you@example.com
-   ```
+**Why a stolen Gmail isn't enough:** someone who gets into your Gmail can at
+most sign in as a normal reader with Google or a magic link. Every admin page,
+Admin Settings and the Secret Vault still ask for the authenticator code, and
+the authenticator can't be replaced or removed from the website, only through
+Admin sign-in (which needs the password) or on the server.
 
-5. Log out and in again. The admin menu now appears.
-6. Afterwards: empty `ADMIN_PROMOTION_SECRET` (or rotate it), keep
-   `MAIN_ADMIN_AUTO_PROMOTE_ENABLED=false`, then enroll 2-step login at
-   `/admin/security` and set `ADMIN_2FA_REQUIRED=true`.
+**Locked out** (Google/e-mail broken, or a new phone)? Make a new one-time
+password on the server: run `admin-hashes` again, replace the
+`MAIN_ADMIN_PASSWORD_HASH` line in `.env`, recreate the containers, and sign in
+at `/admin-login`. A new hash works once again.
+**Lost your phone as well?** First run
+`docker compose exec backend python -m backend_fastapi.scripts.cli_bootstrap reset-2fa --email you@example.com`;
+the next `/admin-login` sets up a new authenticator.
+
+Other server-side tools (only needed in special cases):
+
+- `cli_bootstrap login-link --email …` prints a one-time sign-in link without
+  sending an e-mail (a normal session, not admin access on its own).
+- `cli_bootstrap issue-admin-token` / `promote-user` is the older promotion
+  path; Admin sign-in replaces it.
+
+Keep `MAIN_ADMIN_AUTO_PROMOTE_ENABLED=false`.
 
 (Non-Docker: same commands without `docker compose exec backend`, venv active.)
 
 ### 6.1 Move the remaining settings into the Secret Vault
 
-1. As the admin, open **`/admin/security`** and enrol an authenticator app
-   (Google Authenticator, Aegis, 1Password …). The vault refuses to open
-   without it.
+1. Sign in through Admin sign-in (Section 6); that also set up your
+   authenticator, which the vault requires.
 2. Open **Admin → Secret Vault**, enter a 6-digit code to unlock it (10
    minutes), and set what you need — at minimum:
    - **Translation & OCR → Server OCR enabled = true** (then restart, 4.1);
@@ -419,6 +447,21 @@ Nobody is admin on a fresh install. Do this once:
 3. Once a value is in the vault you can delete that line from `.env`. Keep
    `.env` itself (and a private backup of it): without `INTEGRATIONS_SECRET`
    the vault cannot be decrypted.
+
+### 6.2 Make sign-in mandatory (or not)
+
+**Admin → Admin Settings → "Sign-in required"** (main admin only; it can't
+be granted to a sub-admin).
+
+- **On:** visitors must sign in before they can browse or read. The server
+  refuses catalogue, reader and community requests from guests too, not just
+  the pages.
+- **Off:** anyone can read; signing in is only needed for bookmarks sync,
+  translation, comments and settings.
+
+The sign-in page, sign-up, Admin sign-in (`/admin-login`), the admin area
+and the server commands (Section 6) are never behind this switch, so turning
+it on can't lock you out. It starts **off**.
 
 ---
 
@@ -513,6 +556,56 @@ docker compose build --pull
 docker compose up -d --force-recreate   # migrations run automatically first
 docker compose exec backend tesseract --list-langs
 ```
+
+### 8.1 If your domain is taken down: move to a new one
+
+The site address, allowed origins and the Google / Microsoft / magic-link
+return addresses all come from one value, **Website domain**, in the Secret
+Vault. The data, accounts and settings stay as they are.
+
+1. **Buy/pick the new domain** and at its registrar create an `A` record
+   `new-domain.com → <server IP>` (and `www` too if you want it). With
+   Cloudflare, add the site there and point the record at the server.
+2. **HTTPS for the new name** on the server:
+   - Caddy (Section 8 step 6): add the name to the Caddyfile and reload. It
+     fetches the certificate by itself:
+
+     ```bash
+     sudo sed -i 's/^manga.example.com {/manga.example.com, new-domain.com, www.new-domain.com {/' /etc/caddy/Caddyfile
+     sudo systemctl reload caddy
+     ```
+
+   - nginx + certbot: add the name to both `server_name` lines in
+     `/etc/nginx/sites-available/manga-site.conf`, then
+     `sudo certbot --nginx -d new-domain.com -d www.new-domain.com` and
+     `sudo systemctl reload nginx`.
+   - The Docker `web` container uses `server_name _;` and needs no change.
+3. **Switch** (a few clicks): Admin → Secret Vault → unlock with your
+   authenticator code → **Website domain** card → type `new-domain.com` →
+   **1. Check**. When all three ticks are green (DNS, HTTPS, "it is this
+   site"), click **2. Switch to this domain**. It applies within seconds,
+   with no restart: links in e-mails, sign-in callbacks and CORS use the new
+   address. (DNS still propagating? Tick "Switch anyway".)
+4. **Sign-in providers:** the card lists the new return addresses. Add them
+   in the Google Cloud console (OAuth client → Authorized redirect URIs) and
+   in Azure (App registration → Authentication). Until you do, Google /
+   Microsoft sign-in fails on the new domain; magic links work right away.
+5. Tell your readers (announcement, social links in the footer).
+
+**Can't reach the admin page at all?** Do the switch from the server:
+
+```bash
+docker compose exec backend python -m backend_fastapi.scripts.set_site_domain new-domain.com
+# undo / go back to FRONTEND_URL from .env:
+docker compose exec backend python -m backend_fastapi.scripts.set_site_domain --clear
+```
+
+and sign in at `/admin-login` on the new domain (Section 6). A value you set
+explicitly in the vault for one of the derived keys (e.g. `FRONTEND_URL`)
+wins over the domain; remove it if the switch seems to have no effect. If a
+bad vault value ever stops the site from starting, set
+`VAULT_PRELOAD_DISABLED=true` in `.env`, restart, fix it in the vault, and
+remove the flag again.
 
 ---
 

@@ -65,14 +65,17 @@ def enrich(db: Session, items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
 
     chapter_stats = {}
     first_numbers = {}
-    for manga_id, count, latest, first in db.query(
+    newest_added = {}
+    for manga_id, count, latest, first, added in db.query(
         Chapter.manga_id,
         func.count(Chapter.id),
         func.max(Chapter.chapter_number),
         func.min(Chapter.chapter_number),
+        func.max(Chapter.created_at),
     ).filter(Chapter.manga_id.in_(ids)).group_by(Chapter.manga_id):
         chapter_stats[manga_id] = (int(count or 0), latest)
         first_numbers[manga_id] = first
+        newest_added[manga_id] = added
 
     # Ids of the first and newest chapter, so "Read now" / "latest chapter"
     # links open a real chapter. Only those two rows per series are fetched.
@@ -117,6 +120,11 @@ def enrich(db: Session, items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         item["last_chapter_title"] = (
             f"Chapter {latest_number}" if latest_number is not None else None
         )
+        # When the newest chapter arrived on this site (UTC, "Z"-suffixed so
+        # every browser reads it the same way): drives "3h ago" on update cards.
+        added = newest_added.get(manga_id)
+        if isinstance(added, datetime):
+            item["last_chapter_at"] = _utc_iso(added)
         views = period_views.get(manga_id, {"d": 0, "w": 0, "m": 0})
         item["daily_views"] = views["d"]
         item["weekly_views"] = views["w"]
@@ -172,6 +180,16 @@ def build_detail_payload(db: Session, manga_id: int) -> Optional[Dict[str, Any]]
     return enrich(db, [manga.to_dict()])[0]
 
 
+def _utc_iso(value: Optional[datetime]) -> Optional[str]:
+    """Stored times are naive UTC; mark them as such for the browser."""
+
+    if value is None:
+        return None
+    if value.tzinfo is not None:
+        return value.isoformat()
+    return value.replace(microsecond=0).isoformat() + "Z"
+
+
 def build_chapter_list_payload(
     db: Session, manga_id: int, order: str
 ) -> Optional[List[Dict[str, Any]]]:
@@ -203,8 +221,8 @@ def build_chapter_list_payload(
                 "chapter_number": number,
                 "title": chapter.chapter_title or f"Chapter {number}",
                 "url": chapter.chapter_url,
-                "created_at": released.isoformat() if released else None,
-                "release_date": released.isoformat() if released else None,
+                "created_at": _utc_iso(released),
+                "release_date": _utc_iso(released),
                 "views": int(chapter.views or 0),
                 "likes": int(likes.get(chapter.id, 0)),
                 "page_count": len(chapter.pages or []),

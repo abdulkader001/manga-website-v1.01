@@ -97,6 +97,11 @@ class Settings(BaseSettings):
     # first-time bootstrap, then turned off again.
     main_admin_email_hash: str | None = None
     main_admin_auto_promote_enabled: bool = False
+    # Admin sign-in (/admin-login): Argon2id hash of the main admin's password.
+    # With it set, the main admin signs in with email + this password + an
+    # authenticator code -- no Google, Microsoft or e-mail involved -- and a
+    # stolen inbox or Google account alone can never open admin features.
+    main_admin_password_hash: str | None = None
     # Roadmap item 15: main admins must enrol a second factor (TOTP) before
     # they can use admin routes. Off by default so nobody is locked out.
     admin_2fa_required: bool = False

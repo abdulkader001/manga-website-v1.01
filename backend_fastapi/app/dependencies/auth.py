@@ -220,7 +220,9 @@ def enforce_admin_second_factor(request: Request, user: User) -> None:
             )
         return
 
-    if settings.admin_2fa_required and is_main_admin(user):
+    from ..core.admin_identity import admin_password_configured
+
+    if (settings.admin_2fa_required or admin_password_configured()) and is_main_admin(user):
         raise ApiError(
             ErrorCode.REVERIFICATION_REQUIRED,
             "Set up your authenticator app before using admin features.",

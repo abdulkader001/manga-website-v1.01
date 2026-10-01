@@ -10,6 +10,7 @@ import BookmarkHistoryTab from "./components/BookmarkHistoryTab";
 import MangaDetail from "./components/MangaDetail";
 import Login from "./components/Login";
 import MagicLinkConsume from "./pages/MagicLinkConsume";
+import AdminLogin from "./pages/AdminLogin";
 import CompleteProfile from "./pages/CompleteProfile";
 import UserSettings from "./pages/UserSettings";
 import NotificationsPage from "./pages/NotificationsPage";
@@ -44,6 +45,7 @@ function AppShell({ children }) {
   const location = useLocation();
   const isAuthRoute =
     location.pathname === "/login" ||
+    location.pathname === "/admin-login" ||
     location.pathname === "/complete-profile" ||
     location.pathname.startsWith("/magic-link") ||
     location.pathname.startsWith("/login/magic");
@@ -76,14 +78,17 @@ function AppRoutes() {
     <Routes>
       {/* Auth Entry & Onboarding Routes */}
       <Route path="/login" element={<Login />} />
+      <Route path="/admin-login" element={<AdminLogin />} />
       <Route path="/magic-link/:token" element={<MagicLinkConsume />} />
       <Route path="/login/magic/:token" element={<MagicLinkConsume />} />
       <Route path="/complete-profile" element={<CompleteProfile />} />
 
-      {/* Mandatory Protected Content: All pages require verified login & profile */}
+      {/* Reading pages: open to guests unless the main admin turned on
+          "Sign-in required" in Admin Settings. Signed-in users still have to
+          finish their profile. */}
       <Route
         element={
-          <AuthGuard>
+          <AuthGuard followSiteSetting>
             <Outlet />
           </AuthGuard>
         }
@@ -93,8 +98,22 @@ function AppRoutes() {
         <Route path="/reader/:mangaId/:chapterId" element={<ChapterViewer />} />
         <Route path="/manga/:mangaId" element={<MangaDetail />} />
         <Route path="/bookmarks" element={<BookmarkHistoryTab />} />
-        <Route path="/settings" element={<UserSettings />} />
-        <Route path="/notifications" element={<NotificationsPage />} />
+        <Route
+          path="/settings"
+          element={
+            <AuthGuard>
+              <UserSettings />
+            </AuthGuard>
+          }
+        />
+        <Route
+          path="/notifications"
+          element={
+            <AuthGuard>
+              <NotificationsPage />
+            </AuthGuard>
+          }
+        />
 
         {/* Admin Section: Instant render without chunk latency */}
         <Route

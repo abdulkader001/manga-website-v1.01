@@ -26,6 +26,7 @@ from ..utils.email_crypto import (
     can_decrypt_emails,
     decrypt_email,
     decrypt_secret,
+    email_identity,
     email_lookup,
     encrypt_email,
     encrypt_secret,
@@ -63,6 +64,10 @@ class User(Base):
     email_hash = Column(String(128), unique=True, nullable=False, index=True)
     # C2: fast, deterministic HMAC lookup value for indexed login-by-email.
     email_lookup_hash = Column(String(64), unique=True, nullable=True, index=True)
+    # One inbox, one account, for life: HMAC of the canonical mailbox
+    # (gmail dots, googlemail.com and +tags folded). The unique constraint is
+    # the hard guardrail; the address itself can never be changed.
+    email_identity_hash = Column(String(64), unique=True, nullable=True, index=True)
     role = Column(
         Enum(UserRole, name="user_roles"), default=UserRole.USER, nullable=False
     )
@@ -272,12 +277,17 @@ class User(Base):
         normalized = normalize_email(value)
         if normalized is None:
             raise ValueError("email is required")
+        identity = email_identity(normalized)
+        # Saved for life: an account's inbox can never be swapped for another.
+        if self.email_identity_hash and self.email_identity_hash != identity:
+            raise ValueError("an account's email address cannot be changed")
         self.email_encrypted = encrypt_email(normalized) or normalized
         hashed = hash_email(normalized)
         if hashed is None:
             raise ValueError("email hashing failed")
         self.email_hash = hashed
         self.email_lookup_hash = email_lookup(normalized)
+        self.email_identity_hash = identity
 
     @property
     def email_plaintext(self) -> str | None:

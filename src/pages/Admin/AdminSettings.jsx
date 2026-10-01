@@ -2,6 +2,75 @@ import React, { useEffect, useState } from "react";
 import { Link } from "react-router";
 import api from "../../services/api";
 import FooterEditor from "../../components/FooterEditor";
+import DonationEditor from "../../components/DonationEditor";
+
+function SiteAccessCard() {
+  const [loginRequired, setLoginRequired] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    api.admin.siteAccess
+      .get()
+      .then((data) => setLoginRequired(Boolean(data?.login_required)))
+      .catch(() => setError("Couldn't load this setting."));
+  }, []);
+
+  const toggle = async () => {
+    const next = !loginRequired;
+    if (
+      next &&
+      !window.confirm(
+        "Readers will have to sign in before they can browse or read. Sign-in pages and the admin area stay open. Turn it on?"
+      )
+    ) {
+      return;
+    }
+    setBusy(true);
+    setError("");
+    try {
+      const data = await api.admin.siteAccess.update(next);
+      setLoginRequired(Boolean(data?.login_required));
+    } catch {
+      setError("Couldn't save. Only the main admin can change this.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="bg-[#15171c] border border-[#262a33] rounded-2xl p-5 shadow-xl flex flex-col sm:flex-row sm:items-center gap-4 text-xs">
+      <div className="flex-1">
+        <h2 className="text-base font-bold text-white flex items-center gap-2">
+          <i className="fas fa-user-lock text-[#00AEF0]"></i>
+          <span>Sign-in required</span>
+        </h2>
+        <p className="text-[#8b93a3] mt-1">
+          When on, visitors must sign in before they can browse or read. The sign-in page and the admin
+          area are never locked, so you can always get back in. Only the main admin can change this.
+        </p>
+        {error && <p className="text-red-400 mt-1">{error}</p>}
+      </div>
+      <button
+        type="button"
+        role="switch"
+        aria-checked={Boolean(loginRequired)}
+        aria-label="Sign-in required"
+        disabled={busy || loginRequired === null}
+        onClick={toggle}
+        className={`relative w-14 h-7 rounded-full transition flex-none disabled:opacity-50 ${
+          loginRequired ? "bg-[#00AEF0]" : "bg-[#262a33]"
+        }`}
+      >
+        <span
+          className={`absolute top-1 w-5 h-5 rounded-full bg-white transition-all ${
+            loginRequired ? "left-8" : "left-1"
+          }`}
+        />
+      </button>
+    </div>
+  );
+}
 
 export default function AdminSettings() {
   const [activeTab, setActiveTab] = useState("general"); // "general" | "footer" | "system"
@@ -194,6 +263,8 @@ export default function AdminSettings() {
         </div>
       )}
 
+      <SiteAccessCard />
+
       {/* Tabs Navigation */}
       <div className="flex items-center gap-2 border-b border-[#262a33] pb-2 text-xs font-bold overflow-x-auto">
         <button
@@ -224,6 +295,19 @@ export default function AdminSettings() {
 
         <button
           type="button"
+          onClick={() => setActiveTab("donations")}
+          className={`px-4 py-2 rounded-xl transition flex items-center gap-2 ${
+            activeTab === "donations"
+              ? "bg-[#00AEF0] text-white shadow-md"
+              : "bg-[#15171c] text-[#8b93a3] hover:text-white"
+          }`}
+        >
+          <i className="fas fa-hand-holding-heart text-xs"></i>
+          <span>Donations</span>
+        </button>
+
+        <button
+          type="button"
           onClick={() => setActiveTab("system")}
           className={`px-4 py-2 rounded-xl transition flex items-center gap-2 ${
             activeTab === "system"
@@ -235,6 +319,8 @@ export default function AdminSettings() {
           <span>Cache, Maintenance &amp; Safeguards</span>
         </button>
       </div>
+
+      {activeTab === "donations" && <DonationEditor />}
 
       {/* Tab 1: General & Reader Mode */}
       {activeTab === "general" && (

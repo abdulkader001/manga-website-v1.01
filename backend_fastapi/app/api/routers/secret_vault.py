@@ -222,4 +222,99 @@ def reveal_vault_value(
     return {"key": key, "value": value}
 
 
+def _probe_domain(domain: str) -> Dict[str, Any]:
+    """Can the world reach THIS site at ``domain``? (blocking; run in a thread)
+
+    Resolves the name and asks https://<domain>/healthz. The request goes
+    through the SSRF-safe fetcher, so a domain pointing at a private address
+    is reported, not contacted.
+    """
+
+    from ...services.pinned_fetch import get_pinned_following_redirects
+    from ...services.url_guard import validate_remote_image_url_resolved
+
+    result: Dict[str, Any] = {
+        "domain": domain,
+        "resolves": False,
+        "addresses": [],
+        "https": False,
+        "is_this_site": False,
+        "detail": "",
+    }
+    error, addresses = validate_remote_image_url_resolved(f"https://{domain}/healthz")
+    result["addresses"] = list(addresses or ())
+    if addresses:
+        result["resolves"] = True
+    if error and not addresses:
+        result["detail"] = (
+            "The name does not point anywhere yet. Create the DNS record (A/AAAA or CNAME) at your "
+            "domain registrar, then check again; it can take a few minutes."
+        )
+        return result
+    if error:
+        result["detail"] = f"Not usable: {error}"
+        return result
+    try:
+        response = get_pinned_following_redirects(
+            f"https://{domain}/healthz",
+            validate_remote_image_url_resolved,
+            timeout=8,
+            max_redirects=2,
+            max_bytes=4096,
+        )
+    except Exception as exc:
+        result["detail"] = (
+            "The name resolves, but https://%s did not answer (%s). Point it at this server and "
+            "install an HTTPS certificate (GUIDE.md section 8), then check again." % (domain, type(exc).__name__)
+        )
+        return result
+    result["https"] = True
+    try:
+        body = response.json()
+    except ValueError:
+        body = {}
+    result["is_this_site"] = response.status_code == 200 and body.get("ok") is True
+    result["detail"] = (
+        "Ready: this domain reaches this site over HTTPS."
+        if result["is_this_site"]
+        else "HTTPS works, but something other than this site answered. Check which server the domain points to."
+    )
+    return result
+
+
+@router.get("/domain")
+def get_domain(
+    response: Response,
+    _user: User = Depends(require_vault_owner),
+    db: Session = Depends(get_db),
+) -> Dict[str, Any]:
+    _vault_ready()
+    response.headers.update(_NO_STORE)
+    return vault.domain_status(db)
+
+
+class DomainCheckPayload(BaseModel):
+    domain: str = Field(..., max_length=300)
+
+
+@router.post("/domain/check")
+async def check_domain(
+    request: Request,
+    payload: DomainCheckPayload,
+    user: User = Depends(require_vault_owner),
+) -> Dict[str, Any]:
+    """Dry run before switching: DNS, HTTPS and 'is this our site' for a domain."""
+
+    from starlette.concurrency import run_in_threadpool
+
+    await async_endpoint_limiter.check_limit(
+        request, f"admin_vault_domain:{user.id}", limit=20, window_seconds=600
+    )
+    try:
+        domain = vault.normalize_domain(payload.domain)
+    except vault.VaultError as exc:
+        raise ApiError(ErrorCode.VALIDATION_FAILED, str(exc), field="domain") from exc
+    return await run_in_threadpool(_probe_domain, domain)
+
+
 __all__ = ["router"]

@@ -302,3 +302,118 @@ def test_large_numbers_are_accepted_where_ports_are_not():
         vault.normalize_value("SMTP_PORT", "70000")
     with pytest.raises(vault.VaultError):
         vault.normalize_value("OCR_SERVICE_TESSERACT_CMD", "/bin/sh")  # never manageable
+
+
+# --------------------------- website domain ---------------------------
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        ("Example.COM", "example.com"),
+        ("https://www.Example.com/some/path?x=1", "www.example.com"),
+        ("http://user@new-site.net:8443/", "new-site.net"),
+        ("  sub.domain.co.uk. ", "sub.domain.co.uk"),
+    ],
+)
+def test_domain_is_normalised(raw, expected):
+    assert vault.normalize_domain(raw) == expected
+
+
+@pytest.mark.parametrize("bad", ["", "localhost", "192.168.1.5", "10.0.0.1", "single", "a b.com", "evil.local", "-x.com", "x..com"])
+def test_bad_domains_are_refused(bad):
+    with pytest.raises(vault.VaultError):
+        vault.normalize_domain(bad)
+
+
+def test_domain_derives_every_address():
+    from backend_fastapi.app.vault_keys import derived_from_domain, with_domain
+
+    derived = derived_from_domain("new-site.net")
+    assert derived["FRONTEND_URL"] == "https://new-site.net"
+    assert json.loads(derived["CORS_ALLOWED_ORIGINS"]) == ["https://new-site.net", "https://www.new-site.net"]
+    assert derived["MAGIC_LINK_REDIRECT_URL"] == "https://new-site.net/auth/magic-complete"
+    assert derived["GOOGLE_OAUTH_REDIRECT_URI"] == "https://new-site.net/api/auth/google/callback"
+    # a value saved explicitly wins over the derived one
+    merged = with_domain({"SITE_DOMAIN": "new-site.net", "FRONTEND_URL": "https://custom.example"})
+    assert merged["FRONTEND_URL"] == "https://custom.example"
+    assert merged["MAGIC_LINK_REDIRECT_URL"].startswith("https://new-site.net")
+
+
+def test_changing_the_domain_moves_the_live_settings_and_back(fastapi_app, monkeypatch):
+    monkeypatch.setenv("FRONTEND_URL", "https://old-site.org")
+    settings = get_settings()
+    before = settings.frontend_url
+    try:
+        with SessionLocal() as db:
+            vault.store(db, "SITE_DOMAIN", "https://New-Site.net/", actor_id=None)
+        assert settings.frontend_url == "https://new-site.net"
+        assert settings.cors_allowed_origins == ["https://new-site.net", "https://www.new-site.net"]
+        assert settings.magic_link_redirect_url == "https://new-site.net/auth/magic-complete"
+        assert os.environ["FRONTEND_URL"] == "https://new-site.net"
+
+        with SessionLocal() as db:
+            vault.remove(db, "SITE_DOMAIN")
+        assert settings.frontend_url == before
+        assert os.environ["FRONTEND_URL"] == "https://old-site.org"
+    finally:
+        vault._reset_for_tests()
+
+
+def test_cors_follows_the_domain_without_a_restart(fastapi_app):
+    """Production starts with a fixed origin list; after the vault changes the
+    domain the new origin must be accepted at once and the old one dropped."""
+
+    from starlette.applications import Starlette
+
+    from backend_fastapi.app.bootstrap.middleware import LiveCORSMiddleware
+
+    cors = LiveCORSMiddleware(
+        Starlette(), allow_origins=["https://old-site.org"], allow_credentials=True,
+        allow_methods=["*"], allow_headers=["*"],
+    )
+    new = "https://moved-domain.example.net"
+    assert cors.is_allowed_origin("https://old-site.org")
+    assert not cors.is_allowed_origin(new)
+    assert not cors.is_allowed_origin("https://evil.example")
+    with SessionLocal() as db:
+        vault.store(db, "SITE_DOMAIN", "moved-domain.example.net", actor_id=None)
+    try:
+        assert cors.is_allowed_origin(new)
+        assert cors.is_allowed_origin("https://www.moved-domain.example.net")
+        assert not cors.is_allowed_origin("https://evil.example")
+    finally:
+        vault._reset_for_tests()
+
+
+def test_domain_check_endpoint_reports_dns_and_https(fastapi_client, monkeypatch):
+    from backend_fastapi.app.api.routers import secret_vault as router_mod
+
+    uid, headers = _enrolled_main_admin(fastapi_client)
+    monkeypatch.setattr(
+        router_mod,
+        "_probe_domain",
+        lambda domain: {"domain": domain, "resolves": True, "addresses": ["203.0.113.5"], "https": True, "is_this_site": True, "detail": "Ready"},
+    )
+    resp = fastapi_client.post("/api/admin/vault/domain/check", json={"domain": "https://Fresh-Domain.org/x"}, headers=headers)
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["domain"] == "fresh-domain.org"
+    bad = fastapi_client.post("/api/admin/vault/domain/check", json={"domain": "192.168.0.1"}, headers=headers)
+    assert bad.status_code == 422
+
+    status = fastapi_client.get("/api/admin/vault/domain", headers=headers)
+    assert status.status_code == 200 and "derived" in status.json()
+
+
+def test_set_domain_script_writes_the_vault(fastapi_app, capsys):
+    from backend_fastapi.scripts import set_site_domain
+
+    try:
+        assert set_site_domain.main(["rescue-domain.org"]) == 0
+        assert "https://rescue-domain.org" in capsys.readouterr().out
+        with SessionLocal() as db:
+            assert vault.current_value(db, "SITE_DOMAIN") == "rescue-domain.org"
+        assert set_site_domain.main(["not a domain"]) == 2
+        assert set_site_domain.main(["--clear"]) == 0
+    finally:
+        vault._reset_for_tests()
