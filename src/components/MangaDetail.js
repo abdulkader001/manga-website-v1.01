@@ -1,8 +1,10 @@
+import { PAGE_PLACEHOLDER } from "../utils/placeholders";
 import React, { useState, useEffect, useMemo, useCallback } from "react";
 import { useParams, Link } from "react-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import api from "../services/api";
 import useChapterTitles from "../hooks/useChapterTitles";
+import { isBookmarked, readSet, recordRead, toggleBookmark as toggleLocalBookmark, useLibrary } from "../utils/library";
 import CommentSection from "./CommentSection";
 import "../styles/components.css";
 
@@ -10,7 +12,6 @@ const MangaDetail = () => {
   const { mangaId } = useParams();
   const chapterLabel = useChapterTitles(mangaId);
   const queryClient = useQueryClient();
-  const [bookmarked, setBookmarked] = useState(false);
   const [hoverRating, setHoverRating] = useState(0);
   const [ratingMessage, setRatingMessage] = useState("");
 
@@ -63,23 +64,9 @@ const MangaDetail = () => {
     );
   }, [rawChapters, chapterSort, chapterSearch]);
 
-  const { data: bookmarks } = useQuery({
-    queryKey: ["bookmarks"],
-    queryFn: () => api.bookmarks.list(),
-  });
-
-  const { data: historyData } = useQuery({
-    queryKey: ["history"],
-    queryFn: () => api.history.list(),
-  });
-
-  const history = Array.isArray(historyData) ? historyData : [];
-
-  useEffect(() => {
-    if (bookmarks && mangaId) {
-      setBookmarked(Array.isArray(bookmarks) && bookmarks.some((b) => String(b.manga_id) === String(mangaId)));
-    }
-  }, [bookmarks, mangaId]);
+  // Bookmarks and read marks live in this browser (utils/library.js).
+  const lib = useLibrary();
+  const bookmarked = isBookmarked(lib, mangaId);
 
   const rateMutation = useMutation({
     mutationFn: (score) => api.manga.rate(mangaId, score),
@@ -97,76 +84,17 @@ const MangaDetail = () => {
     rateMutation.mutate(score);
   };
 
-  // Determine user history for this manga safely before conditional returns
-  const userHistoryForManga = useMemo(() => {
-    return history.filter((h) => String(h.manga_id) === String(mangaId));
-  }, [history, mangaId]);
-
-  // Load local read chapters from localStorage to guarantee instant 100% offline & session resilience
-  const localReadData = useMemo(() => {
-    try {
-      const stored = localStorage.getItem(`manga_read_chapters_${mangaId}`);
-      return stored ? JSON.parse(stored) : [];
-    } catch {
-      return [];
-    }
-  }, [mangaId]);
-
-  // Find the maximum read chapter number across both server history and local history
-  const maxReadChapterNumber = useMemo(() => {
-    let maxNum = -1;
-    userHistoryForManga.forEach((h) => {
-      const ch = rawChapters.find((c) => Number(c.id) === Number(h.chapter_id));
-      const chNum = ch ? parseFloat(ch.chapter_number) : parseFloat(h.chapter_number || h.chapter_id);
-      if (!isNaN(chNum) && chNum > maxNum) maxNum = chNum;
-    });
-    localReadData.forEach((item) => {
-      const num = parseFloat(item?.chapter_number || item);
-      if (!isNaN(num) && num > maxNum) maxNum = num;
-    });
-    try {
-      const maxStored = parseFloat(localStorage.getItem(`manga_max_read_${mangaId}`));
-      if (!isNaN(maxStored) && maxStored > maxNum) maxNum = maxStored;
-    } catch {}
-    return maxNum;
-  }, [userHistoryForManga, localReadData, rawChapters, mangaId]);
-
-  // If chapter 45 is read, all downward chapters (<= 45) turn blue!
-  const isChapterRead = useCallback(
-    (ch) => {
-      if (!ch) return false;
-      const chId = Number(ch.id);
-      const chNum = parseFloat(ch.chapter_number);
-
-      // 1. Direct match in server history
-      if (history.some((h) => Number(h.chapter_id) === chId || (Number(h.manga_id) === Number(mangaId) && parseFloat(h.chapter_number) === chNum))) return true;
-      // 2. Direct match in local storage
-      if (localReadData.some((item) => Number(item) === chId || String(item) === String(ch.chapter_number) || Number(item?.chapter_id) === chId)) return true;
-      // 3. User requirement: if chapter 45 is read, all downward chapters (<= 45) must turn blue
-      if (!isNaN(chNum) && maxReadChapterNumber > 0 && chNum <= maxReadChapterNumber) {
-        return true;
-      }
-      return false;
-    },
-    [history, localReadData, maxReadChapterNumber, mangaId]
-  );
+  // Only chapters actually opened are marked read; skipping ahead does not
+  // mark the ones in between.
+  const readChapterIds = useMemo(() => readSet(lib, mangaId), [lib, mangaId]);
+  const isChapterRead = useCallback((ch) => Boolean(ch) && readChapterIds.has(Number(ch.id)), [readChapterIds]);
+  const lastReadEntry = lib.last[String(mangaId)] || null;
 
   const loading = isMangaLoading || isChaptersLoading;
   const error = !mangaId ? "Manga ID is missing." : mangaError ? "Failed to load manga details." : "";
 
-  async function toggleBookmark() {
-    try {
-      if (bookmarked) {
-        await api.bookmarks.remove(mangaId);
-        setBookmarked(false);
-      } else {
-        await api.bookmarks.add(mangaId);
-        setBookmarked(true);
-      }
-      queryClient.invalidateQueries({ queryKey: ["bookmarks"] });
-    } catch (err) {
-      console.error("Bookmark toggle failed:", err);
-    }
+  function toggleBookmark() {
+    toggleLocalBookmark(mangaId);
   }
 
   if (loading) return <div className="p-8 text-center text-[#8b93a3]">Loading manga details…</div>;
@@ -176,16 +104,7 @@ const MangaDetail = () => {
   const cover = manga.cover_url || manga.cover_image;
 
   // Determine last read chapter for this manga
-  const getHistoryTimestamp = (entry) =>
-    new Date(
-      entry?.last_read_at || entry?.viewed_at || entry?.updated_at || entry?.created_at || 0
-    ).getTime();
-
-  const lastRead = userHistoryForManga.reduce((acc, h) => {
-    const ts = getHistoryTimestamp(h);
-    const accTs = getHistoryTimestamp(acc);
-    return ts > accTs ? h : acc;
-  }, null);
+  const lastRead = lastReadEntry ? { chapter_id: lastReadEntry.chapterId, chapter: { chapter_number: lastReadEntry.number } } : null;
 
   // Compute combined total views across all chapters
   const computedTotalViews = rawChapters.reduce((sum, ch) => sum + (ch.views || 0), 0);
@@ -221,7 +140,7 @@ const MangaDetail = () => {
               referrerPolicy="no-referrer"
               decoding="async"
               onError={(e) => {
-                e.currentTarget.src = "https://images.unsplash.com/photo-1578632767115-351597cf2477?w=600&auto=format&fit=crop&q=80";
+                e.currentTarget.src = PAGE_PLACEHOLDER;
               }}
             />
           </div>

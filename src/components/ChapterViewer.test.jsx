@@ -30,8 +30,7 @@ describe("Reader (ChapterViewer)", () => {
     Object.values(api).forEach((group) => Object.values(group).forEach((fn) => fn.mockReset()));
     api.manga.chapters.mockResolvedValue([]);
     api.reports.getChapterReports.mockResolvedValue({});
-    api.bookmarks.list.mockResolvedValue([]);
-    api.history.add.mockResolvedValue({});
+    localStorage.clear();
   });
 
   it("shows every page image in order", async () => {
@@ -52,10 +51,10 @@ describe("Reader (ChapterViewer)", () => {
     api.manga.chapter.mockResolvedValue({ id: 21, chapter_number: 3, pages: ["https://cdn.test/p1.webp"] });
     open();
     await screen.findByAltText("Chapter Page 1");
-    const read = JSON.parse(localStorage.getItem("manga_read_chapters_7"));
-    expect(read).toEqual(expect.arrayContaining(["21", "1", "2", "3"]));
-    // Signed-out readers are not sent to the history API.
-    expect(api.history.add).not.toHaveBeenCalled();
+    const lib = JSON.parse(localStorage.getItem("mw_library_v1"));
+    // Only the chapter that was opened is marked; chapters 1 and 2 are not.
+    expect(Object.keys(lib.read["7"])).toEqual(["21"]);
+    expect(lib.last["7"].chapterId).toBe(21);
   });
 
   it("says so when a chapter has no pages", async () => {

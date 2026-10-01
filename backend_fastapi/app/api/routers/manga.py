@@ -23,7 +23,6 @@ from ...core.pagination import MAX_PAGE
 from ...dependencies.auth import get_optional_user
 from ...models import Chapter, ChapterLike, Manga, ReadHistory, User
 from ...services import catalogue_service, image_proxy
-from ...services.history_service import record_history as _record_history
 from ...services.system_state import is_secret_phrase_used
 
 router = APIRouter(prefix="/manga", tags=["manga"])
@@ -207,6 +206,48 @@ async def browse_manga(
         db=db,
         user=user,
     )
+
+
+@router.get("/batch")
+async def get_manga_batch(
+    ids: str = Query("", max_length=2000),
+    user: User | None = Depends(get_optional_user),
+) -> dict:
+    """Public cards (cover, title, newest chapter) for a list of series ids.
+
+    Bookmarks and reading history live in the reader's own browser, so the
+    library pages ask for exactly the series they hold. Unknown or not-hostable
+    ids are silently left out.
+    """
+
+    wanted: list[int] = []
+    for part in ids.split(","):
+        part = part.strip()
+        if part.isdigit() and int(part) not in wanted:
+            wanted.append(int(part))
+    wanted = wanted[:200]
+    if not wanted:
+        return {"items": []}
+
+    from backend_fastapi.app.utils.bounded_threadpool import run_in_db_threadpool
+
+    def _work():
+        with SessionLocal() as db:
+            rows = db.query(Manga).filter(Manga.id.in_(wanted)).all()
+            items = catalogue_service.enrich(db, [m.to_dict() for m in rows])
+            return items
+
+    items = await run_in_db_threadpool(_work)
+    visible = []
+    for item in items:
+        try:
+            await _enforce_series_hostable(item["id"], user)
+        except HTTPException:
+            continue
+        visible.append(item)
+    order = {mid: i for i, mid in enumerate(wanted)}
+    visible.sort(key=lambda it: order.get(it["id"], 0))
+    return {"items": visible}
 
 
 @router.get("/{manga_id}", response_model=MangaDetailResponse)
@@ -417,8 +458,8 @@ async def get_chapter_content(
 
         try:
             catalogue_service.record_chapter_view(db, chapter, user)
-            if user is not None:
-                _record_history(user, manga_id, chapter.id, db)
+            # Reading history lives in the reader's browser (src/utils/library.js);
+            # the server only counts the view.
             db.commit()
         except IntegrityError:
             db.rollback()

@@ -119,8 +119,38 @@ function handleSessionExpired() {
   }
 }
 
+// The access token lasts an hour but the refresh cookie much longer. When a
+// call comes back 401, renew the token once (all concurrent callers share one
+// refresh) and repeat the call, instead of throwing the person to /login in
+// the middle of what they were doing.
+let refreshInFlight = null;
+function refreshSession() {
+  if (!refreshInFlight) {
+    refreshInFlight = (async () => {
+      try {
+        const csrf = getCsrf();
+        const res = await fetch(new URL(`${BASE_URL}/auth/refresh`, window.location.origin).toString(), {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json", ...(csrf ? { "X-CSRF-Token": csrf } : {}) },
+          body: "{}",
+        });
+        return res.ok;
+      } catch {
+        return false;
+      } finally {
+        setTimeout(() => {
+          refreshInFlight = null;
+        }, 0);
+      }
+    })();
+  }
+  return refreshInFlight;
+}
+
 // ---- Core request wrapper ----
-async function request(path, { method = "GET", body, headers = {}, params, signal } = {}) {
+async function request(path, options = {}, retried = false) {
+  const { method = "GET", body, headers = {}, params, signal } = options;
   await configReady;
   const p = path.startsWith("/") ? path : `/${path}`;
   const url = new URL(`${BASE_URL}${p}`, window.location.origin);
@@ -163,6 +193,10 @@ async function request(path, { method = "GET", body, headers = {}, params, signa
     networkError.isNetworkError = true;
     networkError.url = url.toString();
     throw networkError;
+  }
+
+  if (res.status === 401 && !retried && !isSessionCheckPath(p) && (sessionActive || method !== "GET")) {
+    if (await refreshSession()) return request(path, options, true);
   }
 
   const text = await res.text();
@@ -212,7 +246,7 @@ async function request(path, { method = "GET", body, headers = {}, params, signa
 // Unlike request() it never redirects on 401: a wrong password is a normal
 // answer on the login form, not an expired session. Accepts the historical
 // "/api/v1/..." paths as well as bare "/..." ones.
-export async function apiFetch(path, init = {}) {
+export async function apiFetch(path, init = {}, retried = false) {
   await configReady;
   let p = String(path || "");
   p = p.replace(/^\/api(\/v1)?(?=\/)/, "");
@@ -226,7 +260,11 @@ export async function apiFetch(path, init = {}) {
     ...(csrf && method !== "GET" ? { "X-CSRF-Token": csrf } : {}),
     ...(init.headers || {}),
   };
-  return fetch(url.toString(), { ...init, method, headers, credentials: "include" });
+  const res = await fetch(url.toString(), { ...init, method, headers, credentials: "include" });
+  if (res.status === 401 && !retried && !isSessionCheckPath(p) && (sessionActive || method !== "GET")) {
+    if (await refreshSession()) return apiFetch(path, init, true);
+  }
+  return res;
 }
 
 // ---- Public verbs ----
@@ -282,6 +320,7 @@ const api = {
     detail: (id) => api.get(`/manga/${id}`),
     chapters: (id, params) => api.get(`/manga/${id}/chapters`, { params }),
     chapter: (mangaId, chapterId) => api.get(`/manga/${mangaId}/chapters/${chapterId}`),
+    batch: (ids) => api.get("/manga/batch", { params: { ids } }),
     chapterTitles: (mangaId, lang) => api.get(`/manga/${mangaId}/chapter-titles`, { params: { lang } }),
     rate: (id, rating) => api.post(`/manga/${id}/rate`, { rating }),
     likeChapter: (chapterId) => api.post(`/chapters/${chapterId}/like`),
@@ -416,6 +455,7 @@ const api = {
 
     permissions: {
       catalogue: () => api.get("/admin/permissions/catalogue"),
+      mine: () => api.get("/admin/permissions/me"),
       effective: (userId) => api.get(`/admin/users/${userId}/permissions`),
       setOverrides: (userId, overrides) =>
         api.put(`/admin/users/${userId}/permissions`, { overrides }),
