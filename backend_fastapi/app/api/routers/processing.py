@@ -131,6 +131,18 @@ def _load_image_for_vision(image_bytes: bytes):
         return None
 
 
+def _series_source_language(manga) -> str:
+    """Language of the text on the scraped pages, so OCR loads the right script.
+
+    Deliberately not derived from the series *type*: a Chinese manhua scraped
+    from a Korean site carries Korean lettering. Unset means "auto", which
+    reads Korean, Japanese, Chinese and English together.
+    """
+
+    explicit = (getattr(manga, "language", None) or "").strip().lower() if manga else ""
+    return explicit[:2] if explicit else "auto"
+
+
 @router.get("/chapter/{chapter_id}/page/{page_index}")
 async def process_chapter_page(
     request: Request,
@@ -290,6 +302,7 @@ async def process_chapter_page(
             reader_requested_cached=view_cached,
             series_title=series_title,
             genres=genres,
+            source_lang_hint=_series_source_language(chapter.manga),
         )
     except requests.exceptions.InvalidURL as exc:
         # The page image failed re-validation at fetch time (e.g. its host now

@@ -635,6 +635,9 @@ class SeriesUrlPayload(BaseModel):
     # Manual override of what the scraper detects: auto | vertical | double | single.
     source_format: Optional[str] = Field(default=None, max_length=10)
     reading_direction: Optional[str] = Field(default=None, max_length=3)
+    # Language of the lettering on the scraped pages (ko/ja/zh/en), which can
+    # differ from the series' origin; blank = auto-detect. Drives OCR.
+    text_language: Optional[str] = Field(default=None, max_length=5)
 
 
 class ApprovedDomainPayload(BaseModel):

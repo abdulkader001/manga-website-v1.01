@@ -619,7 +619,7 @@ export default function ChapterViewer() {
 
       {/* Broken Chapter Report Modal */}
       {reportOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in fade-in">
+        <div className="fixed inset-0 z-50 flex [align-items:safe_center] justify-center overflow-y-auto bg-black/80 backdrop-blur-sm p-4 animate-in fade-in">
           <form onSubmit={handleReportSubmit} className="bg-[#15171c] border border-[#262a33] rounded-2xl max-w-md w-full p-6 space-y-4 shadow-2xl">
             <div className="flex items-center justify-between border-b border-[#262a33] pb-3">
               <div className="flex items-center gap-2.5">

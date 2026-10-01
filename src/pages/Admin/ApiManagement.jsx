@@ -586,7 +586,7 @@ export default function ApiManagement() {
 
       {/* Unified Add / Edit Provider Modal */}
       {modalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/75 backdrop-blur-sm">
+        <div className="fixed inset-0 z-50 flex [align-items:safe_center] justify-center overflow-y-auto p-3 sm:p-4 bg-black/75 backdrop-blur-sm">
           <div className="bg-[#15171c] border border-[#262a33] rounded-2xl w-full max-w-lg overflow-hidden shadow-2xl animate-in fade-in zoom-in-95 duration-150">
             {/* Modal Header */}
             <div className="px-5 py-4 border-b border-[#262a33] flex items-center justify-between">

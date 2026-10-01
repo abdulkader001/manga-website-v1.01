@@ -48,8 +48,8 @@ PROVIDER_DEFAULTS: Dict[str, Dict[str, Dict[str, Any]]] = {
             "model": "gpt-3.5-turbo",
         },
         "google_gemini": {
-            "api_url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent",
-            "model": "gemini-pro",
+            "api_url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent",
+            "model": "gemini-2.5-flash",
             "headers": {"Content-Type": "application/json"},
         },
         "deepseek_chat": {
@@ -70,8 +70,8 @@ PROVIDER_DEFAULTS: Dict[str, Dict[str, Dict[str, Any]]] = {
     # capable provider plugs in via configuration.
     "scraper_ai": {
         "google_gemini": {
-            "api_url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent",
-            "model": "gemini-pro",
+            "api_url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent",
+            "model": "gemini-2.5-flash",
             "headers": {"Content-Type": "application/json"},
         },
         "openai": {

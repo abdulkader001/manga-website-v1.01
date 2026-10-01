@@ -1,21 +1,9 @@
 import React, { useEffect, useMemo, useState } from "react";
-import type { ProviderKind, ProviderMetadata } from "../plugins/types";
-import type { LimitPeriod } from "./store";
-import {
-  getProviderOptions,
-  maskSecret,
-  resetProvider,
-  setProvider,
-  setTargetLanguage,
-  updateProvider,
-  updateTranslationLimit,
-  useSettingsStore,
-} from "./store";
-import { resetUsage } from "../utils/translationUsage";
-import useAccountSync from "./accountSync";
 import useAuth from "../hooks/useAuth";
 import api, { apiFetch } from "../services/api";
 import OverlayFontPicker from "../components/OverlayFontPicker";
+import ProviderSection from "./ProviderSection";
+import type { SavedIntegration, ServiceKind } from "./ProviderSection";
 
 const TARGET_LANGUAGES: Array<{ value: string; label: string }> = [
   { value: "en", label: "English" },
@@ -42,7 +30,7 @@ const INPUT_CLASSES =
   "px-3 py-2 rounded-xl border border-[#262a33] bg-[#101216] text-white placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-[#00AEF0] focus:border-[#00AEF0] text-xs transition-colors";
 
 type SectionConfig = {
-  kind: ProviderKind;
+  kind: ServiceKind;
   title: string;
   subtitle: string;
 };
@@ -50,20 +38,20 @@ type SectionConfig = {
 const SECTIONS: SectionConfig[] = [
   {
     kind: "ai",
-    title: "1. Custom AI Provider (Highest Priority)",
+    title: "1. AI provider (recommended)",
     subtitle:
-      "Connect your custom OpenAI, Gemini, Claude, DeepSeek, or Groq API. When set, AI runs as the top priority for high-accuracy translation.",
+      "One key does it all: the AI translates the dialogue (and reads unclear text). A free Google Gemini key is enough.",
   },
   {
     kind: "ocr",
-    title: "2. OCR Text Detection Engine",
+    title: "2. Text reading (OCR)",
     subtitle:
-      "Detects speech bubble coordinates and Japanese/Korean/Chinese text on page canvases.",
+      "Finds the speech bubbles and reads the Korean/Japanese/Chinese text. Without your own, the site's built-in Tesseract engine is used.",
   },
   {
     kind: "translation",
-    title: "3. Neural Translation Engine",
-    subtitle: "Dedicated machine translation service for detected bubble text.",
+    title: "3. Translation API (optional)",
+    subtitle: "A dedicated machine-translation service. Used instead of the AI when set; the AI then only steps in if it fails.",
   },
 ];
 
@@ -419,129 +407,6 @@ function ProfileIdentitySection() {
   );
 }
 
-function ProviderSection({ kind, title, subtitle }: SectionConfig) {
-  const selection = useSettingsStore((state) => state[kind]);
-  const [showKey, setShowKey] = useState(false);
-  const [testing, setTesting] = useState(false);
-  const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
-
-  const meta = {
-    ai: { icon: "fas fa-brain", color: "text-purple-400", border: "border-purple-500/30", bg: "bg-purple-500/10" },
-    ocr: { icon: "fas fa-eye", color: "text-[#00AEF0]", border: "border-[#00AEF0]/30", bg: "bg-[#00AEF0]/10" },
-    translation: { icon: "fas fa-language", color: "text-emerald-400", border: "border-emerald-500/30", bg: "bg-emerald-500/10" },
-  }[kind] || { icon: "fas fa-cog", color: "text-[#00AEF0]", border: "border-[#00AEF0]/30", bg: "bg-[#00AEF0]/10" };
-
-  const handleApiKeyChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    updateProvider(kind, { apiKey: e.target.value });
-    setTestResult(null);
-  };
-
-  const handleApiUrlChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    updateProvider(kind, { apiUrl: e.target.value });
-    setTestResult(null);
-  };
-
-  const handleTestConnection = async () => {
-    setTesting(true);
-    setTestResult(null);
-    try {
-      const res = await apiFetch("/api/v1/admin/api-registry/test-connection", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          providerId: selection?.id || kind,
-          apiKey: selection?.apiKey || "",
-          url: selection?.apiUrl || "",
-          category: kind,
-        }),
-      });
-      const data = await res.json();
-      if (res.ok && data.success) {
-        setTestResult({
-          success: true,
-          message: data.message || `Connection verified! Latency: ${data.latencyMs || 45}ms.`,
-        });
-      } else {
-        setTestResult({
-          success: false,
-          message: data?.error?.message || data?.message || "Authentication rejected: Invalid API key or token.",
-        });
-      }
-    } catch (err: any) {
-      setTestResult({ success: false, message: "Connection error: " + err.message });
-    } finally {
-      setTesting(false);
-    }
-  };
-
-  return (
-    <section className={`bg-[#15171c] border ${meta.border} rounded-2xl p-5 shadow-xl space-y-4 text-xs`}>
-      <div className="flex items-start justify-between gap-3">
-        <div className="flex items-center gap-3">
-          <div className={`w-9 h-9 rounded-xl ${meta.bg} flex items-center justify-center ${meta.color} text-sm flex-shrink-0`}>
-            <i className={meta.icon}></i>
-          </div>
-          <div>
-            <h3 className="text-sm font-bold text-white">{title}</h3>
-            <p className="text-[11px] text-[#8b93a3] mt-0.5">{subtitle}</p>
-          </div>
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-        <div>
-          <label className="font-semibold text-gray-300 block mb-1">API Key / Auth Token</label>
-          <div className="relative">
-            <input
-              type={showKey ? "text" : "password"}
-              value={selection?.apiKey || ""}
-              onChange={handleApiKeyChange}
-              placeholder="sk-... or API token"
-              className="w-full px-3 py-2 pr-9 rounded-xl bg-[#101216] border border-[#262a33] text-xs text-white focus:outline-none focus:border-[#00AEF0] font-mono"
-            />
-            <button
-              type="button"
-              onClick={() => setShowKey(!showKey)}
-              className="absolute right-2.5 top-2 text-gray-400 hover:text-white"
-            >
-              <i className={showKey ? "fas fa-eye-slash" : "fas fa-eye"}></i>
-            </button>
-          </div>
-        </div>
-
-        <div>
-          <label className="font-semibold text-gray-300 block mb-1">Custom Endpoint URL (Optional)</label>
-          <input
-            type="url"
-            value={selection?.apiUrl || ""}
-            onChange={handleApiUrlChange}
-            placeholder="https://api.openai.com/v1 or custom host"
-            className="w-full px-3 py-2 rounded-xl bg-[#101216] border border-[#262a33] text-xs text-white focus:outline-none focus:border-[#00AEF0] font-mono"
-          />
-        </div>
-      </div>
-
-      {testResult && (
-        <div className={`p-3 rounded-xl border text-xs ${testResult.success ? "bg-emerald-950/40 border-emerald-800 text-emerald-300" : "bg-red-950/40 border-red-800 text-red-300"}`}>
-          {testResult.message}
-        </div>
-      )}
-
-      <div className="flex justify-end pt-1">
-        <button
-          type="button"
-          disabled={testing}
-          onClick={handleTestConnection}
-          className="px-4 py-1.5 rounded-xl bg-[#101216] hover:bg-[#1f2330] border border-[#262a33] text-gray-300 hover:text-white text-xs font-semibold transition flex items-center gap-1.5"
-        >
-          <i className={testing ? "fas fa-spinner fa-spin" : "fas fa-vial"}></i>
-          <span>{testing ? "Testing…" : "Test API Connection"}</span>
-        </button>
-      </div>
-    </section>
-  );
-}
-
 function SecuritySection() {
   const { logout } = useAuth();
   const [busy, setBusy] = useState(false);
@@ -582,9 +447,48 @@ function SecuritySection() {
   );
 }
 
+function ProvidersTab() {
+  const [saved, setSaved] = useState<Record<string, SavedIntegration | null> | null>(null);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    apiFetch("/api/v1/integrations/list")
+      .then(async (res) => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        setSaved(data.integrations || {});
+      })
+      .catch((e) => setError("Could not load your saved providers: " + e.message));
+  }, []);
+
+  const onSaved = (kind: ServiceKind, value: SavedIntegration | null) =>
+    setSaved((prev) => ({ ...(prev || {}), [kind]: value }));
+
+  return (
+    <div className="space-y-5">
+      <div className="p-4 rounded-2xl bg-[#101216] border border-[#262a33] text-[11px] text-[#8b93a3] space-y-1.5">
+        <p className="text-xs font-bold text-white">How page translation works</p>
+        <p>
+          <span className="text-gray-200 font-semibold">Reading the text:</span> the site&apos;s built-in OCR engine
+          is used unless you add your own in section 2.
+        </p>
+        <p>
+          <span className="text-gray-200 font-semibold">Translating it:</span> needs an AI key (section 1) or a
+          translation API (section 3). The built-in OCR only reads text; it cannot translate.
+        </p>
+        <p>Keys are stored encrypted on the server for your account only, and are never shown again in full.</p>
+      </div>
+      {error && <p className="text-xs text-red-400">{error}</p>}
+      {!saved && !error && <p className="text-xs text-[#8b93a3]">Loading…</p>}
+      {saved &&
+        SECTIONS.map((sec) => (
+          <ProviderSection key={sec.kind} {...sec} saved={saved[sec.kind] || null} onSaved={onSaved} />
+        ))}
+    </div>
+  );
+}
+
 export default function SettingsPage() {
-  const { user } = useAuth();
-  useAccountSync(Boolean(user));
 
   const [activeTab, setActiveTab] = useState<"profile" | "api" | "typography" | "security">("profile");
 
@@ -651,13 +555,7 @@ export default function SettingsPage() {
       {activeTab === "profile" && <ProfileIdentitySection />}
 
       {/* Tab 2: Custom AI & OCR Providers */}
-      {activeTab === "api" && (
-        <div className="space-y-5">
-          {SECTIONS.map((sec) => (
-            <ProviderSection key={sec.kind} {...sec} />
-          ))}
-        </div>
-      )}
+      {activeTab === "api" && <ProvidersTab />}
 
       {/* Tab 3: Language & Font Zoom Controls with Live Bubble Preview */}
       {activeTab === "typography" && (

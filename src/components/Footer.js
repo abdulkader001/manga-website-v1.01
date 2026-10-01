@@ -233,7 +233,7 @@ export default function Footer() {
 
       {/* Edit Brand & Tagline Modal */}
       {editBrandModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in fade-in">
+        <div className="fixed inset-0 z-50 flex [align-items:safe_center] justify-center overflow-y-auto bg-black/80 backdrop-blur-sm p-4 animate-in fade-in">
           <form
             onSubmit={handleSaveBrand}
             className="bg-[#15171c] border border-[#262a33] rounded-2xl max-w-md w-full p-5 shadow-2xl space-y-4 text-xs"

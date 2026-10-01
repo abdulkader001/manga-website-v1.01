@@ -3,6 +3,10 @@ import { Link } from "react-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import api from "../services/api";
 
+// A real chapter when one is known, otherwise the series page.
+const readerLink = (mangaId, chapterId) =>
+  chapterId ? `/reader/${mangaId}/${chapterId}` : `/manga/${mangaId}`;
+
 export default function BookmarkHistoryTab() {
   const queryClient = useQueryClient();
   const fileInputRef = useRef(null);
@@ -331,7 +335,7 @@ export default function BookmarkHistoryTab() {
           {currentItems.map((item) => {
             const manga = item.manga || {};
             const mangaId = item.manga_id || manga.id || 1;
-            const chapterId = item.chapter_id || (mangaId * 100 + 1);
+            const chapterId = item.chapter_id || manga.first_chapter_id || null;
             const cover = manga.cover_url || manga.cover_image || "https://images.unsplash.com/photo-1578632767115-351597cf2477?w=600&auto=format&fit=crop&q=80";
             const title = item.manga_title || manga.title || `Manga #${mangaId}`;
             const chapterLabel = item.chapter_title || item.chapter?.title || `Chapter 1`;
@@ -339,7 +343,7 @@ export default function BookmarkHistoryTab() {
 
             // Last read chapter from user's history
             const userLastRead = historyByMangaId.get(String(mangaId));
-            const lastReadNum = userLastRead?.chapter?.chapter_number || userLastRead?.chapter_number || (userLastRead ? (userLastRead.chapter_id % 100) : null);
+            const lastReadNum = userLastRead?.chapter?.chapter_number || userLastRead?.chapter_number || null;
 
             // Latest chapter available
             const latestChapter = item.latest_chapter || manga.latest_chapter;
@@ -432,7 +436,7 @@ export default function BookmarkHistoryTab() {
 
                   <div className="mt-3">
                     <Link
-                      to={`/reader/${mangaId}/${userLastRead?.chapter_id || chapterId}`}
+                      to={readerLink(mangaId, userLastRead?.chapter_id || chapterId)}
                       className="comic-card__button w-full"
                     >
                       ▶ {activeTab === "bookmarks" && userLastRead ? "Continue" : "Read Now"}
@@ -451,7 +455,7 @@ export default function BookmarkHistoryTab() {
           {currentItems.map((item) => {
             const manga = item.manga || {};
             const mangaId = item.manga_id || manga.id || 1;
-            const chapterId = item.chapter_id || (mangaId * 100 + 1);
+            const chapterId = item.chapter_id || manga.first_chapter_id || null;
             const cover = manga.cover_url || manga.cover_image || "https://images.unsplash.com/photo-1578632767115-351597cf2477?w=600&auto=format&fit=crop&q=80";
             const title = item.manga_title || manga.title || `Manga #${mangaId}`;
             const chapterLabel = item.chapter_title || item.chapter?.title || `Chapter 1`;
@@ -459,7 +463,7 @@ export default function BookmarkHistoryTab() {
 
             // Last read chapter from user's history
             const userLastRead = historyByMangaId.get(String(mangaId));
-            const lastReadNum = userLastRead?.chapter?.chapter_number || userLastRead?.chapter_number || (userLastRead ? (userLastRead.chapter_id % 100) : null);
+            const lastReadNum = userLastRead?.chapter?.chapter_number || userLastRead?.chapter_number || null;
 
             // Latest chapter available
             const latestChapter = item.latest_chapter || manga.latest_chapter;
@@ -523,7 +527,7 @@ export default function BookmarkHistoryTab() {
                       </div>
                     ) : (
                       <Link
-                        to={`/reader/${mangaId}/${chapterId}`}
+                        to={readerLink(mangaId, chapterId)}
                         className="text-xs text-[#00AEF0] font-semibold hover:underline block mt-1"
                       >
                         {chapterLabel}
@@ -540,7 +544,7 @@ export default function BookmarkHistoryTab() {
 
                   <div className="flex items-center justify-between mt-3 pt-2 border-t border-[#262a33]/60">
                     <Link
-                      to={`/reader/${mangaId}/${userLastRead?.chapter_id || chapterId}`}
+                      to={readerLink(mangaId, userLastRead?.chapter_id || chapterId)}
                       className="px-3.5 py-1.5 bg-[#00AEF0] text-white text-xs font-bold rounded-lg hover:bg-[#0F5065] transition inline-flex items-center gap-1.5"
                     >
                       <i className="fas fa-book-open text-[10px]"></i>

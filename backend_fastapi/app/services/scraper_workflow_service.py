@@ -316,6 +316,8 @@ class ScraperWorkflowService:
         )
         if options.get("description"):
             fields["description"] = options["description"]
+        if options.get("text_language"):
+            fields["language"] = options["text_language"]
         if options.get("interval_hours"):
             fields["check_interval_hours"] = int(options["interval_hours"])
         if options.get("auto_scrape_enabled") is False:

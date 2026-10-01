@@ -54,64 +54,54 @@ export default function Homepage() {
   const [autoSlideEnabled, setAutoSlideEnabled] = useState(true);
   const [isSliderHovered, setIsSliderHovered] = useState(false);
 
-  // Smooth Pointer Drag-to-Scroll Hook with Hardware Pointer Capture
+  // Mouse drag-to-scroll for the card rows. The pointer is only captured once
+  // the mouse has actually moved: capturing on pointerdown retargets the click
+  // to the row, so a plain click on a card never reached its <Link>. Touch and
+  // pen keep the browser's native swipe scrolling.
   const usePointerDragScroll = () => {
     const [isDragging, setIsDragging] = useState(false);
-    const stateRef = React.useRef({
-      isDown: false,
-      startX: 0,
-      startScrollLeft: 0,
-      hasMoved: false,
-      targetEl: null,
-    });
+    const stateRef = React.useRef({ isDown: false, startX: 0, startScrollLeft: 0, hasMoved: false });
 
     const onPointerDown = (e) => {
-      if (e.button !== 0) return; // Left click only
-      const el = e.currentTarget;
+      if (e.pointerType !== "mouse" || e.button !== 0) return;
       stateRef.current = {
         isDown: true,
         startX: e.clientX,
-        startScrollLeft: el.scrollLeft,
+        startScrollLeft: e.currentTarget.scrollLeft,
         hasMoved: false,
-        targetEl: el,
       };
-      setIsDragging(true);
-      try {
-        el.setPointerCapture(e.pointerId);
-      } catch {}
     };
 
     const onPointerMove = (e) => {
-      if (!stateRef.current.isDown || !stateRef.current.targetEl) return;
-      const dx = e.clientX - stateRef.current.startX;
-      if (Math.abs(dx) > 3) {
-        stateRef.current.hasMoved = true;
+      const st = stateRef.current;
+      if (!st.isDown) return;
+      const dx = e.clientX - st.startX;
+      if (!st.hasMoved) {
+        if (Math.abs(dx) <= 5) return;
+        st.hasMoved = true;
+        setIsDragging(true);
+        try {
+          e.currentTarget.setPointerCapture(e.pointerId);
+        } catch {}
       }
-      stateRef.current.targetEl.scrollLeft = stateRef.current.startScrollLeft - dx;
+      e.currentTarget.scrollLeft = st.startScrollLeft - dx;
     };
 
     const endDrag = (e) => {
-      if (stateRef.current.isDown) {
-        stateRef.current.isDown = false;
-        setIsDragging(false);
-        if (stateRef.current.targetEl) {
-          try {
-            stateRef.current.targetEl.releasePointerCapture(e.pointerId);
-          } catch {}
-        }
-      }
+      if (!stateRef.current.isDown) return;
+      stateRef.current.isDown = false;
+      setIsDragging(false);
+      try {
+        e.currentTarget.releasePointerCapture(e.pointerId);
+      } catch {}
     };
 
+    // Swallow only the click that ends a drag, so dragging never opens a card.
     const onClickCapture = (e) => {
       if (stateRef.current.hasMoved) {
         e.preventDefault();
         e.stopPropagation();
-      }
-    };
-
-    const onWheel = (e) => {
-      if (e.deltaY !== 0 && !e.shiftKey) {
-        e.currentTarget.scrollLeft += e.deltaY * 0.8;
+        stateRef.current.hasMoved = false;
       }
     };
 
@@ -123,7 +113,6 @@ export default function Homepage() {
         onPointerUp: endDrag,
         onPointerCancel: endDrag,
         onClickCapture,
-        onWheel,
       },
     };
   };
@@ -203,11 +192,11 @@ export default function Homepage() {
   const displayedMostViewed = useMemo(() => {
     const list = [...mangaList];
     if (mostViewedPeriod === "1d") {
-      list.sort((a, b) => (b.daily_views || (b.views ? Math.round(b.views * 0.005) : 0)) - (a.daily_views || (a.views ? Math.round(a.views * 0.005) : 0)));
+      list.sort((a, b) => (b.daily_views || 0) - (a.daily_views || 0));
     } else if (mostViewedPeriod === "1w") {
-      list.sort((a, b) => (b.weekly_views || (b.views ? Math.round(b.views * 0.03) : 0)) - (a.weekly_views || (a.views ? Math.round(a.views * 0.03) : 0)));
+      list.sort((a, b) => (b.weekly_views || 0) - (a.weekly_views || 0));
     } else {
-      list.sort((a, b) => (b.monthly_views || (b.views ? Math.round(b.views * 0.12) : 0)) - (a.monthly_views || (a.views ? Math.round(a.views * 0.12) : 0)));
+      list.sort((a, b) => (b.monthly_views || 0) - (a.monthly_views || 0));
     }
     return list.slice(0, 15);
   }, [mangaList, mostViewedPeriod]);
@@ -310,7 +299,7 @@ export default function Homepage() {
 
       {/* Global Reader Modal Popup if active */}
       {activePopup && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-4">
+        <div className="fixed inset-0 z-50 flex [align-items:safe_center] justify-center overflow-y-auto bg-black/75 backdrop-blur-sm p-4">
           <div className="bg-[#15171c] border border-[#00AEF0] rounded-2xl max-w-md w-full p-6 shadow-2xl space-y-4">
             <div className="flex items-center justify-between border-b border-[#262a33] pb-3">
               <h3 className="text-lg font-bold text-white flex items-center gap-2">
@@ -487,7 +476,7 @@ export default function Homepage() {
 
       {/* Admin Broadcast Modal */}
       {broadcastModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4">
+        <div className="fixed inset-0 z-50 flex [align-items:safe_center] justify-center overflow-y-auto bg-black/75 p-4">
           <form
             onSubmit={handlePublishBroadcast}
             className="bg-[#15171c] border border-[#262a33] rounded-2xl max-w-lg w-full p-5 shadow-2xl space-y-4"
@@ -578,7 +567,7 @@ export default function Homepage() {
 
       {/* Edit Header Title Modal */}
       {editHeaderModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4">
+        <div className="fixed inset-0 z-50 flex [align-items:safe_center] justify-center overflow-y-auto bg-black/75 p-4">
           <form
             onSubmit={handleSaveHeader}
             className="bg-[#15171c] border border-[#262a33] rounded-2xl max-w-md w-full p-5 shadow-2xl space-y-4"
@@ -705,10 +694,10 @@ export default function Homepage() {
             const rank = idx + 1;
             const viewText =
               mostViewedPeriod === "1d"
-                ? `${(manga.daily_views || Math.round((manga.views || 10000) * 0.005)).toLocaleString()} views today`
+                ? `${(manga.daily_views || 0).toLocaleString()} views today`
                 : mostViewedPeriod === "1w"
-                ? `${(manga.weekly_views || Math.round((manga.views || 50000) * 0.03)).toLocaleString()} views this week`
-                : `${(manga.monthly_views || Math.round((manga.views || 200000) * 0.12)).toLocaleString()} views this month`;
+                ? `${(manga.weekly_views || 0).toLocaleString()} views this week`
+                : `${(manga.monthly_views || 0).toLocaleString()} views this month`;
 
             return (
               <Link
@@ -740,10 +729,12 @@ export default function Homepage() {
                     #{rank}
                   </span>
 
-                  <span className="mgeko-badge-score">
-                    <i className="fas fa-star"></i>
-                    <span>{(manga.rating || 4.5).toFixed(1)}</span>
-                  </span>
+                  {manga.rating_count > 0 && manga.rating != null && (
+                    <span className="mgeko-badge-score">
+                      <i className="fas fa-star"></i>
+                      <span>{Number(manga.rating).toFixed(1)}</span>
+                    </span>
+                  )}
                 </div>
                 <div className="p-1.5 sm:p-2 pointer-events-none space-y-0.5">
                   <h4 className="comic-card__title group-hover:text-[#00AEF0] transition text-[11px] sm:text-xs truncate">
@@ -917,10 +908,12 @@ export default function Homepage() {
                   {manga.is_hot && (
                     <span className="mgeko-badge-status hot">Hot</span>
                   )}
-                  <span className="mgeko-badge-score">
-                    <i className="fas fa-star"></i>
-                    <span>{(manga.rating || 4.2).toFixed(1)}</span>
-                  </span>
+                  {manga.rating_count > 0 && manga.rating != null && (
+                    <span className="mgeko-badge-score">
+                      <i className="fas fa-star"></i>
+                      <span>{Number(manga.rating).toFixed(1)}</span>
+                    </span>
+                  )}
                 </Link>
 
                 <div className="mgeko-update-info">
@@ -928,12 +921,16 @@ export default function Homepage() {
                     <Link to={`/manga/${manga.id}`} className="mgeko-update-title" title={manga.title}>
                       {manga.title}
                     </Link>
-                    <Link
-                      to={`/reader/${manga.id}/${manga.id * 100 + 1}`}
-                      className="mgeko-update-chapter"
-                    >
-                      {manga.last_chapter_title || `Chapter ${manga.chapters_count || 1}`}
-                    </Link>
+                    {manga.latest_chapter_id ? (
+                      <Link
+                        to={`/reader/${manga.id}/${manga.latest_chapter_id}`}
+                        className="mgeko-update-chapter"
+                      >
+                        {manga.last_chapter_title || "Latest chapter"}
+                      </Link>
+                    ) : (
+                      <span className="mgeko-update-chapter opacity-60">No chapters yet</span>
+                    )}
                   </div>
 
                   <div className="mgeko-update-meta">

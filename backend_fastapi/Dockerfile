@@ -30,10 +30,16 @@ COPY backend_fastapi/app/migrations/ /app/backend_fastapi/app/migrations/
 # default had no working backup or restore path at all. `--no-install-recommends`
 # keeps this to the client tools; the retry loop mirrors the pip step below,
 # for the same flaky-DNS reason.
+#
+# Tesseract + Korean/Japanese/Chinese language data: the built-in OCR engine
+# (provider "tesseract_local") used when a reader has no OCR API of their own.
+# Without the binary in the image the reader overlay had no OCR at all.
 RUN set -eux; \
     for attempt in 1 2 3; do \
         apt-get update && \
-        apt-get install -y --no-install-recommends postgresql-client && \
+        apt-get install -y --no-install-recommends postgresql-client \
+            tesseract-ocr tesseract-ocr-kor tesseract-ocr-jpn tesseract-ocr-jpn-vert \
+            tesseract-ocr-chi-sim tesseract-ocr-chi-tra && \
         rm -rf /var/lib/apt/lists/* && break; \
         if [ "$attempt" -eq 3 ]; then \
             echo "apt-get install postgresql-client failed after ${attempt} attempts" >&2; \

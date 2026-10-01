@@ -126,6 +126,7 @@ export default function SeriesManagement() {
   const [customAuthor, setCustomAuthor] = useState("");
   const [customCover, setCustomCover] = useState("");
   const [type, setType] = useState("manhwa");
+  const [textLanguage, setTextLanguage] = useState("");
   // How the source lays its chapters/pages out (see backend chapter_grouping).
   const [groupSize, setGroupSize] = useState("");
   const [sourceFormat, setSourceFormat] = useState("auto");
@@ -152,6 +153,7 @@ export default function SeriesManagement() {
   const [layoutManga, setLayoutManga] = useState(null);
   const [layoutSpread, setLayoutSpread] = useState("auto");
   const [layoutDirection, setLayoutDirection] = useState("rtl");
+  const [layoutTextLanguage, setLayoutTextLanguage] = useState("");
   const [savingLayout, setSavingLayout] = useState(false);
 
   // Notice banner
@@ -394,6 +396,7 @@ export default function SeriesManagement() {
         custom_description: customDescription.trim() || undefined,
         custom_cover_image: customCover.trim() || undefined,
         author: customAuthor.trim() || undefined,
+        text_language: textLanguage || undefined,
       });
 
       setNotice({
@@ -470,6 +473,7 @@ export default function SeriesManagement() {
     setLayoutManga(m);
     setLayoutSpread(stored.spread_mode || "auto");
     setLayoutDirection(stored.reading_direction || (m.type === "manga" ? "rtl" : "ltr"));
+    setLayoutTextLanguage(m.language || "");
   };
 
   const handleSaveLayout = async (e) => {
@@ -480,6 +484,7 @@ export default function SeriesManagement() {
       const res = await api.admin.series.updateLayout(layoutManga.id, {
         spread_mode: layoutSpread,
         reading_direction: layoutDirection,
+        text_language: layoutTextLanguage,
       });
       setNotice({ type: "success", message: `✅ ${res?.message || `Layout saved for "${layoutManga.title}".`}` });
       setLayoutManga(null);
@@ -961,10 +966,10 @@ export default function SeriesManagement() {
 
       {/* Import & Auto Chapter Detection Modal */}
       {importModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in fade-in">
+        <div className="fixed inset-0 z-50 flex [align-items:safe_center] justify-center overflow-y-auto bg-black/80 backdrop-blur-sm p-4 animate-in fade-in">
           <form
             onSubmit={handleAddSeries}
-            className="bg-[#15171c] border border-[#262a33] rounded-2xl max-w-lg w-full p-6 space-y-4 shadow-2xl"
+            className="bg-[#15171c] border border-[#262a33] rounded-2xl max-w-lg w-full max-h-[calc(100dvh-2rem)] overflow-y-auto overscroll-contain p-6 space-y-4 shadow-2xl"
           >
             <div className="flex items-center justify-between border-b border-[#262a33] pb-3">
               <div className="flex items-center gap-2.5">
@@ -1126,6 +1131,25 @@ export default function SeriesManagement() {
                 </div>
 
                 <div>
+                  <label className="font-semibold text-gray-300 block mb-1">Text language on pages</label>
+                  <select
+                    value={textLanguage}
+                    onChange={(e) => setTextLanguage(e.target.value)}
+                    className="w-full px-3.5 py-2.5 rounded-xl bg-[#101216] border border-[#262a33] text-xs text-white focus:outline-none focus:border-[#00AEF0]"
+                  >
+                    <option value="">Auto-detect</option>
+                    <option value="ko">Korean</option>
+                    <option value="ja">Japanese</option>
+                    <option value="zh">Chinese</option>
+                    <option value="en">English</option>
+                  </select>
+                  <p className="text-[10px] text-[#8b93a3] mt-1">
+                    What the lettering on the source site is written in. It can differ from the origin
+                    (e.g. a Chinese manhua on a Korean site). Used by OCR.
+                  </p>
+                </div>
+
+                <div>
                   <label className="font-semibold text-gray-300 block mb-1">Author Name (Optional)</label>
                   <input
                     type="text"
@@ -1245,10 +1269,10 @@ export default function SeriesManagement() {
 
       {/* Edit Schedule Modal */}
       {editingManga && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in fade-in">
+        <div className="fixed inset-0 z-50 flex [align-items:safe_center] justify-center overflow-y-auto bg-black/80 backdrop-blur-sm p-4 animate-in fade-in">
           <form
             onSubmit={handleSaveSchedule}
-            className="bg-[#15171c] border border-[#262a33] rounded-2xl max-w-md w-full p-6 space-y-4 shadow-2xl"
+            className="bg-[#15171c] border border-[#262a33] rounded-2xl max-w-md w-full max-h-[calc(100dvh-2rem)] overflow-y-auto overscroll-contain p-6 space-y-4 shadow-2xl"
           >
             <div className="flex items-center justify-between border-b border-[#262a33] pb-3">
               <div>
@@ -1316,10 +1340,10 @@ export default function SeriesManagement() {
 
       {/* Picture Layout Modal */}
       {layoutManga && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in fade-in">
+        <div className="fixed inset-0 z-50 flex [align-items:safe_center] justify-center overflow-y-auto bg-black/80 backdrop-blur-sm p-4 animate-in fade-in">
           <form
             onSubmit={handleSaveLayout}
-            className="bg-[#15171c] border border-[#262a33] rounded-2xl max-w-md w-full p-6 space-y-4 shadow-2xl"
+            className="bg-[#15171c] border border-[#262a33] rounded-2xl max-w-md w-full max-h-[calc(100dvh-2rem)] overflow-y-auto overscroll-contain p-6 space-y-4 shadow-2xl"
           >
             <div className="flex items-center justify-between border-b border-[#262a33] pb-3">
               <div>
@@ -1353,8 +1377,22 @@ export default function SeriesManagement() {
                   <option value="ltr">Left to right (manhwa, manhua)</option>
                 </select>
               </div>
+              <div>
+                <label className="font-semibold text-gray-300 block mb-1">Text language on pages (for OCR)</label>
+                <select
+                    value={layoutTextLanguage}
+                    onChange={(e) => setLayoutTextLanguage(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl bg-[#101216] border border-[#262a33] text-xs text-white focus:outline-none focus:border-[#00AEF0]"
+                  >
+                    <option value="">Auto-detect</option>
+                    <option value="ko">Korean</option>
+                    <option value="ja">Japanese</option>
+                    <option value="zh">Chinese</option>
+                    <option value="en">English</option>
+                  </select>
+              </div>
               <p className="text-[11px] text-[#8b93a3]">
-                Saving rebuilds this series' stored pictures from the source site in the background. Chapter grouping is fixed at import and cannot be changed here.
+                Changing the split or direction rebuilds this series' stored pictures from the source site in the background. Chapter grouping is fixed at import and cannot be changed here.
               </p>
             </div>
 

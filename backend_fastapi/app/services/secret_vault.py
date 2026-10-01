@@ -113,6 +113,21 @@ _SPECS = (
     SecretSpec(
         "REMOTE_OCR_URL", "Translation & OCR", "Remote OCR URL", kind="url", restart_required=True
     ),
+    SecretSpec(
+        "OCR_ENABLED",
+        "Translation & OCR",
+        "Server OCR enabled",
+        kind="bool",
+        restart_required=True,
+        help="Turns on the built-in Tesseract engine for readers without their own OCR API.",
+    ),
+    SecretSpec(
+        "TRANSLATION_ENABLED",
+        "Translation & OCR",
+        "Server translation enabled",
+        kind="bool",
+        restart_required=True,
+    ),
     # Third-party services
     SecretSpec("TENOR_API_KEY", "Third-party services", "Tenor API key", secret=True),
     SecretSpec("GIF_PROVIDER_API_KEY", "Third-party services", "GIF provider API key", secret=True),

@@ -485,7 +485,7 @@ export default function FooterEditor() {
 
       {/* Edit Link Modal */}
       {editingLink && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in fade-in">
+        <div className="fixed inset-0 z-50 flex [align-items:safe_center] justify-center overflow-y-auto bg-black/80 backdrop-blur-sm p-4 animate-in fade-in">
           <form
             onSubmit={handleSaveEditedLink}
             className="bg-[#15171c] border border-[#262a33] rounded-2xl max-w-lg w-full p-5 space-y-4 shadow-2xl text-xs"
@@ -608,7 +608,7 @@ export default function FooterEditor() {
 
       {/* Delete Confirmation Modal */}
       {deleteConfirmId && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in fade-in">
+        <div className="fixed inset-0 z-50 flex [align-items:safe_center] justify-center overflow-y-auto bg-black/80 backdrop-blur-sm p-4 animate-in fade-in">
           <div className="bg-[#15171c] border border-red-500/50 rounded-2xl max-w-sm w-full p-5 space-y-4 shadow-2xl text-xs">
             <div className="flex items-center gap-3">
               <div className="w-9 h-9 rounded-xl bg-red-600/20 text-red-400 flex items-center justify-center text-base flex-shrink-0">

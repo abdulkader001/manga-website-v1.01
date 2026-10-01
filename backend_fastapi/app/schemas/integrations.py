@@ -24,3 +24,9 @@ class IntegrationRemoveRequest(BaseModel):
     """Body of DELETE /integrations/remove."""
 
     service: str
+
+
+class IntegrationTestRequest(BaseModel):
+    """Body of POST /integrations/test."""
+
+    service: str

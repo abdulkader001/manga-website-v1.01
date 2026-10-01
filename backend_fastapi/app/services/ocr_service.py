@@ -48,6 +48,22 @@ SHRINK_FOR_ACCURACY = _asbool(os.getenv("OCR_SHRINK_IMAGES", "true"), True)
 OCR_MAX_DIM = int(os.getenv("OCR_MAX_DIM", "1600"))
 DEFAULT_LANGS = os.getenv("OCR_LANGS", "eng")
 
+# ISO language of the series -> Tesseract traineddata. English is added so
+# SFX/lettering in Latin script inside the page is still picked up.
+TESSERACT_LANGS = {
+    "au": "kor+jpn+chi_sim+eng",  # "auto": text language not set on the series
+    "ko": "kor+eng",
+    "ja": "jpn+jpn_vert+eng",
+    "zh": "chi_sim+chi_tra+eng",
+    "en": "eng",
+}
+
+
+def tesseract_lang_for(language_hint: Optional[str]) -> Optional[str]:
+    if not language_hint:
+        return None
+    return TESSERACT_LANGS.get(language_hint.strip().lower()[:2])
+
 ALLOWED_FORMATS = {"PNG", "JPEG", "JPG"}
 
 
@@ -523,7 +539,9 @@ class OCRService:
             self._ensure_local_ready()
             img = self._validate_image_data(image_data)
             prepared = self._prepare_image(img)
-            tess_regions = self._run_tesseract_regions(prepared, psm, lang)
+            tess_regions = self._run_tesseract_regions(
+                prepared, psm, lang or tesseract_lang_for(language_hint)
+            )
             raw_regions = [
                 {
                     "text": r["text"],

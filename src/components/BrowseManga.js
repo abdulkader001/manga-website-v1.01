@@ -26,6 +26,10 @@ const POPULAR_TAGS = [
   "Strong to Stronger", "Solo Hero", "Tower Climb", "Villain Protagonist"
 ];
 
+// First chapter when the series has one, otherwise its detail page.
+const readNowLink = (manga) =>
+  manga.first_chapter_id ? `/reader/${manga.id}/${manga.first_chapter_id}` : `/manga/${manga.id}`;
+
 export default function BrowseManga() {
   const { user } = useAuth();
   const isUnder18 = user?.is_under_18 === true || (user?.age != null && user.age < 18);
@@ -122,7 +126,7 @@ export default function BrowseManga() {
       }
 
       // Chapter Count range
-      const chaptersCount = item.chapters_count || 1;
+      const chaptersCount = item.chapters_count || 0;
       if (minChapters > 0 && chaptersCount < minChapters) {
         return false;
       }
@@ -131,7 +135,7 @@ export default function BrowseManga() {
       }
 
       // Minimum Rating filter
-      const rating = item.rating || 4.0;
+      const rating = item.rating_count > 0 ? item.rating || 0 : 0;
       if (minRating > 0 && rating < minRating) {
         return false;
       }
@@ -686,14 +690,14 @@ export default function BrowseManga() {
                   </h3>
                   <div className="flex items-center justify-between text-[11px] text-[#8b93a3] mt-1">
                     <span className="text-amber-400 font-bold">
-                      ⭐ {(manga.rating || 4.5).toFixed(1)}
+                      {manga.rating_count > 0 ? `⭐ ${Number(manga.rating).toFixed(1)}` : "Not rated"}
                     </span>
-                    <span>{manga.chapters_count || 50}+ Ch.</span>
+                    <span>{manga.chapters_count || 0} Ch.</span>
                   </div>
                 </div>
 
                 <Link
-                  to={`/reader/${manga.id}/${manga.id * 100 + 1}`}
+                  to={readNowLink(manga)}
                   className="w-full py-1.5 bg-[#00AEF0]/15 hover:bg-[#00AEF0] text-[#00AEF0] hover:text-white rounded-lg text-xs font-bold text-center transition block"
                 >
                   ▶ Read Now
@@ -721,25 +725,24 @@ export default function BrowseManga() {
               <div className="flex-1 min-w-0 flex flex-col justify-between h-28 py-0.5">
                 <div>
                   <div className="flex items-center gap-2">
-                    <span className="px-1.5 py-0.5 rounded text-[10px] font-extrabold uppercase bg-[#ef4444] text-white">
-                      Trending
-                    </span>
                     <h3 className="font-bold text-sm text-white truncate">
                       <Link to={`/manga/${manga.id}`} className="hover:text-[#00AEF0]">
                         {manga.title}
                       </Link>
                     </h3>
                   </div>
-                  <p className="text-xs text-[#8b93a3] line-clamp-2 mt-1">{manga.description || "Exciting storyline and captivating art."}</p>
+                  <p className="text-xs text-[#8b93a3] line-clamp-2 mt-1">{manga.description || ""}</p>
                 </div>
                 <div className="flex items-center justify-between text-xs pt-1">
                   <div className="flex items-center gap-3">
-                    <span className="text-[#ef4444] font-bold">🔥 {(manga.views || 482000).toLocaleString()}</span>
-                    <span className="text-amber-400 font-bold">⭐ {(manga.rating || 4.5).toFixed(1)}</span>
-                    <span className="text-gray-400">{manga.chapters_count || 50} Chapters</span>
+                    <span className="text-[#ef4444] font-bold">🔥 {(manga.views || 0).toLocaleString()}</span>
+                    <span className="text-amber-400 font-bold">
+                      {manga.rating_count > 0 ? `⭐ ${Number(manga.rating).toFixed(1)}` : "Not rated"}
+                    </span>
+                    <span className="text-gray-400">{manga.chapters_count || 0} Chapters</span>
                   </div>
                   <Link
-                    to={`/reader/${manga.id}/${manga.id * 100 + 1}`}
+                    to={readNowLink(manga)}
                     className="px-4 py-1.5 bg-[#00AEF0] text-white font-bold rounded-lg hover:bg-[#0F5065] transition"
                   >
                     ▶ Read Now
