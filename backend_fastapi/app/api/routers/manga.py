@@ -318,6 +318,65 @@ async def get_chapter_list(
     return cached_chapters
 
 
+@router.get("/{manga_id}/chapter-titles")
+async def get_chapter_titles(
+    request: Request,
+    manga_id: int,
+    lang: str = Query("en", min_length=2, max_length=8),
+    user: User | None = Depends(get_optional_user),
+) -> dict:
+    """Readable, translated chapter titles: ``{"titles": {id: {title, original}}}``.
+
+    Source titles like "522 원준 522화 2024-11-07" become "Chapter 522"; a real
+    subtitle is translated once into ``lang`` (with the reader's own
+    translator, else the site default) and cached per chapter.
+    """
+
+    await _enforce_series_hostable(manga_id, user)
+    from ...services import chapter_title_service
+    from ...utils.bounded_threadpool import run_in_db_threadpool
+
+    def _work():
+        with SessionLocal() as local_db:
+            manga = local_db.get(Manga, manga_id)
+            if manga is None:
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Manga not found")
+            translate = _title_translator(request, local_db, user, lang)
+            titles = chapter_title_service.display_titles(
+                local_db, manga, lang, translate=translate
+            )
+            return {"lang": lang, "titles": {str(k): v for k, v in titles.items()}}
+
+    return await run_in_db_threadpool(_work)
+
+
+def _title_translator(request: Request, db: Session, user: User | None, lang: str):
+    """A ``text -> translation`` callable, or None when nothing can translate."""
+
+    from ...services.provider_resolver import integration_vault, user_provider_config
+    from ...services.translation_service import TranslationService
+    from .processing import _platform_default
+
+    vault = integration_vault(request)
+    candidates = []
+    if user is not None:
+        candidates.append(user_provider_config(db, user, "translation", vault=vault))
+        candidates.append(user_provider_config(db, user, "ai", vault=vault))
+    candidates.append(_platform_default(request, db, "translation"))
+    candidates.append(_platform_default(request, db, "ai"))
+    configs = [c for c in candidates if c and c.get("api_url")]
+    if not configs:
+        return None
+    service = TranslationService(
+        default_api_url=None, default_provider_config=configs[1] if len(configs) > 1 else None
+    )
+
+    def translate(text: str):
+        return service.translate(text, "auto", lang, provider_config=configs[0])
+
+    return translate
+
+
 @router.get("/{manga_id}/chapters/{chapter_id}", response_model=ChapterDetailResponse)
 async def get_chapter_content(
     manga_id: int,

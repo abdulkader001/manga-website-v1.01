@@ -91,6 +91,17 @@ cp .env.example .env
 Open `.env` in an editor. The file is big, but only the groups below need your
 attention; everything else has a safe default.
 
+> **Two places for settings.** `.env` holds only the server's foundation:
+> the database and Redis connection, the site address (`FRONTEND_URL`,
+> CORS, HTTPS), the signing/encryption keys and the admin identity
+> (`MAIN_ADMIN_EMAIL_HASH`, 2-step login). **Everything else** — Google /
+> Microsoft sign-in, SMTP and magic links, OCR and translation, API keys,
+> Sentry, limits, image storage — is set later in the admin panel under
+> **Admin → Secret Vault** (Section 6.1), encrypted in the database. A vault
+> value overrides the same line in `.env`; removing it falls back to `.env`.
+> You can still put those values in `.env` if you prefer — the vault is
+> simply easier to change and never needs a file edit.
+
 ### 3.1 Generate the secrets
 
 Run these and paste each output into the matching variable. **Every secret must
@@ -161,17 +172,20 @@ refuses to start in production with it off, and cookies would be insecure.
 
 ### 3.5 Optional features (leave blank to disable)
 
+All of these can be set in **Admin → Secret Vault** instead of `.env`
+(recommended). The variable names are the same in both places.
+
 | Feature | Variables | Notes |
 | --- | --- | --- |
 | **Real e-mail login links** | `EMAIL_BACKEND=smtp`, `SMTP_HOST`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD`, `SMTP_USE_TLS`, `EMAIL_FROM_ADDRESS` | With the default `EMAIL_BACKEND=console`, magic links are **printed in the worker logs** instead of sent: `docker compose logs -f celery_worker_email`. |
 | **Google sign-in** | `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET`, `GOOGLE_OAUTH_REDIRECT_URI`, `GOOGLE_PROJECT_ID` | Create an OAuth client in Google Cloud Console → *APIs & Services → Credentials*; add the redirect URI there exactly. |
 | **Microsoft sign-in** | `MICROSOFT_OAUTH_CLIENT_ID`, `_CLIENT_SECRET`, `_REDIRECT_URI`, `_TENANT` | Empty client id hides the button. |
-| **OCR** | `OCR_ENABLED`, `DEFAULT_OCR_ENGINE`, `OCR_MODE`, `REMOTE_OCR_URL` | Default is `OCR_MODE=remote` with a placeholder URL. The backend image does **not** include the Tesseract program; either point `REMOTE_OCR_URL` at an OCR service, or add `tesseract-ocr` (plus language packs) to `backend_fastapi/Dockerfile` and use `OCR_MODE=local`. |
-| **Translation** | `TRANSLATION_ENABLED=true`, `DEFAULT_TRANSLATION_PROVIDER`, `TRANSLATION_API_URL`, `TRANSLATION_API_KEY`, or `LIBRETRANSLATE_URL` | Provider keys can also be added later in the admin panel (API registry). |
+| **OCR (reading the text on pages)** | `OCR_ENABLED=true` | The backend image ships **Tesseract with Korean, Japanese and Chinese**; nothing else to install. Set the language per series (Series → layout → *Text language on pages*), or leave *Auto*. A remote OCR API is optional (`OCR_MODE=remote`, `REMOTE_OCR_URL`). |
+| **Translation** | `TRANSLATION_ENABLED=true` + a provider | OCR only reads text; something must translate it. Easiest: each reader adds a free **Google Gemini** key in *Settings → AI & OCR Engines*. A site-wide default for everyone: Admin → API Management, or `TRANSLATION_API_URL` / `TRANSLATION_API_KEY` in the vault. |
 | **Scraper AI** (writes parsers for unknown sites) | added in the admin panel → Series Management → Custom Parser | Not an `.env` value. |
 | **Error tracking** | `SENTRY_DSN`, `ENABLE_SENTRY` | Set `ENABLE_SENTRY=false` if unused. |
 | **Virus scanning of uploads** | `CLAMAV_HOST`, `CLAMAV_PORT` | Needs a ClamAV container. |
-| **Image storage limits** | `PAGE_MAX_WIDTH` (1280), `MIRROR_PAGE_IMAGES` (true), `STORAGE_ALERT_PERCENT` (80) | Defaults are fine. |
+| **Image storage limits** | `PAGE_MAX_WIDTH` (1440), `MIRROR_PAGE_IMAGES` (true), `STORAGE_ALERT_PERCENT` (80) | Defaults are fine. |
 | **Admin 2-step login** | `ADMIN_2FA_REQUIRED` | Leave `false` until the admin has enrolled at `/admin/security`. |
 
 ### 3.6 Sanity-check the file
@@ -217,6 +231,59 @@ Open **http://localhost:8080** in a browser.
 | --- | --- |
 | 8080 | Website (nginx) — this is the address users visit |
 | 8000 | API directly (for debugging; don't expose publicly — put only 80/443 on the internet) |
+
+### 4.1 Rebuild after pulling an update (installs Tesseract)
+
+The backend image is where Tesseract and its Korean/Japanese/Chinese language
+data are installed, so after `git pull` **rebuild it** — restarting is not
+enough:
+
+```bash
+cd /path/to/manga-website            # the folder with docker-compose.yml
+git pull
+
+# 1. Rebuild the backend image (API, all Celery workers and beat share it).
+#    --pull also refreshes the Python base image.
+docker compose build --pull
+
+# 2. Recreate every container on the new image. The one-shot
+#    manga-stack-migrate service runs `alembic upgrade head` first, so new
+#    database tables/columns are created before the API starts.
+docker compose up -d --force-recreate
+
+# 3. Check the migration finished without errors.
+docker compose logs manga-stack-migrate | tail -n 20
+
+# 4. Check Tesseract and its languages are in the image.
+docker compose exec backend tesseract --list-langs
+#    -> must list: chi_sim chi_tra eng jpn jpn_vert kor osd
+
+# 5. Check everything is healthy.
+docker compose ps
+```
+
+If the build ever seems to reuse an old image, force a clean one:
+
+```bash
+docker compose build --pull --no-cache
+docker compose up -d --force-recreate
+```
+
+Run migrations by hand (normally not needed — step 2 does it):
+
+```bash
+docker compose run --rm manga-stack-migrate
+```
+
+After changing a vault setting marked **Restart** (e.g. `OCR_ENABLED`,
+Sentry, rate limits):
+
+```bash
+docker compose restart backend celery_beat \
+  celery_worker celery_worker_scrape celery_worker_compress celery_worker_ocr \
+  celery_worker_translation celery_worker_email celery_worker_maintenance \
+  celery_worker_notifications
+```
 
 Useful commands:
 
@@ -339,6 +406,20 @@ Nobody is admin on a fresh install. Do this once:
 
 (Non-Docker: same commands without `docker compose exec backend`, venv active.)
 
+### 6.1 Move the remaining settings into the Secret Vault
+
+1. As the admin, open **`/admin/security`** and enrol an authenticator app
+   (Google Authenticator, Aegis, 1Password …). The vault refuses to open
+   without it.
+2. Open **Admin → Secret Vault**, enter a 6-digit code to unlock it (10
+   minutes), and set what you need — at minimum:
+   - **Translation & OCR → Server OCR enabled = true** (then restart, 4.1);
+   - **Email & magic links** (SMTP) if you want real login e-mails;
+   - **Google / Microsoft sign-in** if you use them.
+3. Once a value is in the vault you can delete that line from `.env`. Keep
+   `.env` itself (and a private backup of it): without `INTEGRATIONS_SECRET`
+   the vault cannot be decrypted.
+
 ---
 
 ## 7. Start using the site's functions
@@ -373,7 +454,8 @@ the list of supported/unsupported sources: `backend_fastapi/README.md` and
 | --- | --- |
 | Browse, search, ratings, bookmarks, comments | API + DB (works out of the box) |
 | Magic-link / Google / Microsoft login | E-mail or OAuth variables (Section 3.5) + `celery_worker_email` |
-| Page translation overlay | OCR + translation configured (Section 3.5) + `ocr`/`translation` workers |
+| Page translation overlay | Vault: *Server OCR enabled*; a translator (reader's own AI key in *Settings → AI & OCR Engines*, or a site default in Admin → API Management). Readers switch it on once in *Settings → Reading & Translation*. |
+| Translated chapter names | Same translator as the overlay. Source names like `522 원준 522화 2024-11-07` show as `Chapter 522`; real subtitles are translated and cached. |
 | Notifications, storage alerts | `celery_worker_notifications`, `celery_worker_maintenance`, beat |
 | Ads, branding, announcements, maintenance mode | Admin → Site settings |
 | Backups | Section 9 |
@@ -422,10 +504,14 @@ the list of supported/unsupported sources: `backend_fastapi/README.md` and
 
 ### Updating later
 
+Same as Section 4.1:
+
 ```bash
 cd /var/www/manga
 git pull
-docker compose up -d --build     # migrations run automatically on start
+docker compose build --pull
+docker compose up -d --force-recreate   # migrations run automatically first
+docker compose exec backend tesseract --list-langs
 ```
 
 ---
@@ -457,7 +543,11 @@ procedure: `backend_fastapi/deployment/backups.md` and `deployment/runbook.md`.
 | Imports stay "queued" forever | Workers or beat not running: `docker compose ps`; for non-Docker, start the worker with **all** queues (Section 5). |
 | Chapter has no pictures / slow | Check `celery_worker_compress` logs; ensure enough disk (`docker system df`). |
 | `$argon2id...` value turns into garbage | Wrap values containing `$` in single quotes in `.env`. |
-| Translation/OCR overlay does nothing | OCR and translation aren't configured (Section 3.5). |
+| Translation/OCR overlay does nothing | Reader: *Settings → Reading & Translation* must be on. Server: vault *Server OCR enabled* = true and restarted (4.1). |
+| Reader says "Text was found but not translated" | OCR works but nothing translates: add an AI key in *Settings → AI & OCR Engines* (press **Test connection**), or a site default in Admin → API Management. |
+| `tesseract: not found` / OCR "engine not available" | The backend image is old: rebuild it (Section 4.1) and check `docker compose exec backend tesseract --list-langs`. |
+| Korean/Chinese pages read as garbage | Set the series' *Text language on pages* (Series → layout) to the language actually printed on the pages. |
+| Secret Vault says "Set up your authenticator app" | Enrol 2-step login at `/admin/security` first (Section 6.1). |
 | Port already in use | Another program uses 8080/8000/5432; stop it or change the published port in `docker-compose.yml`. |
 | Windows: `exec ... no such file or directory` in a container | Line endings; clone inside WSL (Section 1) or run `git config core.autocrlf false` before cloning. |
 | API docs (`/docs`) missing | Intentional in production; set `EXPOSE_API_DOCS=true` on a private deploy. |
@@ -468,7 +558,9 @@ procedure: `backend_fastapi/deployment/backups.md` and `deployment/runbook.md`.
 
 - [ ] Docker installed, `docker compose version` works
 - [ ] `.env` created; 6 random secrets + 2 passwords + Fernet key set; URLs/passwords consistent
-- [ ] `docker compose up -d --build`; all services healthy
+- [ ] `docker compose build --pull && docker compose up -d --force-recreate`; all services healthy
+- [ ] `docker compose exec backend tesseract --list-langs` lists `kor jpn chi_sim`
+- [ ] Authenticator enrolled; OCR, e-mail and sign-in settings entered in **Admin → Secret Vault**
 - [ ] First admin created and promoted (Section 6)
 - [ ] First series imported; new chapters arrive via beat
 - [ ] Domain + HTTPS in front (production)

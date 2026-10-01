@@ -242,11 +242,13 @@ export default function SecretVault() {
           <span>Secret Vault</span>
         </h1>
         <p className="text-xs text-[#8b93a3] mt-1">
-          Sign-in providers, email and API keys, encrypted in the database. A value set here
-          overrides <span className="font-mono">.env</span>; removing it falls back to{" "}
-          <span className="font-mono">.env</span>. Only the main admin can open this page; it cannot
-          be granted to anyone else. Database, Redis, signing keys and the main-admin identity stay in{" "}
-          <span className="font-mono">.env</span> on purpose.
+          Every site setting that is not part of the server&apos;s foundation: sign-in providers, email,
+          OCR and translation, API keys, limits and storage. Stored encrypted; a value set here overrides{" "}
+          <span className="font-mono">.env</span>, and removing it falls back to{" "}
+          <span className="font-mono">.env</span>. Settings marked <b>Restart</b> apply after the next{" "}
+          <span className="font-mono">docker compose restart</span>. Only the main admin can open this
+          page; it cannot be granted to anyone else. The database and Redis connection, the site address,
+          signing keys and the admin identity stay in <span className="font-mono">.env</span> on purpose.
         </p>
       </div>
 

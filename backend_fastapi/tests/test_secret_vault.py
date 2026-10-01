@@ -229,3 +229,76 @@ def test_other_process_picks_up_changes():
     assert os.environ.get("TENOR_API_KEY") != "tenor-from-vault"
     vault.refresh_if_stale()
     assert os.environ["TENOR_API_KEY"] == "tenor-from-vault"
+
+
+def test_startup_preload_applies_only_allow_listed_keys(tmp_path):
+    """The loader runs before any module reads its config; a planted
+    non-allow-listed row (e.g. DATABASE_URL) must never reach the environment."""
+
+    import sqlalchemy as sa
+
+    from backend_fastapi.app import vault_preload
+    from backend_fastapi.app.services.integration_key_vault import IntegrationKeyVault
+
+    db_url = f"sqlite:///{tmp_path / 'vault.db'}"
+    engine = sa.create_engine(db_url)
+    cipher = IntegrationKeyVault.from_secret("preload-secret")
+    other = IntegrationKeyVault.from_secret("some-other-secret")
+    with engine.begin() as conn:
+        conn.execute(sa.text("CREATE TABLE vault_secrets (key TEXT, value_encrypted TEXT)"))
+        for key, token in (
+            ("OCR_MODE", cipher.encrypt("local")),
+            ("SMTP_PASSWORD", cipher.encrypt("pw-from-vault")),
+            ("DATABASE_URL", cipher.encrypt("postgresql://attacker")),
+            ("SMTP_HOST", other.encrypt("wrong-key.example")),
+        ):
+            conn.execute(sa.text("INSERT INTO vault_secrets VALUES (:k, :v)"), {"k": key, "v": token})
+    engine.dispose()
+
+    environ = {"INTEGRATIONS_SECRET": "preload-secret", "OCR_MODE": "remote", "DATABASE_URL": db_url}
+    saved = (dict(vault_preload.ORIGINALS), dict(vault_preload.APPLIED))
+    try:
+        applied = vault_preload.preload(environ, env_file=tmp_path / "missing.env")
+        assert applied == {"OCR_MODE": "local", "SMTP_PASSWORD": "pw-from-vault"}
+        assert environ["OCR_MODE"] == "local"
+        assert environ["DATABASE_URL"] == db_url  # never taken from the table
+        assert "SMTP_HOST" not in environ  # undecryptable row skipped
+        assert vault_preload.ORIGINALS["OCR_MODE"] == "remote"
+    finally:
+        vault_preload.ORIGINALS.clear()
+        vault_preload.ORIGINALS.update(saved[0])
+        vault_preload.APPLIED.clear()
+        vault_preload.APPLIED.update(saved[1])
+
+
+def test_startup_preload_without_table_is_a_no_op(tmp_path):
+    from backend_fastapi.app import vault_preload
+
+    environ = {"INTEGRATIONS_SECRET": "x", "DATABASE_URL": f"sqlite:///{tmp_path / 'empty.db'}"}
+    assert vault_preload.preload(environ, env_file=tmp_path / "missing.env") == {}
+
+
+def test_removing_a_startup_value_restores_env(monkeypatch):
+    """A value the loader applied before Settings existed falls back to .env."""
+
+    from backend_fastapi.app import vault_preload
+
+    monkeypatch.setenv("SMTP_PORT", "2525")  # what the loader wrote
+    vault_preload.ORIGINALS["SMTP_PORT"] = "587"  # what .env had
+    vault_preload.APPLIED["SMTP_PORT"] = "2525"
+    vault._boot_env["SMTP_PORT"] = "587"
+    vault._applied["SMTP_PORT"] = "2525"
+
+    with SessionLocal() as session:
+        vault.refresh(session, force=True)  # table is empty -> drop the override
+    assert os.environ["SMTP_PORT"] == "587"
+    assert get_settings().smtp_port == 587
+
+
+def test_large_numbers_are_accepted_where_ports_are_not():
+    assert vault.normalize_value("RATE_LIMIT_MAX_BLOCK_SECONDS", "86400") == "86400"
+    assert vault.normalize_value("SSRF_FETCH_MAX_BYTES", "20971520") == "20971520"
+    with pytest.raises(vault.VaultError):
+        vault.normalize_value("SMTP_PORT", "70000")
+    with pytest.raises(vault.VaultError):
+        vault.normalize_value("OCR_SERVICE_TESSERACT_CMD", "/bin/sh")  # never manageable
