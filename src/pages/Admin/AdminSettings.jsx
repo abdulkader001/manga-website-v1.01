@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import { Link } from "react-router";
 import api from "../../services/api";
 import FooterEditor from "../../components/FooterEditor";
+import DonationEditor from "../../components/DonationEditor";
 
 function SiteAccessCard() {
   const [loginRequired, setLoginRequired] = useState(null);
@@ -294,6 +295,19 @@ export default function AdminSettings() {
 
         <button
           type="button"
+          onClick={() => setActiveTab("donations")}
+          className={`px-4 py-2 rounded-xl transition flex items-center gap-2 ${
+            activeTab === "donations"
+              ? "bg-[#00AEF0] text-white shadow-md"
+              : "bg-[#15171c] text-[#8b93a3] hover:text-white"
+          }`}
+        >
+          <i className="fas fa-hand-holding-heart text-xs"></i>
+          <span>Donations</span>
+        </button>
+
+        <button
+          type="button"
           onClick={() => setActiveTab("system")}
           className={`px-4 py-2 rounded-xl transition flex items-center gap-2 ${
             activeTab === "system"
@@ -305,6 +319,8 @@ export default function AdminSettings() {
           <span>Cache, Maintenance &amp; Safeguards</span>
         </button>
       </div>
+
+      {activeTab === "donations" && <DonationEditor />}
 
       {/* Tab 1: General & Reader Mode */}
       {activeTab === "general" && (

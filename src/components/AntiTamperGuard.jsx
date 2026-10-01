@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react";
+import { handleMangaContextMenu } from "../utils/mangaLinkMenu";
 
 /**
  * AntiTamperGuard Component
@@ -59,6 +60,9 @@ export default function AntiTamperGuard({ children }) {
       if (e.target && (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA")) {
         return;
       }
+      // Manga cards: right-click opens the manga in a new tab (Shift/Win +
+      // right-click: a new window) instead of the browser menu.
+      if (handleMangaContextMenu(e)) return;
       e.preventDefault();
       showNotice("🛡️ Right-click inspection is disabled by Anti-Tamper Security.");
     };
