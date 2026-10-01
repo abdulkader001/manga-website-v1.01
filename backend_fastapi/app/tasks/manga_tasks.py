@@ -25,7 +25,7 @@ def refresh_manga_list_cache(
     sort: str,
     page: int,
     per_page: int,
-    secret_phrase_used: bool,
+    **_retired,  # e.g. secret_phrase_used, from tasks queued before an update
 ):
     from redis import Redis
     from ..core.settings import get_settings
@@ -49,7 +49,6 @@ def refresh_manga_list_cache(
             sort=sort,
             page=page,
             per_page=per_page,
-            secret_phrase_used=secret_phrase_used,
         )
 
         payload = {"data": data, "_expires_at": time.time() + ttl}

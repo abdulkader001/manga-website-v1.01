@@ -14,7 +14,7 @@ Everything not listed here stays in ``.env`` -- by design, not omission:
 * keys and admin identity (``INTEGRATIONS_SECRET`` -- the vault's own key --
   ``SECRET_KEY``, ``JWT_SECRET_KEY``, ``MAGIC_LINK_SECRET``,
   ``EMAIL_ENCRYPTION_KEY``, ``EMAIL_HASH_SECRET``, ``MAIN_ADMIN_EMAIL_HASH``,
-  ``ADMIN_2FA_REQUIRED``, ``ADMIN_PROMOTION_*``);
+  ``MAIN_ADMIN_PASSWORD_HASH``);
 * anything that is a program or file path the server executes or writes to
   (``OCR_SERVICE_TESSERACT_CMD``, upload/backup directories), so a database
   write can never become code execution;

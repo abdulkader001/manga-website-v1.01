@@ -55,7 +55,7 @@ export default function AdminSecurity() {
             <p className="text-xs text-[#8b93a3]">
               This site requires it for main admins, so it cannot be turned off here.
               {status.managed_by_admin_sign_in &&
-                " Lost your phone? Reset it on the server with cli_bootstrap reset-2fa (GUIDE.md section 6)."}
+                " Lost your phone? Reset it on the server (guide: \"Lost your phone\")."}
             </p>
           ) : (
             <CodeForm

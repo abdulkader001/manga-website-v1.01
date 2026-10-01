@@ -1,7 +1,6 @@
 """Service helpers for the FastAPI backend."""
 
 from . import (
-    admin_bootstrap,
     ads_config_service,
     audit_service,
     config_manager,
@@ -18,7 +17,6 @@ from . import (
 )
 
 __all__ = [
-    "admin_bootstrap",
     "ads_config_service",
     "audit_service",
     "config_manager",

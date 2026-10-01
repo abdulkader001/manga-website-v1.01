@@ -7,8 +7,8 @@ codes an authenticator app shows) on top of that:
 * An admin enrols an authenticator app (``setup`` then ``enable``).
 * From then on, admin routes also need a short-lived *step-up* cookie, which
   the admin gets by entering a current code (``verify``).
-* ``ADMIN_2FA_REQUIRED=true`` makes it mandatory for main admins: without
-  enrolment they can only reach the enrolment endpoints.
+* Once the one-time Admin sign-in is set up or used, it is mandatory for the
+  main admin, and enrolled only through that sign-in (``admin_login.py``).
 
 Standard library only; the secret is encrypted at rest like OAuth tokens.
 """

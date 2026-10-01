@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Ensure admin bootstrap tables are pre-seeded for FastAPI deployments."""
+"""Create the singleton system_state row after migrations (run by the migrate job)."""
 
 from __future__ import annotations
 
@@ -20,18 +20,13 @@ if str(ROOT) not in sys.path:
 
 
 def main() -> None:
-    from backend_fastapi.app.services.admin_bootstrap import (
-        ensure_bootstrap_state_initialized,
-    )
     from backend_fastapi.app.services.system_state import (
         ensure_system_state_initialized,
     )
 
     logger.info("Ensuring system_state singleton row exists")
     ensure_system_state_initialized()
-    logger.info("Ensuring admin_bootstrap_state reflects configured secret")
-    ensure_bootstrap_state_initialized()
-    logger.info("Bootstrap state ready")
+    logger.info("System state ready")
 
 
 if __name__ == "__main__":

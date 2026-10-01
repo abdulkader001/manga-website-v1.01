@@ -64,19 +64,19 @@ def _clear_system_state() -> None:
 
 
 def test_read_only_helper_does_not_create_the_row(fastapi_app) -> None:
-    """``is_secret_phrase_used`` must never insert — it runs on read sessions.
+    """``get_system_state`` must never insert — it runs on read sessions.
 
     Takes ``fastapi_app`` purely so the schema exists; the helper itself is
     exercised directly against a session.
     """
 
-    from backend_fastapi.app.services.system_state import is_secret_phrase_used
+    from backend_fastapi.app.services.system_state import get_system_state
 
     _clear_system_state()
 
     session = SessionLocal()
     try:
-        assert is_secret_phrase_used(session) is False
+        assert get_system_state(session) is None
         # A creating helper would leave a pending INSERT on this session; on
         # PostgreSQL that is precisely the lock that deadlocks the request.
         assert not session.new, (
@@ -114,7 +114,8 @@ def test_manga_list_serves_with_no_system_state_row(fastapi_app) -> None:
     assert response.status_code == 200, (
         f"GET /api/v1/manga/ returned {response.status_code}: {response.text}"
     )
-    assert response.json().get("secret_phrase_used") is False
+    # The retired secret-phrase flag is no longer read or reported at all.
+    assert "secret_phrase_used" not in response.json()
 
 
 def test_manga_browse_serves_with_no_system_state_row(fastapi_app) -> None:
@@ -130,26 +131,6 @@ def test_manga_browse_serves_with_no_system_state_row(fastapi_app) -> None:
     assert response.status_code == 200, (
         f"GET /api/v1/manga/browse returned {response.status_code}: "
         f"{response.text}"
-    )
-
-
-def test_manga_list_still_reports_secret_phrase_used(fastapi_app) -> None:
-    """Reading the flag must still work — the fix must not simply drop it."""
-
-    session = SessionLocal()
-    try:
-        session.query(SystemState).delete()
-        session.add(SystemState(id=1, secret_phrase_used=True))
-        session.commit()
-    finally:
-        session.close()
-
-    with TestClient(fastapi_app) as client:
-        response = client.get("/api/v1/manga/", params={"q": "f63-flag-true"})
-
-    assert response.status_code == 200
-    assert response.json().get("secret_phrase_used") is True, (
-        "secret_phrase_used was not reported from an existing system_state row"
     )
 
 

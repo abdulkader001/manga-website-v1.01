@@ -61,17 +61,6 @@ def get_system_state(session: Session) -> SystemState | None:
     return session.query(SystemState).first()
 
 
-def is_secret_phrase_used(session: Session) -> bool:
-    """Report whether the bootstrap secret phrase has been consumed.
-
-    Safe on a read-only session: never creates the singleton row. A missing row
-    means bootstrap has not happened, so the phrase cannot have been used.
-    """
-
-    state = get_system_state(session)
-    return bool(state is not None and state.secret_phrase_used)
-
-
 def ensure_system_state_initialized() -> None:
     """Ensure the singleton row exists at application startup."""
 
@@ -84,5 +73,4 @@ __all__ = [
     "get_db_session",
     "get_or_create_system_state",
     "get_system_state",
-    "is_secret_phrase_used",
 ]

@@ -2276,7 +2276,7 @@ def demote_user(
 
 # NOTE (SRS 1F.2.4): there is intentionally NO endpoint that assigns the
 # Permanent Administrator role. The role is bound exclusively from deployment
-# configuration on first login (1F.2.3, admin_bootstrap); no in-application
+# configuration by the one-time Admin sign-in (1F.2.3, admin_login.py); no in-application
 # path exists — not admin-only, not hidden, not behind a flag. A former
 # POST /admin/permanent/{user_id} endpoint was removed for this reason.
 

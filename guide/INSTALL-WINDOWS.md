@@ -1,0 +1,314 @@
+# Install on Windows 10 / 11
+
+From an empty Windows PC to a running site with you signed in as the admin.
+Every command is typed in **PowerShell**; you don't need Linux, WSL commands
+or Python yourself (Docker runs those parts).
+
+Time: about 40 minutes, most of it installing Docker and the first build.
+You need: Windows 10 (22H2) or 11, 8 GB RAM (16 GB is more comfortable),
+40 GB free disk, internet, and a phone with an authenticator app (Google
+Authenticator, Microsoft Authenticator, Aegis…).
+
+> **How to read this guide.** Grey boxes are commands. Open PowerShell (Start
+> menu → type *PowerShell* → **Windows PowerShell**). Copy one box at a time,
+> paste it with a **right-click** (or Ctrl + V), press **Enter**, and wait
+> until the prompt `PS C:\…>` comes back before the next one. Lines starting
+> with `#` are explanations; PowerShell ignores them.
+
+**Already installed, and the admin password "doesn't work"?** Go to
+[Step 6](#step-6--make-your-one-time-admin-password).
+
+---
+
+## Step 1 — Install Git and Docker Desktop
+
+In PowerShell:
+
+```powershell
+winget install -e --id Git.Git
+```
+
+```powershell
+winget install -e --id Docker.DockerDesktop
+```
+
+Accept the prompts. (No `winget`? Download them by hand:
+<https://git-scm.com/download/win> and
+<https://www.docker.com/products/docker-desktop/>. Use the default options.)
+
+**Restart the PC.**
+
+After the restart:
+
+1. Start **Docker Desktop** from the Start menu. Accept the terms. If it asks
+   to install or update **WSL**, say yes and let it finish (it may ask for one
+   more restart).
+2. Wait until the bottom-left of the Docker window says **Engine running**.
+3. Docker Desktop → ⚙ **Settings → Resources**: at least **4 GB memory** if
+   that option is shown. *Apply & restart*.
+
+Close PowerShell and open a **new** PowerShell window (so it finds `git`), then
+check:
+
+```powershell
+git --version
+docker --version
+docker compose version
+docker run --rm hello-world
+```
+
+You should see version numbers and "Hello from Docker!".
+
+> *"error during connect"* or *"cannot find the file specified"* → Docker
+> Desktop isn't running yet. Start it and wait for **Engine running**.
+> *"Virtualization must be enabled"* → turn on *Intel VT-x / AMD-V (SVM)* in
+> the PC's BIOS/UEFI settings, then start Docker again.
+
+---
+
+## Step 2 — Download the website
+
+```powershell
+# Keep Linux line endings: the site's scripts run inside Linux containers
+git config --global core.autocrlf false
+```
+
+```powershell
+cd $HOME
+git clone https://github.com/abdulkader001/manga-website-v1.01.git
+cd manga-website-v1.01
+```
+
+Every command from now on runs **inside this folder**
+(`C:\Users\<you>\manga-website-v1.01`). In a new PowerShell window, first run
+`cd $HOME\manga-website-v1.01`.
+
+---
+
+## Step 3 — Create the settings file (`.env`)
+
+One command creates `.env` with new random secret keys and matching
+database/Redis passwords. It runs in a throw-away Docker container:
+
+```powershell
+docker run --rm -v "${PWD}:/w" -w /w python:3.11-slim python backend_fastapi/scripts/make_env.py --local
+```
+
+It prints `Created /w/.env with new random secrets.` (`/w` is your project
+folder as the container sees it.) `--local` means "this PC, plain
+`http://localhost`". For a public server with a domain, use a Linux server and
+the [Linux guide](INSTALL-LINUX.md).
+
+To look at or edit `.env`:
+
+```powershell
+notepad .env
+```
+
+**Back up `.env` now** (password manager or a USB stick). Two keys in it,
+`EMAIL_ENCRYPTION_KEY` and `INTEGRATIONS_SECRET`, unlock data in the
+database. Lose them and that data can't be read again.
+
+> It says *".env already exists, so nothing was changed"*? Keep the one you
+> have, unless the site has never worked and you want to start clean: see
+> [Start again from zero](#start-again-from-zero).
+
+---
+
+## Step 4 — Build and start the site
+
+```powershell
+docker compose up -d --build
+```
+
+The first time this takes 5–20 minutes. Then watch until everything is up:
+
+```powershell
+docker compose ps
+```
+
+Wait until the services say `running` or `healthy` (run it again every minute
+or so). `manga-stack-migrate` shows *exited (0)*: correct, it sets up the
+database once and stops. You can also watch the containers in the Docker
+Desktop window.
+
+If something says `restarting` or `exited (1)`:
+
+```powershell
+docker compose logs --tail 50 backend
+docker compose logs --tail 50 manga-stack-migrate
+```
+
+and see [Troubleshooting](#troubleshooting).
+
+---
+
+## Step 5 — Check the site works
+
+```powershell
+curl.exe http://localhost:8000/healthz
+```
+
+should print `{"ok":true}` (type `curl.exe`, not `curl`). Then open
+<http://localhost:8080> in Edge or Chrome. You should see the (empty) home
+page.
+
+---
+
+## Step 6 — Make your one-time admin password
+
+This writes two lines into `.env`: a hash of your e-mail and a hash of a
+one-time password. Copy the whole line; it is long:
+
+```powershell
+docker run --rm -it -v "${PWD}:/w" -w /w python:3.11-slim sh -c "pip install -q --disable-pip-version-check --root-user-action=ignore 'cryptography>=45' && python backend_fastapi/scripts/make_admin_hash.py --write .env"
+```
+
+It asks:
+
+1. **Admin e-mail:** your site-owner e-mail.
+2. **One-time admin password:** at least 12 characters. **Nothing appears
+   while you type; that is normal.** Press Enter. (Pasting works with a
+   right-click, also invisibly.) Or press Enter without typing and it makes a
+   strong password and shows it once. Write it down.
+3. **Type it again.**
+
+It ends with `Done: both lines are now in .env (old ones replaced).`
+
+> Type the password **only** at this prompt, never inside a command. Then
+> characters like `#`, `$` or `&` in it can't be misread by PowerShell.
+
+Now **recreate** the containers so they read the new `.env`:
+
+```powershell
+docker compose up -d --force-recreate
+```
+
+> ⚠ `docker compose restart` (or the restart button in Docker Desktop) is
+> **not** enough. It keeps the old settings; only `up -d --force-recreate`
+> reads `.env` again. This is the most common reason a correct password
+> "doesn't work".
+
+After about 30 seconds, check the server sees the lines:
+
+```powershell
+docker compose exec backend python -m backend_fastapi.scripts.cli_bootstrap admin-status
+```
+
+You want `MAIN_ADMIN_EMAIL_HASH: set`, `MAIN_ADMIN_PASSWORD_HASH: set` and
+`/admin-login: OPEN`.
+
+**Why the old lines failed (if you made some before):** they were full of `$`
+signs, and Docker Compose deletes `$something` from `.env` unless the line is
+quoted exactly right. The new lines start with `a2:` and contain no `$`, so
+nothing can damage them. And the old page greyed out **Continue** whenever
+the server couldn't see the lines; the new one doesn't.
+
+---
+
+## Step 7 — Sign in as the admin (once)
+
+1. Open <http://localhost:8080/admin-login>.
+2. Type your **e-mail** and the **one-time password** → **Continue**.
+3. The page shows a **setup key**. In the authenticator app on your phone:
+   **+** → **Enter a setup key** → any account name (e.g. *Manga admin*), the
+   key, *Time based*.
+4. Type the **6-digit code** from the app → **Sign in**.
+
+The first time, the site asks you to **complete your profile** (display
+name, username, birth date), like every new account. Fill it in and press
+**Enter Manga World**. Then you land on the admin panel (`/admin`). You are the main admin now, and
+**the sign-in page is gone**: `/admin-login` shows *Page Not Found*, and
+
+```powershell
+docker compose exec backend python -m backend_fastapi.scripts.cli_bootstrap admin-status
+```
+
+says `CLOSED -- the one-time password was used`.
+
+Optional tidy-up: `notepad .env`, delete the line starting
+`MAIN_ADMIN_PASSWORD_HASH=`, save, then `docker compose up -d --force-recreate`.
+Keep the `MAIN_ADMIN_EMAIL_HASH` line.
+
+---
+
+## Step 8 — Set up normal sign-in
+
+From now on you sign in like readers: **magic link** by e-mail, **Google** or
+**Microsoft**. Set them up in **Admin → Secret Vault** (it asks for your
+authenticator code). E-mail needs your mail provider's SMTP settings; Google
+and Microsoft: [`GOOGLE_LOGIN_SETUP.md`](../GOOGLE_LOGIN_SETUP.md) and
+[`GUIDE.md` §3.5](../GUIDE.md#35-optional-features-leave-blank-to-disable).
+
+**Until e-mail is set up**, get a sign-in link straight from the server:
+
+```powershell
+docker compose exec backend python -m backend_fastapi.scripts.cli_bootstrap login-link --email you@example.com
+```
+
+and open the printed link. (Magic links requested on the site are printed in
+`docker compose logs -f celery_worker_email` until SMTP is set.)
+
+---
+
+## Step 9 — Everyday commands
+
+| Want to | Command |
+| --- | --- |
+| See what is running | `docker compose ps` |
+| Stop the site (data is kept) | `docker compose down` |
+| Start it again | `docker compose up -d` (Docker Desktop must be running) |
+| Apply a change you made in `.env` | `docker compose up -d --force-recreate` |
+| Watch the API log | `docker compose logs -f backend` (Ctrl + C to stop) |
+| Update to a new version | [`GUIDE.md` §12](../GUIDE.md#12-updating-safely-and-rolling-back) (backup first) |
+
+To have the site come back after a reboot: Docker Desktop → Settings →
+General → **Start Docker Desktop when you sign in**.
+
+---
+
+## Lost your phone, or locked out
+
+```powershell
+docker compose exec backend python -m backend_fastapi.scripts.cli_bootstrap reset-2fa --email you@example.com
+```
+
+then **Step 6** again (new one-time password) and **Step 7** (sets up the new
+phone). Only signed out? Use `login-link` from Step 8 instead.
+
+---
+
+## Troubleshooting
+
+| What you see | What to do |
+| --- | --- |
+| `/admin-login` shows **Page Not Found** before you ever signed in | Run `admin-status` (Step 6). *"not set"* → run `docker compose up -d --force-recreate` (not restart). *"DAMAGED"* → redo Step 6. |
+| `/admin-login` shows **Page Not Found** after you signed in | Correct: it is gone after one use. Sign in with magic link / Google / `login-link`. |
+| **"Email, password or code is not right."** | Test `.env`: `docker run --rm -it -v "${PWD}:/w" -w /w python:3.11-slim sh -c "pip install -q --root-user-action=ignore 'cryptography>=45' && python backend_fastapi/scripts/make_admin_hash.py --check .env"`. It says whether the e-mail and password match. If not, redo Step 6. Check Caps Lock and the keyboard language (Alt + Shift switches it). |
+| **"Too many requests"** | Ten wrong tries lock the page for 15 minutes. Wait. |
+| Authenticator code refused | Phone clock is off: turn on automatic date & time, then use a fresh code. |
+| Closed the browser at the setup-key step | No harm; the password is used up only when the code is accepted. Start Step 7 again. |
+| Admin pages say **"Set up your authenticator app"** | Do Step 6 + Step 7. |
+| `exec … no such file or directory` or `\r: not found` in a container log | The files were downloaded with Windows line endings. Delete the folder, run the `git config` line from Step 2, and clone again. |
+| `error during connect` / `cannot find the file specified` | Docker Desktop isn't running. Start it, wait for **Engine running**. |
+| `invalid reference format` or `/w` errors in `docker run` | Run it from PowerShell (not *cmd*), inside the project folder, and copy the line exactly, including the double quotes around `${PWD}:/w`. |
+| `Set EMAIL_ENCRYPTION_KEY to a Fernet key` | No `.env`, or wrong folder: `cd $HOME\manga-website-v1.01`, then Step 3. |
+| `password authentication failed` (database) | `.env` passwords differ from the ones the database was created with. Nothing to keep yet? [Start again from zero](#start-again-from-zero). |
+| `port is already allocated` | Another program uses 8080 or 8000. Close it, or change the left number of `ports:` in `docker-compose.yml`. |
+| Build is very slow | Normal on the first build. Keep the PC plugged in; give Docker more memory if Settings → Resources allows. |
+| Anything else | `docker compose logs --tail 100 backend` and [`GUIDE.md` §10](../GUIDE.md#10-troubleshooting). |
+
+---
+
+## Start again from zero
+
+Only when nothing on the site is worth keeping. This deletes the database,
+images and settings file:
+
+```powershell
+cd $HOME\manga-website-v1.01
+docker compose down -v
+Remove-Item .env
+```
+
+Then continue from [Step 3](#step-3--create-the-settings-file-env).

@@ -1,205 +1,79 @@
+"""Public system-state routes, and the retired admin-promotion paths."""
+
 from __future__ import annotations
 
-import pytest
+import os
 
+from cryptography.hazmat.primitives.kdf.argon2 import Argon2id
+
+from backend_fastapi.app.core import admin_identity
 from backend_fastapi.app.core.db import SessionLocal
-from backend_fastapi.app.models import (
-    AdminAuditLog,
-    AdminBootstrapState,
-    AdminPromotionToken,
-    SystemState,
-    User,
-    UserRole,
-)
 from backend_fastapi.app.core.security import create_access_token
-from backend_fastapi.app.services import admin_bootstrap
+from backend_fastapi.app.core.settings import settings
+from backend_fastapi.app.models import User, UserRole
+from backend_fastapi.app.services.auth_service import ensure_magic_link_user
+from _support.db_reset import clear_users
 
 
-def _create_user(session: SessionLocal, *, email: str = "secret@example.com") -> User:
-    user = User(
-        email=email,
-        is_active=True,
-        name="Secret User",
-        provider="magic_link",
-    )
-    session.add(user)
-    session.commit()
-    session.refresh(user)
-    return user
+def _phc(value: str) -> str:
+    kdf = Argon2id(salt=os.urandom(16), length=32, iterations=1, lanes=1, memory_cost=8)
+    return kdf.derive_phc_encoded(value.encode("utf-8"))
 
 
-def _reset_state(session: SessionLocal) -> None:
-    session.query(AdminBootstrapState).delete()
-    session.query(SystemState).delete()
-    session.query(AdminPromotionToken).delete()
-    # admin_audit_logs is append-only (F-3): rows from earlier tests are
-    # never cleared. Assertions below pick the most recent matching row by
-    # id rather than assuming the table starts empty.
-    session.commit()
+def test_no_admin_hash_hardcoded_in_source():
+    with open(admin_identity.__file__, "r", encoding="utf-8") as handle:
+        assert "$argon2id$" not in handle.read()
 
 
-def _issue_token(session: SessionLocal, *, ttl_seconds: int | None = None) -> str:
-    token_value = admin_bootstrap.issue_admin_token(
-        ttl_seconds=ttl_seconds, session=session
-    )
-    session.commit()
-    return token_value
+def test_signing_in_with_the_owner_email_never_promotes(fastapi_app, monkeypatch):
+    # The owner's e-mail alone (Google, Microsoft, magic link) is never enough:
+    # only the one-time Admin sign-in makes the main admin. Old .env files may
+    # still carry MAIN_ADMIN_AUTO_PROMOTE_ENABLED=true; it is ignored.
+    monkeypatch.setattr(settings, "main_admin_email_hash", _phc("root@example.com"), raising=False)
+    monkeypatch.setenv("MAIN_ADMIN_AUTO_PROMOTE_ENABLED", "true")
+    with SessionLocal() as session:
+        clear_users(session)
+        user = ensure_magic_link_user(session, "root@example.com")
+        session.refresh(user)
+        assert user.role == UserRole.USER
+        assert not user.is_main_admin
 
 
-def test_admin_token_endpoint_promotes_user(fastapi_client, monkeypatch):
-    monkeypatch.setenv("ADMIN_PROMOTION_SECRET", "galaxy-key")
-
-    session = SessionLocal()
-    try:
-        _reset_state(session)
-        user = _create_user(session)
-        token_value = _issue_token(session)
-    finally:
-        session.close()
-
-    token = create_access_token(str(user.id))
-    headers = {"Authorization": f"Bearer {token}"}
-
-    response = fastapi_client.post(
-        "/api/system/admin-token/redeem",
-        json={"token": token_value},
-        headers=headers,
-    )
-    assert response.status_code == 200
-    payload = response.json()
-    assert payload["success"] is True
-    assert payload["system_state"]["secret_phrase_used"] is True
-
-    session = SessionLocal()
-    try:
-        db_user = session.get(User, user.id)
-        assert db_user is not None
-        assert db_user.is_main_admin is True
-        assert db_user.is_secondary_admin is True
-        assert db_user.role in {UserRole.ADMIN, UserRole.PERMANENT}
-        state = session.query(SystemState).first()
-        assert state is not None
-        audit_entry = (
-            session.query(AdminAuditLog)
-            .filter(AdminAuditLog.action == "admin_token.redeem")
-            .order_by(AdminAuditLog.id.desc())
-            .first()
-        )
-        assert audit_entry is not None
-        assert audit_entry.user_id == db_user.id
-        token_row = session.query(AdminPromotionToken).first()
-        assert token_row is not None
-        assert token_row.redeemed_by_user_id == db_user.id
-    finally:
-        session.close()
-
-
-def test_admin_token_endpoint_rejects_after_consumption(fastapi_client, monkeypatch):
-    monkeypatch.setenv("ADMIN_PROMOTION_SECRET", "reuse-lock")
-
-    session = SessionLocal()
-    try:
-        _reset_state(session)
-        user = _create_user(session, email="reuse@example.com")
-        token_value = _issue_token(session)
-    finally:
-        session.close()
-
-    token = create_access_token(str(user.id))
-    headers = {"Authorization": f"Bearer {token}"}
-
-    first = fastapi_client.post(
-        "/api/system/admin-token/redeem",
-        json={"token": token_value},
-        headers=headers,
-    )
-    assert first.status_code == 200
-    assert first.json()["success"] is True
-
-    second = fastapi_client.post(
-        "/api/system/admin-token/redeem",
-        json={"token": token_value},
-        headers=headers,
-    )
-    assert second.status_code == 200
-    payload = second.json()
-    assert payload["success"] is False
-    assert "already" in payload["message"].lower()
-
-    session = SessionLocal()
-    try:
-        token_row = session.query(AdminPromotionToken).first()
-        assert token_row is not None
-        assert token_row.redeemed_by_user_id == user.id
-        assert token_row.redeemed_at is not None
-        state = session.query(SystemState).first()
-        assert state is not None
-        assert state.secret_phrase_used is True
-    finally:
-        session.close()
-
-
-def test_issue_admin_token_rejected_once_bootstrap_initialized(monkeypatch):
-    """#11: issue_admin_token must refuse to mint a new bootstrap token once
-    the system already has a main admin (state.admin_initialized is True),
-    instead of silently minting a live token nobody asked for."""
-    monkeypatch.setenv("ADMIN_PROMOTION_SECRET", "already-initialized-key")
-
-    session = SessionLocal()
-    try:
-        _reset_state(session)
-        user = _create_user(session, email="already-bootstrapped@example.com")
-        token_value = _issue_token(session)
-    finally:
-        session.close()
-
-    session = SessionLocal()
-    try:
-        admin_bootstrap.redeem_admin_token(user, token_value, session=session)
-    finally:
-        session.close()
-
-    session = SessionLocal()
-    try:
-        state = session.query(AdminBootstrapState).first()
-        assert state is not None
-        assert state.admin_initialized is True
-
-        with pytest.raises(admin_bootstrap.AdminAlreadyInitialized):
-            admin_bootstrap.issue_admin_token(session=session)
-
-        # No new token was persisted by the refused call.
-        assert session.query(AdminPromotionToken).count() == 1
-    finally:
-        session.close()
-
-
-def test_system_state_and_health_endpoints(fastapi_client):
-    session = SessionLocal()
-    try:
-        _reset_state(session)
-        state = SystemState(
-            secret_phrase_used=True, main_admin_email="root@example.com"
-        )
-        session.add(state)
+def test_retired_promotion_endpoints_are_gone(fastapi_client):
+    with SessionLocal() as session:
+        user = User(email="someone@example.com", is_active=True, provider="magic_link")
+        session.add(user)
         session.commit()
-    finally:
-        session.close()
+        uid = user.id
+    headers = {"Authorization": f"Bearer {create_access_token(str(uid))}"}
+    resp = fastapi_client.post("/api/system/admin-token/redeem", json={"token": "x"}, headers=headers)
+    assert resp.status_code in {404, 405}
+    assert fastapi_client.get("/api/system/bootstrap", headers=headers).status_code == 404
 
-    state_response = fastapi_client.get("/api/system/state")
-    assert state_response.status_code == 200
-    body = state_response.json()
-    assert body["secret_phrase_used"] is True
-    # H4: the public /system/state route must never leak decrypted PII.
-    assert "main_admin_email" not in body
-    assert body["admin_configured"] is True
 
-    health_response = fastapi_client.get("/api/system/health")
-    assert health_response.status_code == 200
-    health = health_response.json()
+def test_state_and_health_on_a_fresh_install(fastapi_client):
+    with SessionLocal() as session:
+        clear_users(session)
+    state = fastapi_client.get("/api/system/state")
+    assert state.status_code == 200
+    assert state.json() == {"admin_configured": False}
+    health = fastapi_client.get("/api/system/health").json()
+    # Healthy before the owner has signed in (the old secret-phrase flag kept
+    # this false for ever on installs set up through Admin sign-in).
     assert health["ok"] is True
     assert health["checks"]["database"] is True
-    assert health["checks"]["secret_phrase_used"] is True
-    # H4: the public /system/health route must never leak decrypted PII.
+    assert health["checks"]["admin_configured"] is False
+
+
+def test_state_and_health_after_the_owner_signed_in(fastapi_client):
+    with SessionLocal() as session:
+        clear_users(session)
+        session.add(
+            User(email="root@example.com", is_active=True, provider="magic_link", is_main_admin=True)
+        )
+        session.commit()
+    body = fastapi_client.get("/api/system/state").json()
+    assert body == {"admin_configured": True}  # never who the admin is
+    health = fastapi_client.get("/api/system/health").json()
+    assert health["ok"] is True and health["checks"]["admin_configured"] is True
     assert "main_admin_email" not in health["checks"]
-    assert health["checks"]["admin_configured"] is True

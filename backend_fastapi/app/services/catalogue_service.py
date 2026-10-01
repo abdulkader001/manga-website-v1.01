@@ -144,7 +144,6 @@ def build_list_payload(
     sort: str,
     page: int,
     per_page: int,
-    secret_phrase_used: bool,
 ) -> Dict[str, Any]:
     include_genres = normalize_multi(include)
     exclude_genres = normalize_multi(exclude)
@@ -169,7 +168,6 @@ def build_list_payload(
         "per_page": per_page,
         "genres": _genres(db),
         "cache_hit": False,
-        "secret_phrase_used": secret_phrase_used,
     }
 
 

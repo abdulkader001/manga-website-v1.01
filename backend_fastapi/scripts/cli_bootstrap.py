@@ -1,23 +1,26 @@
-"""Command-line helpers for admin bootstrap workflows."""
+"""Server-side admin commands.
+
+Run from the project folder, e.g. ``python -m backend_fastapi.scripts.cli_bootstrap
+admin-status`` (inside Docker: ``docker compose exec backend python -m ...``).
+Having a shell on the server is the proof of ownership for all of them.
+"""
 
 from __future__ import annotations
 
 import logging
 from contextlib import contextmanager
-from typing import Iterator, Optional
+from typing import Iterator
 
 import click
-
-from backend_fastapi.app.core.db import SessionLocal
-from backend_fastapi.app.models import User
-from backend_fastapi.app.services import admin_bootstrap
-from backend_fastapi.app.utils.email_crypto import hash_email, normalize_email
 
 logger = logging.getLogger(__name__)
 
 
 @contextmanager
 def session_scope() -> Iterator:
+    # Imported here so `admin-hashes` works before the database or .env exist.
+    from backend_fastapi.app.core.db import SessionLocal
+
     session = SessionLocal()
     try:
         yield session
@@ -29,91 +32,67 @@ def session_scope() -> Iterator:
         session.close()
 
 
-def _resolve_user(session, *, user_id: Optional[int], email: Optional[str]) -> User:
-    if user_id is not None:
-        user = session.get(User, int(user_id))
-        if user is None:
-            raise click.ClickException(f"User with id={user_id} not found")
-        return user
-    if email:
-        normalized = normalize_email(email)
-        if not normalized:
-            raise click.ClickException("Email address could not be normalized")
-        email_hash = hash_email(normalized)
-        if not email_hash:
-            raise click.ClickException("Failed to hash normalized email")
-        user = session.query(User).filter(User.email_hash == email_hash).first()
-        if user is None:
-            raise click.ClickException(f"User with email={normalized} not found")
-        return user
-    raise click.ClickException("Provide either --user-id or --email")
+def _resolve_user(session, email: str):
+    from backend_fastapi.app.models import User
+    from backend_fastapi.app.utils.email_crypto import hash_email, normalize_email
+
+    normalized = normalize_email(email)
+    if not normalized:
+        raise click.ClickException("Give a valid e-mail address")
+    user = session.query(User).filter(User.email_hash == hash_email(normalized)).first()
+    if user is None:
+        raise click.ClickException(f"No account with e-mail {normalized}")
+    return user
 
 
 @click.group()
 def cli() -> None:
-    """Admin bootstrap utilities."""
+    """Admin server commands."""
 
 
-@cli.command("issue-admin-token")
-@click.option(
-    "--user-id", type=int, default=None, help="Associate token with a specific user id"
-)
-@click.option(
-    "--email", type=str, default=None, help="Associate token with a normalized email"
-)
-@click.option("--ttl", type=int, default=None, help="Override token TTL in seconds")
-@click.option(
-    "--operator", type=str, default="cli", help="Label recorded in audit logs"
-)
-def issue_admin_token(
-    user_id: Optional[int], email: Optional[str], ttl: Optional[int], operator: str
-) -> None:
-    """Generate a one-time admin promotion token."""
+@cli.command("admin-hashes")
+def admin_hashes() -> None:
+    """Print the two .env lines for the one-time Admin sign-in (/admin-login).
 
-    issued_to_user_id = None
-    with session_scope() as session:
-        if user_id is not None or email:
-            user = _resolve_user(session, user_id=user_id, email=email)
-            issued_to_user_id = user.id
-            click.echo(f"Issuing token for user_id={user.id}")
+    Same as `python backend_fastapi/scripts/make_admin_hash.py`.
+    """
+
+    from backend_fastapi.scripts import make_admin_hash
+
+    make_admin_hash.main([])
+
+
+@cli.command("admin-status")
+def admin_status() -> None:
+    """Is the one-time Admin sign-in page open, used up, or broken?"""
+
+    from backend_fastapi.app.core.admin_identity import (
+        get_main_admin_email_hash,
+        get_main_admin_password_hash,
+    )
+    from backend_fastapi.app.api.routers.admin_login import setup_page_open, password_used
+
+    email_hash = get_main_admin_email_hash()
+    password_hash = get_main_admin_password_hash()
+    for name, value in (
+        ("MAIN_ADMIN_EMAIL_HASH", email_hash),
+        ("MAIN_ADMIN_PASSWORD_HASH", password_hash),
+    ):
+        if not value:
+            click.echo(f"{name}: not set (the server does not see it -- restart after editing .env)")
+        elif not value.startswith("$argon2id$"):
+            click.echo(f"{name}: DAMAGED -- make new lines with admin-hashes")
         else:
-            click.echo("Issuing token without user binding")
-
-        token = admin_bootstrap.issue_admin_token(
-            operator_user_id=None,
-            operator_label=operator,
-            issued_to_user_id=issued_to_user_id,
-            ttl_seconds=ttl,
-            session=session,
-        )
-        click.echo("Admin promotion token:")
-        click.echo(token)
-
-
-@cli.command("promote-user")
-@click.option(
-    "--token", type=str, required=True, help="Admin promotion token to redeem"
-)
-@click.option("--user-id", type=int, default=None, help="User id to promote")
-@click.option("--email", type=str, default=None, help="User email to promote")
-@click.option(
-    "--source-ip", type=str, default="cli", help="Source IP recorded in audit log"
-)
-def promote_user(
-    token: str, user_id: Optional[int], email: Optional[str], source_ip: str
-) -> None:
-    """Redeem an admin token for a specific user."""
-
+            click.echo(f"{name}: set")
     with session_scope() as session:
-        user = _resolve_user(session, user_id=user_id, email=email)
-        click.echo(f"Redeeming token for user_id={user.id}")
-        try:
-            admin_bootstrap.redeem_admin_token(
-                user, token, source_ip=source_ip, session=session
-            )
-        except admin_bootstrap.AdminTokenError as exc:
-            raise click.ClickException(str(exc)) from exc
-        click.echo("User promoted to admin.")
+        used = password_used(session)
+        open_ = setup_page_open(session)
+    if open_:
+        click.echo("/admin-login: OPEN -- the one-time password has not been used yet.")
+    elif used:
+        click.echo("/admin-login: CLOSED -- the one-time password was used (page shows 'not found').")
+    else:
+        click.echo("/admin-login: CLOSED -- not set up (page shows 'not found').")
 
 
 @cli.command("login-link")
@@ -121,9 +100,9 @@ def promote_user(
 def login_link(email: str) -> None:
     """Print a one-time sign-in link, without sending any e-mail.
 
-    For the admin when Google/Microsoft sign-in or e-mail delivery is not set
-    up (or broken). Running it needs a shell on the server, which is the proof
-    of ownership. The link is single-use and expires like a normal magic link.
+    For when Google/Microsoft sign-in or e-mail delivery is not set up (or
+    broken). It is a normal session: admin pages still ask for the
+    authenticator code. Single use; expires like a normal magic link.
     """
 
     from backend_fastapi.app.core.settings import get_settings
@@ -131,6 +110,7 @@ def login_link(email: str) -> None:
         create_magic_login_token,
         ensure_magic_link_user,
     )
+    from backend_fastapi.app.utils.email_crypto import normalize_email
 
     normalized = normalize_email(email)
     if not normalized or "@" not in normalized:
@@ -145,49 +125,20 @@ def login_link(email: str) -> None:
     click.echo(f"Valid until {expires:%Y-%m-%d %H:%M} UTC, single use.")
 
 
-def _phc(value: str) -> str:
-    import os
-
-    from cryptography.hazmat.primitives.kdf.argon2 import Argon2id
-
-    kdf = Argon2id(salt=os.urandom(16), length=32, iterations=3, lanes=4, memory_cost=65536)
-    return kdf.derive_phc_encoded(value.encode("utf-8"))
-
-
-@cli.command("admin-hashes")
-@click.option("--email", type=str, prompt="Admin e-mail")
-@click.option(
-    "--password",
-    type=str,
-    prompt="Admin password (12+ characters)",
-    hide_input=True,
-    confirmation_prompt=True,
-)
-def admin_hashes(email: str, password: str) -> None:
-    """Print the two .env lines that set up Admin sign-in (/admin-login)."""
-
-    normalized = normalize_email(email)
-    if not normalized or "@" not in normalized:
-        raise click.ClickException("Give a valid e-mail address")
-    if len(password) < 12:
-        raise click.ClickException("Use at least 12 characters (a few words is easiest)")
-    click.echo("Add these two lines to .env (keep the single quotes), then restart:")
-    click.echo(f"MAIN_ADMIN_EMAIL_HASH='{_phc(normalized)}'")
-    click.echo(f"MAIN_ADMIN_PASSWORD_HASH='{_phc(password)}'")
-
-
 @cli.command("reset-2fa")
 @click.option("--email", type=str, required=True, help="Admin whose authenticator was lost")
 def reset_2fa(email: str) -> None:
-    """Remove an account's authenticator (lost phone). The next admin sign-in
-    enrols a new one."""
+    """Remove an account's authenticator (lost phone)."""
 
     from backend_fastapi.app.services import admin_second_factor
 
     with session_scope() as session:
-        user = _resolve_user(session, user_id=None, email=email)
+        user = _resolve_user(session, email)
         admin_second_factor.disable(session, user)
-    click.echo("Authenticator removed. Sign in at /admin-login to set up a new one.")
+    click.echo(
+        "Authenticator removed. Make a new one-time password (admin-hashes), put it in "
+        ".env, restart, and sign in at /admin-login to set up the new phone."
+    )
 
 
 if __name__ == "__main__":

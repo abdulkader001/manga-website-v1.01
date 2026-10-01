@@ -7,7 +7,6 @@ import uuid
 
 from backend_fastapi.app.core.db import SessionLocal
 from backend_fastapi.app.core.security import create_access_token
-from backend_fastapi.app.core.settings import settings
 from backend_fastapi.app.models import User, UserRole
 from backend_fastapi.app.services import admin_second_factor as sf
 
@@ -120,15 +119,22 @@ def test_step_up_cookie_of_another_admin_is_refused(fastapi_client):
     assert fastapi_client.get("/api/admin/cache", headers=stolen).status_code == 403
 
 
-def test_required_setting_holds_back_unenrolled_main_admin(fastapi_client, monkeypatch):
-    monkeypatch.setattr(settings, "admin_2fa_required", True)
+def test_admin_sign_in_holds_back_an_unenrolled_main_admin(fastapi_client, monkeypatch):
+    from backend_fastapi.app.core.settings import settings
+
+    monkeypatch.setattr(settings, "main_admin_email_hash", "set", raising=False)
+    monkeypatch.setattr(settings, "main_admin_password_hash", "set", raising=False)
     _, headers = _admin(main=True)
     resp = fastapi_client.get("/api/admin/cache", headers=headers)
     assert resp.status_code == 403
     assert resp.json()["error"]["details"]["reason"] == "enrolment_required"
-    # Enrolment endpoints stay reachable.
-    assert fastapi_client.get("/api/admin/2fa/status", headers=headers).json()["required"]
-    assert fastapi_client.post("/api/admin/2fa/setup", headers=headers).status_code == 200
+    status = fastapi_client.get("/api/admin/2fa/status", headers=headers).json()
+    assert status["required"] and status["managed_by_admin_sign_in"]
+    # The owner's authenticator is set up only by the one-time Admin sign-in,
+    # never from a session a stolen inbox could have produced.
+    setup = fastapi_client.post("/api/admin/2fa/setup", headers=headers)
+    assert setup.status_code == 403
+    assert setup.json()["error"]["details"]["reason"] == "managed_by_admin_sign_in"
 
 
 def test_non_admin_cannot_use_2fa_endpoints(fastapi_client, auth_headers):

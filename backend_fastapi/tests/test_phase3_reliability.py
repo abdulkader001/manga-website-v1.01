@@ -71,36 +71,6 @@ def test_translate_overlay_items_records_failures_and_keeps_original():
     assert items[1].get("translated") in (None, "boom")
 
 
-# ---- Item 22: /system/bootstrap exposes only a minimal boolean ----
-
-
-def _login(client, email: str) -> str:
-    request = client.post("/api/auth/request-magic-link", json={"email": email})
-    assert request.status_code == 200, request.text
-    token_value = request.json()["debug_token"]
-    consume = client.get(f"/api/auth/magic-link/{token_value}")
-    assert consume.status_code == 200, consume.text
-    return consume.json()["access_token"]
-
-
-def test_bootstrap_endpoint_returns_minimal_payload(fastapi_client):
-    token = _login(fastapi_client, "bootstrap-probe@example.com")
-    resp = fastapi_client.get(
-        "/api/system/bootstrap", headers={"Authorization": f"Bearer {token}"}
-    )
-    assert resp.status_code == 200
-    body = resp.json()
-    assert set(body.keys()) == {"admin_initialized"}
-    assert isinstance(body["admin_initialized"], bool)
-
-
-def test_bootstrap_endpoint_is_not_public(fastapi_client):
-    """F-77: an anonymous scanner must not learn that the instance is unclaimed."""
-
-    resp = fastapi_client.get("/api/system/bootstrap")
-    assert resp.status_code == 401
-
-
 # ---- Item 24: OAuth tokens are encrypted at rest ----
 
 

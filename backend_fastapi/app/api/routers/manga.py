@@ -23,7 +23,6 @@ from ...core.pagination import MAX_PAGE
 from ...dependencies.auth import get_optional_user
 from ...models import Chapter, ChapterLike, Manga, ReadHistory, User
 from ...services import catalogue_service, image_proxy
-from ...services.system_state import is_secret_phrase_used
 
 router = APIRouter(prefix="/manga", tags=["manga"])
 
@@ -77,7 +76,6 @@ async def _list_manga_impl(
 
     cache_key = f"manga_list:{q}:{type_}:{status_filter}:{genre}:{str(include)}:{str(exclude)}:{sort}:{page}:{per_page}"
     redis_client = getattr(request.app.state, "redis", None)
-    secret_phrase_used = is_secret_phrase_used(db)
 
     async def fetch_data():
         from backend_fastapi.app.utils.bounded_threadpool import run_in_db_threadpool
@@ -95,7 +93,6 @@ async def _list_manga_impl(
                     sort=sort,
                     page=page,
                     per_page=per_page,
-                    secret_phrase_used=secret_phrase_used,
                 )
 
         return await run_in_db_threadpool(_sync_fetch)
@@ -118,9 +115,6 @@ async def _list_manga_impl(
             "sort": sort,
             "page": page,
             "per_page": per_page,
-            # F-63: read-only. Evaluated eagerly on the request's own
-            # never-committed read session (see is_secret_phrase_used).
-            "secret_phrase_used": secret_phrase_used,
         },
     )
     if not (payload.get("cache_hit") is False and redis_client):

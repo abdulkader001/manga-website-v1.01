@@ -1,17 +1,20 @@
-"""Admin sign-in without Google, Microsoft or e-mail.
+"""One-time Admin sign-in for the site owner (/admin-login).
 
-The main admin proves who they are with three things, none of which is an
+The owner proves who they are once, with three things, none of which is an
 inbox or a Google account:
 
 1. the e-mail matching ``MAIN_ADMIN_EMAIL_HASH`` (in the server's ``.env``),
 2. the ONE-TIME password matching ``MAIN_ADMIN_PASSWORD_HASH`` (also only in
-   ``.env``); it is void after it signs the admin in once,
-3. a code from their authenticator app. On the very first sign-in the app is
-   enrolled right here, in the same flow, before any session is issued.
+   ``.env``),
+3. a code from their authenticator app, enrolled right here on that first
+   sign-in, before any session is issued.
 
-Someone who steals the admin's Gmail can sign in as a reader at most: admin
-features ask for the authenticator code, and the authenticator can only be
-set up or reset through this flow or on the server.
+After that first sign-in the page is gone: both endpoints answer 404, exactly
+like an address that never existed, and the site keeps no link to it. From
+then on the owner signs in like everyone else (Google, Microsoft, magic link)
+and admin pages ask for the authenticator code. The page only comes back if
+someone with a shell on the server puts a NEW password hash in ``.env``
+(lost phone / locked out) -- and that one also works once.
 """
 
 from __future__ import annotations
@@ -48,11 +51,6 @@ from .auth import _set_auth_cookies
 router = APIRouter(prefix="/auth/admin", tags=["auth"])
 
 _WRONG = "Email, password or code is not right."
-_USED = (
-    "This one-time admin password has already been used. Sign in with Google, "
-    "Microsoft or a magic link; admin pages ask for your authenticator code. "
-    "Locked out? Make a new one-time password on the server: cli_bootstrap admin-hashes."
-)
 
 
 def _fingerprint() -> Optional[str]:
@@ -60,10 +58,23 @@ def _fingerprint() -> Optional[str]:
     return hashlib.sha256(value.encode("utf-8")).hexdigest() if value else None
 
 
-def _password_used(db: Session) -> bool:
-    row = get_or_create_system_settings(db)
+def password_used(db: Session) -> bool:
+    """The password hash now in .env has already signed the admin in."""
+
     fp = _fingerprint()
-    return bool(fp) and row.admin_setup_password_used == fp
+    if not fp:
+        return False
+    row = db.query(SystemSettings).first()
+    return row is not None and row.admin_setup_password_used == fp
+
+
+def setup_page_open(db: Session) -> bool:
+    return admin_password_configured() and not password_used(db)
+
+
+def _gone() -> ApiError:
+    # Same answer as any address that does not exist: nothing to probe.
+    return ApiError(ErrorCode.NOT_FOUND, "Not found.")
 
 
 def _burn_password(db: Session) -> bool:
@@ -92,11 +103,11 @@ class AdminLoginPayload(BaseModel):
 
 @router.get("/status")
 def admin_login_status(db: Session = Depends(get_db)) -> Dict[str, Any]:
-    """Whether a one-time admin password is set up and still unused."""
+    """200 while the one-time page is open; 404 otherwise."""
 
-    configured = admin_password_configured()
-    used = configured and _password_used(db)
-    return {"enabled": configured and not used, "used": used}
+    if not setup_page_open(db):
+        raise _gone()
+    return {"open": True}
 
 
 def _promote(user: User) -> bool:
@@ -120,11 +131,8 @@ async def admin_login(
     payload: AdminLoginPayload,
     db: Session = Depends(get_db),
 ) -> Dict[str, Any]:
-    if not admin_password_configured():
-        raise ApiError(
-            ErrorCode.FORBIDDEN,
-            "Admin sign-in is not set up on this server (MAIN_ADMIN_PASSWORD_HASH).",
-        )
+    if not setup_page_open(db):
+        raise _gone()
     client = resolve_client_ip(request)
     await async_endpoint_limiter.check_limit(
         request, f"admin_login_ip:{client}", limit=10, window_seconds=900
@@ -139,9 +147,6 @@ async def admin_login(
     password_ok = verify_main_admin_password(payload.password)
     if not (email_ok and password_ok):
         raise ApiError(ErrorCode.UNAUTHENTICATED, _WRONG)
-    # Single use: once it has signed the admin in, this password is void.
-    if _password_used(db):
-        raise ApiError(ErrorCode.UNAUTHENTICATED, _USED, details={"reason": "password_used"})
 
     user = ensure_magic_link_user(db, normalize_email(payload.email))
     if not getattr(user, "is_active", True):
@@ -172,8 +177,9 @@ async def admin_login(
         if not second_factor.enable(db, user, code):
             raise ApiError(ErrorCode.UNAUTHENTICATED, _WRONG, field="code")
 
+    # Single use: from here on the page is gone (404) for this password.
     if not _burn_password(db):  # lost a race with another sign-in
-        raise ApiError(ErrorCode.UNAUTHENTICATED, _USED, details={"reason": "password_used"})
+        raise _gone()
     if _promote(user):
         db.commit()
     db.refresh(user)
