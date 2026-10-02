@@ -13,8 +13,7 @@ Everything not listed here stays in ``.env`` -- by design, not omission:
   ``TRUSTED_PROXY_CIDRS``, ``HSTS_*``, ``EXPOSE_API_DOCS``);
 * keys and admin identity (``INTEGRATIONS_SECRET`` -- the vault's own key --
   ``SECRET_KEY``, ``JWT_SECRET_KEY``, ``MAGIC_LINK_SECRET``,
-  ``EMAIL_ENCRYPTION_KEY``, ``EMAIL_HASH_SECRET``, ``MAIN_ADMIN_EMAIL_HASH``,
-  ``MAIN_ADMIN_PASSWORD_HASH``);
+  ``EMAIL_ENCRYPTION_KEY``, ``EMAIL_HASH_SECRET``, ``MAIN_ADMIN_EMAIL_HASH``);
 * anything that is a program or file path the server executes or writes to
   (``OCR_SERVICE_TESSERACT_CMD``, upload/backup directories), so a database
   write can never become code execution;
