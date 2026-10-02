@@ -54,7 +54,56 @@ def _sub_admin():
     return _user(role=UserRole.SECONDARY, is_main_admin=False, is_secondary_admin=True)
 
 
-def test_off_by_default_and_public_flag(fastapi_client):
+def _forget_the_settings_row():
+    session = SessionLocal()
+    try:
+        session.query(SystemSettings).delete()
+        session.commit()
+    finally:
+        session.close()
+
+
+def test_on_by_default_with_no_settings_row(fastapi_client, members_only_default):
+    # A brand-new site has no settings row yet: guests are still turned away.
+    _forget_the_settings_row()
+    assert fastapi_client.get("/api/v1/config/site-access").json() == {"loginRequired": True}
+    guest = fastapi_client.get("/api/v1/manga/")
+    assert guest.status_code == 401
+    assert guest.json()["error"]["code"] == "LOGIN_REQUIRED"
+    assert fastapi_client.get("/api/v1/manga/", headers=_user()).status_code == 200
+
+
+def test_a_new_settings_row_starts_with_it_on():
+    # The database default (not the Python-side one, which the shared fixtures
+    # switch off): a row inserted without the column comes out on.
+    from sqlalchemy import text
+
+    from backend_fastapi.app.models.settings import LOGIN_REQUIRED_DEFAULT
+
+    assert LOGIN_REQUIRED_DEFAULT is True
+    _forget_the_settings_row()
+    session = SessionLocal()
+    try:
+        session.execute(text("INSERT INTO system_settings (id) VALUES (1)"))
+        session.commit()
+        assert session.query(SystemSettings).first().login_required is True
+    finally:
+        session.close()
+
+
+def test_sign_in_and_admin_stay_reachable_by_default(fastapi_client, members_only_default):
+    _forget_the_settings_row()
+    assert fastapi_client.get("/api/v1/config/site-access").status_code == 200
+    assert fastapi_client.get("/api/v1/auth/options").status_code == 200
+    # The owner can still open Admin Settings and switch it off.
+    resp = fastapi_client.put(
+        "/api/v1/admin/config/access", headers=_main_admin(), json={"login_required": False}
+    )
+    assert resp.status_code == 200, resp.text
+    assert fastapi_client.get("/api/v1/manga/").status_code == 200
+
+
+def test_the_switch_reports_off_when_the_owner_turns_it_off(fastapi_client):
     assert fastapi_client.get("/api/v1/config/site-access").json() == {"loginRequired": False}
     assert fastapi_client.get("/api/v1/manga/").status_code == 200
 

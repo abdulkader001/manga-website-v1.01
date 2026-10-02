@@ -46,8 +46,10 @@ function SiteAccessCard() {
           <span>Sign-in required</span>
         </h2>
         <p className="text-[#8b93a3] mt-1">
-          When on, visitors must sign in before they can browse or read. The sign-in page and the admin
-          area are never locked, so you can always get back in. Only the main admin can change this.
+          On by default: visitors must sign in (Google, Microsoft or an e-mail link) before they can
+          see anything, which keeps casual scraping and load off the site. The sign-in page and the
+          admin area are never locked, so you can always get back in. Turn it off only if you want the
+          site open to guests. Only the main admin can change this.
         </p>
         {error && <p className="text-red-400 mt-1">{error}</p>}
       </div>

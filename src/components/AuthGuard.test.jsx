@@ -49,6 +49,14 @@ describe("AuthGuard and the sign-in-required switch", () => {
     expect(screen.queryByText("manga page")).not.toBeInTheDocument();
   });
 
+  it("sends guests to the login page when the setting can't be read", async () => {
+    api.config.siteAccess.mockRejectedValue(new Error("offline"));
+    page();
+    // The guard retries once before it gives up, so allow for that.
+    expect(await screen.findByText("login page", {}, { timeout: 4000 })).toBeInTheDocument();
+    expect(screen.queryByText("manga page")).not.toBeInTheDocument();
+  });
+
   it("never blocks a signed-in reader", async () => {
     auth.value = {
       user: { profile_completed: true, birth_date: "2000-01-01", name: "A", username: "a" },

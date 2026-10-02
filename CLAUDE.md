@@ -46,6 +46,9 @@
 - Roles: owner, admin, sub-admin, user.
 - Readers sign in with a magic link, Google or Microsoft only. No reader
   passwords. One inbox gives one account, for life.
+- Nobody sees the site before signing in: "Sign-in required" is on by default
+  (the owner may switch it off in Admin Settings). Sign-in, sign-up and the admin
+  area are never behind it.
 - Bookmarks and reading history stay in the reader's browser, not on the
   server.
 - Never hard-code admin credentials or e-mails in source.

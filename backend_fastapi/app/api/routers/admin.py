@@ -1622,7 +1622,7 @@ def get_site_access(
     _: User = Depends(require_power("manage_admin_settings")),
 ) -> Dict[str, Any]:
     row = get_or_create_system_settings(db)
-    return {"login_required": bool(getattr(row, "login_required", False))}
+    return {"login_required": bool(row.login_required)}
 
 
 @router.put("/config/access")

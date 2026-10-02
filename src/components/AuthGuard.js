@@ -6,8 +6,10 @@ import useAuth from "../hooks/useAuth";
 import useStaffPermissions from "../hooks/useStaffPermissions";
 import AdminSecondFactor from "./AdminSecondFactor";
 
-// `followSiteSetting`: guests may pass unless the main admin switched on
-// "Sign-in required" (Admin Settings). The backend enforces the same switch.
+// `followSiteSetting`: sign-in is required by default, so a guest passes only
+// when the server says plainly that the owner switched "Sign-in required" off
+// (Admin Settings). If the answer can't be fetched the guest goes to the login
+// page. The backend enforces the same switch.
 export default function AuthGuard({
   children,
   requireAdmin,
@@ -39,7 +41,7 @@ export default function AuthGuard({
 
   // 1. Mandatory login gate: if user is not authenticated, redirect to /login
   if (!user) {
-    if (followSiteSetting && !siteAccess.data?.loginRequired) {
+    if (followSiteSetting && siteAccess.data?.loginRequired === false) {
       return children;
     }
     return <Navigate to="/login" state={{ from: location }} replace />;

@@ -86,6 +86,7 @@ back what the upgrade removed, so restore a backup instead.
 | `20261012_overlay_text_scale` | #33 | `user_processing_settings.overlay_font_size` becomes the 1-100 slider (pixels converted: 20 px → 28.5); new `overlay_outline_color`, `overlay_match_bubble` | **Lossy**: sizes go back to pixels rounded and capped at 10-40 px (a reader on 100 = 70 px gets 40 px); outline colour and bubble switch are dropped |
 | `20261013_admin_succession` | #34 | `admin_activity_days` table (one row per admin per active day) and `system_settings.succession_enabled` / `succession_inactive_days` / `succession_enabled_at` | Drops them. **Lossy**: the activity history and the succession switch are gone (succession is off again) |
 | `20261014_four_roles` | this PR | Adds role `CO_ADMIN` (Postgres enum value if native), `users.appointed_by` / `sub_admin_quota` / `admin_since`, `admin_successors`, `system_settings.sub_admin_blocked_permissions`; deletes site-owner overrides held by sub-admins (they can no longer hold them) | **Lossy**: Admins go back to sub-admins, and the new columns, succession lines and ceiling are dropped. The deleted overrides do not come back (re-promote in Role Management) |
+| `20261015_login_required_default_on` | this PR | `system_settings.login_required` column default becomes **on**, and the existing row is set to on | **Lossy**: only the default goes back to off. The value the owner had before the upgrade is not kept, so existing rows stay on (turn it off in Admin Settings) |
 
 Check where a server is: `docker compose exec backend alembic current`.
 
@@ -126,6 +127,29 @@ exceptions; for those, restore the database backup taken before the update.
 ---
 
 ## Change entries
+
+### 2026-10-02 — Sign-in first: nobody sees the site before logging in
+
+Merge SHA: fill in when known. Branch `claude/nifty-fermat-53hmly` (restarted from `main` after #40 merged).
+
+The owner wants every visitor to log in first (Google, Microsoft or an e-mail magic link), with the login page in front even for a casual look, so there is less scraping and less load. The "Sign-in required" switch already existed but started **off**.
+
+| Change | Why | Main files |
+| --- | --- | --- |
+| **"Sign-in required" is on by default** (`LOGIN_REQUIRED_DEFAULT`): a new settings row starts on, and with no row yet or an unreadable column the server answers guests with `LOGIN_REQUIRED` (fail closed) | Owner: login first, less scraping and load | `models/settings.py`, `dependencies/site_access.py` |
+| **Migration `20261015_login_required_default_on`** sets the column default to on and **switches the existing site on** | Existing sites would otherwise stay open until someone found the switch | `migrations/versions/20261015_login_required_default_on.py` |
+| **The page fails closed too**: a guest sees the site only if the server says plainly that the switch is off; if the answer can't be fetched they get the login page | The old check let guests through on any error | `src/components/AuthGuard.js` |
+| The Admin Settings card explains the default; the owner can still turn it off | The owner stays in control of the site | `src/pages/Admin/AdminSettings.jsx` |
+| Tests: default-on with no row, new row on, sign-in and admin stay reachable, the migration both ways, the guard when the setting can't be read. The shared test database runs with guests allowed (fixture `members_only_default` tests the real default) | Prove it | `tests/conftest.py`, `tests/test_login_required.py`, `tests/test_login_required_migration.py`, `src/components/AuthGuard.test.jsx` |
+
+- **Not changed:** the reader sign-in methods stay Google, Microsoft and magic link. **No reader passwords** (owner's rule; an e-mail-and-password option was not added). Sign-in, sign-up, config, health and the admin area are never behind the switch. The static site files (JavaScript, CSS) stay public: they hold no content.
+- **Side effect:** while it is on, guests (including search-engine crawlers) see only the login page and `sitemap.xml` / `rss.xml` answer guests with a sign-in error. Turn the switch off to be indexed.
+- **Database:** `20261015_login_required_default_on` (added to §2).
+- **Settings:** none in `.env`. Admin Settings → *Sign-in required* now starts on.
+- **Check:** open the site in a private window: you land on the login page. Sign in and read. `GET /api/v1/manga/` as a guest answers 401 `LOGIN_REQUIRED`. `pytest backend_fastapi/tests/test_login_required.py backend_fastapi/tests/test_login_required_migration.py`.
+- **Undo:** Admin Settings → *Sign-in required* off (no code change); or `git revert -m 1 <merge>` and `alembic downgrade 20261014_four_roles` (the default goes back to off; existing rows stay as they are).
+
+---
 
 ### 2026-10-02 — Owner sign-in clean-up: guide order, leftovers of the admin password
 

@@ -901,20 +901,28 @@ Other server-side tools:
    `.env` itself (and a private backup of it): without `INTEGRATIONS_SECRET`
    the vault cannot be decrypted.
 
-### 6.2 Make sign-in mandatory (or not)
+### 6.2 Sign-in is required for everyone (you can switch it off)
+
+**Nobody sees the site before signing in.** A visitor who opens any page lands on
+the login page and chooses **Google**, **Microsoft** or an **e-mail link**
+(magic link). There are no reader passwords. This keeps casual scraping and
+load off the site. It is **on by default**, and updating an existing site
+switches it on too (the migration, Section 12).
 
 **Admin → Admin Settings → "Sign-in required"** (the owner, or an Admin you switched
 *Admin Settings* on for, Section 6.3).
 
-- **On:** visitors must sign in before they can browse or read. The server
-  refuses catalogue, reader and community requests from guests too, not just
-  the pages.
+- **On (default):** visitors must sign in before they can browse or read. The
+  server refuses catalogue, reader, community and sitemap requests from guests
+  too, not just the pages. If the page can't find out the setting, it shows the
+  login page, never the site.
 - **Off:** anyone can read; signing in is only needed for bookmarks sync,
   translation, comments and settings.
 
 The sign-in page, sign-up, the admin area and the server commands
-(Section 6) are never behind this switch, so turning
-it on can't lock you out. It starts **off**.
+(Section 6) are never behind this switch, so it can't lock you out. Search
+engines can't read the site while it is on (guests see only the login page);
+turn it off if you want to be found.
 
 ---
 
@@ -1410,7 +1418,7 @@ command and the machine, not a broken site.
 | "Continue with Google" says not configured | `GOOGLE_OAUTH_CLIENT_ID` / `GOOGLE_OAUTH_CLIENT_SECRET` are missing in `.env` (and the vault). See `GOOGLE_LOGIN_SETUP.md`. Until Google works, `cli_bootstrap login-link` signs you in, but you can't claim the owner seat without Google. |
 | Authenticator code refused | The phone's clock is off. Turn on automatic date & time on the phone, then type a fresh code (each lasts 30 seconds). |
 | Lost the phone with the authenticator | `cli_bootstrap reset-2fa --email you@example.com`, then sign in with Google and open **Admin** to set up the new phone (Section 6). |
-| Visitors are sent to the login page | Admin Settings → *Sign-in required* is on (Section 6.2). |
+| Visitors are sent to the login page | Intended: *Sign-in required* is on by default (Section 6.2). Turn it off in Admin Settings if you want the site open to guests. |
 | Someone can't open a second account with another Gmail spelling | Intended: `john.doe@gmail.com`, `johndoe+x@gmail.com` and `@googlemail.com` are one inbox and one account. |
 | Update cards say "Just now" or show no time | Rebuild (Section 4.1). Old builds misread server times. A card without any chapter shows the series' added time. |
 | Donation link or address refused | Links must be `https://` on the platform's own domain; addresses must match the chosen network. The message names the entry. |
@@ -1440,7 +1448,7 @@ command and the machine, not a broken site.
 - [ ] Production: `ufw` allows only 22/80/443; `docker-compose.override.yml` from Section 8 step 5 in place (production mode, ports on `127.0.0.1`); Caddy serves `https://your-domain`
 - [ ] `make_admin_hash.py --write .env`, Google client in `.env`, `up -d --force-recreate`, `admin-status` says `Owner: not claimed yet`; first Google sign-in done, authenticator set up in **Admin**; `admin-status` now says `Owner: claimed`
 - [ ] OCR, e-mail and sign-in settings entered in **Admin → Secret Vault**
-- [ ] Sign-in required on/off chosen (Admin Settings); donation links added if wanted
+- [ ] Sign-in required left on (default) or switched off (Admin Settings); donation links added if wanted
 - [ ] First series imported; new chapters arrive via beat
 - [ ] Updating from before PR #33: provider keys that were saved in a **custom header** (e.g. Azure `api-key`) were publicly readable; rotate them at the provider and save the new key in Admin → API Management
 - [ ] Scraper AI key tested (Admin → Series → Scraper AI API) before adding new source sites with Custom Parser (main admin only)
