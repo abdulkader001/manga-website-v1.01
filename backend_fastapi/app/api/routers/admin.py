@@ -1671,7 +1671,8 @@ def my_permissions(
     }
 
 
-@router.get("/permissions/catalogue", dependencies=[Depends(require_admin_user)])
+# Role management is main-admin only (house rule), reads included.
+@router.get("/permissions/catalogue", dependencies=[Depends(require_main_admin_user)])
 def get_permission_catalogue() -> Dict[str, Any]:
     """Full permission catalogue, grouped (SRS 1F.7/1F.9.2)."""
     from ...services.permissions_service import full_catalogue
@@ -1808,7 +1809,7 @@ class ApplyPresetPayload(BaseModel):
     preset: str = Field(..., min_length=1, max_length=64)
 
 
-@router.get("/permissions/presets", dependencies=[Depends(require_admin_user)])
+@router.get("/permissions/presets", dependencies=[Depends(require_main_admin_user)])
 def get_permission_presets(db: Session = Depends(get_db)) -> Dict[str, Any]:
     """Built-in + custom permission presets (SRS 1F.9.3)."""
     from ...services.permissions_service import list_presets
@@ -2194,7 +2195,7 @@ def promote_user(
     user_id: int,
     payload: RoleTogglePayload,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin_user),
+    current_user: User = Depends(require_main_admin_user),
 ) -> RoleToggleResponse:
     requested_role = normalize_role(payload.role)
     if requested_role in {None, "admin", "permanent_admin"}:
@@ -2247,7 +2248,7 @@ def demote_user(
     request: Request,
     user_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin_user),
+    current_user: User = Depends(require_main_admin_user),
 ) -> RoleToggleResponse:
     user = db.get(User, user_id)
     if user is None:
@@ -2290,7 +2291,7 @@ def promote_by_email(
     request: Request,
     payload: EmailRolePayload,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin_user),
+    current_user: User = Depends(require_main_admin_user),
 ) -> RoleToggleResponse:
     email = normalize_email(payload.email)
     requested_role = normalize_role(payload.role)
@@ -2347,7 +2348,7 @@ def demote_by_email(
     request: Request,
     payload: EmailRolePayload,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin_user),
+    current_user: User = Depends(require_main_admin_user),
 ) -> RoleToggleResponse:
     email = normalize_email(payload.email)
     if not email:

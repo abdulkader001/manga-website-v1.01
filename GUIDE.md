@@ -688,7 +688,7 @@ procedure: `backend_fastapi/deployment/backups.md` and `deployment/runbook.md`.
 | Custom Parser: "naver.com is Naver's portal" | Use the series page on `comic.naver.com` (`.../webtoon/list?titleId=...`). |
 | Custom Parser: "Scraper AI judged this site cannot be scraped" | The AI found a login, paywall or scrambled images. Use another source. |
 | Sub-admin: no *Scraper AI API* / *Custom Parser* buttons, or preview says "ask the main admin" | Intended: the Scraper AI is main-admin only. The main admin adds the site with Custom Parser (Section 7). |
-| Sub-admin gets "forbidden" on Admin Settings / API Management, or the API toggles are gone from Role Management | Intended: both are main-admin only, including read access. |
+| Sub-admin gets "forbidden" on Admin Settings / API Management / Role Management, or the API and "appoint/remove sub-admins" toggles are gone from Role Management | Intended: all three are main-admin only, including read access. Only the main admin appoints or removes sub-admins. |
 | `$argon2id...` value turns into garbage | Wrap values containing `$` in single quotes in `.env`. Admin hash lines made by `make_admin_hash.py` start with `a2:` and have no `$`. |
 | Translation/OCR overlay does nothing | Reader: *Settings → Reading & Translation* must be on. Server: vault *Server OCR enabled* = true and restarted (4.1). |
 | Reader says "Text was found but not translated" | OCR works but nothing translates: add an AI key in *Settings → AI & OCR Engines* (press **Test connection**), or a site default in Admin → API Management. |

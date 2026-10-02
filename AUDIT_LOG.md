@@ -42,7 +42,7 @@ Contents
 ### People and roles
 
 - **Main admin**: one owner. Proves it **once** at `/admin-login` with e-mail, a **one-time** password from `.env` and an authenticator code. After that the page is gone (404, no link anywhere), the owner signs in like readers, and every admin page asks for the authenticator code. A new password hash in `.env` (server access) re-opens the page once, for recovery. Signing in with the owner's e-mail alone never grants admin.
-- **Sub-admin**: a user with per-person permission toggles (Role Management). Can never get the Secret Vault, Admin Settings (not even read), **API Management** (OCR / translation / AI providers), branding, role management, or the **Scraper AI** (its API key and Custom Parser; `core/permissions.py` `MAIN_ADMIN_ONLY`). Previews, imports and re-scrapes a sub-admin starts use built-in and detected parsers only, never the AI.
+- **Sub-admin**: a user with per-person permission toggles (Role Management). Can never get the Secret Vault, Admin Settings (not even read), **API Management** (OCR / translation / AI providers), branding, **Role Management** (permissions, presets, appointing/removing sub-admins, any role change), or the **Scraper AI** (its API key and Custom Parser; `core/permissions.py` `MAIN_ADMIN_ONLY`). Previews, imports and re-scrapes a sub-admin starts use built-in and detected parsers only, never the AI.
 - **User (reader)**: signs in with a magic link, Google or Microsoft. **No passwords.** One inbox gives one account for life.
 
 ### Data that is deliberately *not* on the server
@@ -120,7 +120,7 @@ exceptions; for those, restore the database backup taken before the update.
 
 ## Change entries
 
-### 2026-10-02 — API Management and Admin Settings main-admin only; full audit
+### 2026-10-02 — API Management, Admin Settings and Role Management main-admin only; full audit
 
 Branch `claude/great-faraday-nh2dwx`. PR number and merge SHA: fill in when known.
 
@@ -128,7 +128,8 @@ Branch `claude/great-faraday-nh2dwx`. PR number and merge SHA: fill in when know
 | --- | --- | --- |
 | **Sub-admins can no longer read Admin Settings** (`GET /admin/settings`), the OCR provider check (`/admin/validate-ocr-providers`), the unused `/config` snapshot, or trigger `/admin/database/alembic-status`; all are main-admin only. The session policy is readable only by whoever may change it (`set_session_policy`) | Owner's rule; audit finding F-88 showed every sub-admin could read them | `app/api/routers/admin.py`, `app/api/routers/management.py` |
 | **API Management toggles are main-admin only**: `view_providers`, `configure_ocr`, `configure_translation`, `configure_ai`, `set_provider_priority` join `MAIN_ADMIN_ONLY` (no Role Management toggle, stored grants ignored, presets skip them; the *Operations* preset no longer lists them) | They guarded nothing (API Management was already main-admin only in code) but showed sub-admins as holding it (F-98) | `app/core/permissions.py` |
-| **Full audit report** (F-86 – F-98) with prioritised recommendations | Owner asked for a whole-site review before further fixes | `audit/full-audit-2026-10-02.md` |
+| **Role Management is main-admin only**: the permission catalogue and presets are no longer readable by sub-admins; `promote_secondary` / `demote_secondary` join `MAIN_ADMIN_ONLY`; `/admin/promote/{id}`, `/demote/{id}` and their `-by-email` forms require the main admin at the route (the service already refused sub-admins promoting; now a sub-admin can't change any role, not even an ordinary user's). Sub-admins keep `GET /admin/permissions/me` (their own toggles drive their admin tiles) | Owner's rule | `app/api/routers/admin.py`, `app/core/permissions.py`, `tests/test_role_escalation_guard.py` |
+| **Full audit report** (F-86 – F-98) with prioritised recommendations, and a step-by-step fix guide for an AI agent | Owner asked for a whole-site review and fix instructions | `audit/full-audit-2026-10-02.md`, `audit/fix-guide-2026-10-02.md` |
 
 - **Database:** none.
 - **Settings:** none. API: the endpoints above answer 403 to sub-admins.

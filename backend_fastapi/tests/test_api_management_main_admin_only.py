@@ -96,3 +96,31 @@ def test_session_policy_read_follows_its_permission(fastapi_client):
     allowed = _user(UserRole.SECONDARY, secondary=True, grants=["set_session_policy"])
     assert fastapi_client.get("/api/v1/admin/config/session", headers=_h(plain)).status_code == 403
     assert fastapi_client.get("/api/v1/admin/config/session", headers=_h(allowed)).status_code == 200
+
+
+ROLE_MANAGEMENT = ["promote_secondary", "demote_secondary"]
+
+
+def test_role_management_is_main_admin_only(fastapi_client):
+    assert set(ROLE_MANAGEMENT) <= MAIN_ADMIN_ONLY
+    sub = _user(UserRole.SECONDARY, secondary=True, grants=ROLE_MANAGEMENT)
+    target = _user(UserRole.USER)
+    with SessionLocal() as session:
+        user = session.get(User, sub)
+        for key in ROLE_MANAGEMENT:
+            assert permissions_service.has_permission(session, user, key) is False
+    calls = [
+        ("get", "/api/v1/admin/permissions/catalogue", None),
+        ("get", "/api/v1/admin/permissions/presets", None),
+        ("post", "/api/v1/admin/promote-secondary", {"email": "someone@example.com"}),
+        ("post", f"/api/v1/admin/promote/{target}", {"role": "secondary_admin"}),
+        ("post", f"/api/v1/admin/demote/{target}", {}),
+    ]
+    for method, path, body in calls:
+        kwargs = {"headers": _h(sub)}
+        if body is not None:
+            kwargs["json"] = body
+        response = getattr(fastapi_client, method)(path, **kwargs)
+        assert response.status_code == 403, (method, path, response.status_code)
+    # A sub-admin still sees their own permissions (drives their admin tiles).
+    assert fastapi_client.get("/api/v1/admin/permissions/me", headers=_h(sub)).status_code == 200

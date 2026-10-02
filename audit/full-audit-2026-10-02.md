@@ -8,8 +8,9 @@ main-admin only"); new IDs continue from F-85. All passes ran. Security was
 checked by starting the app and calling every admin-tier route as a
 sub-admin and as a reader, so findings are reproduced, not guessed. Counts:
 **1 critical, 2 high, 6 medium, 4 low** (13). F-88 and F-98 were fixed on
-this branch at the owner's request (API Management and Admin Settings are
-main-admin only); everything else is open. Lint, 1069 backend tests, type
+this branch at the owner's request (API Management, Admin Settings and Role
+Management are main-admin only); everything else is open. Fix
+instructions for an agent: `fix-guide-2026-10-02.md`. Lint, 1069 backend tests, type
 check, 30 frontend tests and the build are green.
 
 ## Findings ledger

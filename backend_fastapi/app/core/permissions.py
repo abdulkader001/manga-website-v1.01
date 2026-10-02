@@ -94,9 +94,9 @@ _CATALOGUE: dict[str, tuple[Group, bool, bool]] = {
 
 
 # Owner's rules: the Scraper AI (its API key, and creating parsers with it --
-# the Series Management "Scraper AI API" and "Custom Parser" sections) and API
-# Management (OCR / translation / AI providers) belong to the main admin
-# alone. The main admin holds these like every catalogue permission; a
+# the Series Management "Scraper AI API" and "Custom Parser" sections), API
+# Management (OCR / translation / AI providers) and Role Management
+# (appointing/removing sub-admins) belong to the main admin alone. The main admin holds these like every catalogue permission; a
 # sub-admin can never hold them -- no toggle, preset or stored override grants
 # them (enforced in ``permissions_service``).
 MAIN_ADMIN_ONLY: frozenset[str] = frozenset(
@@ -108,6 +108,8 @@ MAIN_ADMIN_ONLY: frozenset[str] = frozenset(
         "configure_translation",
         "configure_ai",
         "set_provider_priority",
+        "promote_secondary",
+        "demote_secondary",
     }
 )
 
@@ -161,8 +163,8 @@ DESCRIPTIONS: dict[str, str] = {
     "ban_account": "Ban an account.",
     "restore_account": "Restore a suspended or banned account.",
     "revoke_user_sessions": "Sign a user out everywhere.",
-    "promote_secondary": "Appoint sub-admins.",
-    "demote_secondary": "Remove sub-admins.",
+    "promote_secondary": "Main admin only: appoint sub-admins (Role Management).",
+    "demote_secondary": "Main admin only: remove sub-admins (Role Management).",
     "view_limits": "See usage limits.",
     "set_limits": "Change usage limits.",
     "set_session_policy": "Change how long logins last.",
