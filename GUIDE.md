@@ -150,7 +150,7 @@ curl http://localhost:8000/healthz          # {"ok":true}
 ```
 
 Open <http://localhost:8080>. Then continue at
-[Section 6](#6-create-the-first-admin-account-one-time-admin-sign-in). A real
+[Section 6](#6-become-the-owner-sign-in-with-google). A real
 server with a domain and HTTPS: [Section 8](#8-go-live-on-a-linux-server-with-a-domain-and-https).
 
 ---
@@ -249,9 +249,11 @@ first `cd ~/manga-website-v1.01`.
 > **Two places for settings.** `.env` holds only the server's foundation:
 > the database and Redis connection, the site address (`FRONTEND_URL`,
 > CORS, HTTPS), the signing/encryption keys and the admin identity
-> (`MAIN_ADMIN_EMAIL_HASH`, `MAIN_ADMIN_PASSWORD_HASH`). **Everything else** — Google /
-> Microsoft sign-in, SMTP and magic links, OCR and translation, API keys,
-> Sentry, limits, image storage — is set later in the admin panel under
+> (`MAIN_ADMIN_EMAIL_HASH`). Your Google client ID and secret also start here
+> (you need Google to become the owner); you can move them later.
+> **Everything else** — Microsoft sign-in, SMTP and magic links, OCR and
+> translation, API keys, Sentry, limits, image storage — is set later in the
+> admin panel under
 > **Admin → Secret Vault** (Section 6.1), encrypted in the database. A vault
 > value overrides the same line in `.env`; removing it falls back to `.env`.
 > You can still put those values in `.env` if you prefer — the vault is
@@ -782,83 +784,78 @@ data the whole time. Delete `.venv` and `.env.dev` if you don't need them again.
 
 ---
 
-## 6. Create the first admin account (one-time Admin sign-in)
+## 6. Become the owner (sign in with Google)
 
-Nobody is admin on a fresh install, and on day one Google / Microsoft sign-in
-and e-mail aren't set up yet (their keys live in the Secret Vault, which only
-the admin can open). So the owner signs in **once** at `/admin-login` with
-three things a thief who took your Gmail does **not** have:
+Nobody is admin on a fresh install. There is **no admin password and no
+special admin page**: you become the owner by signing in with Google, once,
+with the e-mail you chose. Two things in `.env` make that work:
 
-1. **your e-mail**, matched against `MAIN_ADMIN_EMAIL_HASH` in `.env`;
-2. **a one-time password**, matched against `MAIN_ADMIN_PASSWORD_HASH` in
-   `.env` (only hashes are stored);
-3. **a 6-digit code from an authenticator app on your phone** (Google
-   Authenticator, Aegis, 1Password…), set up during that sign-in.
+1. **Google sign-in** (`GOOGLE_OAUTH_CLIENT_ID` and `GOOGLE_OAUTH_CLIENT_SECRET`).
+   They start in `.env` because the Secret Vault, where every other setting
+   lives, can only be opened by the owner, so the owner needs Google first.
+   Step-by-step: [`GOOGLE_LOGIN_SETUP.md`](GOOGLE_LOGIN_SETUP.md).
+2. **`MAIN_ADMIN_EMAIL_HASH`**: a hash of your e-mail. The e-mail itself is
+   written nowhere on the server, so nobody can read it out of `.env`.
 
-After that one sign-in **the page is gone**: `/admin-login` and its API answer
-"not found", exactly like an address that never existed, and nothing on the
-site links to it. The used password can never work again.
+The first time someone signs in with Google using that e-mail (Google must say
+the address is verified) and the site has no owner yet, that account becomes
+the owner. Nobody else can ever claim the seat, even if the hash in `.env` is
+changed later. Signing in again is just a normal sign-in; there is nothing
+one-time to burn, so you can't be locked out by a mistake.
 
 Set it up (the same steps with more detail: `guide/`, Steps 6–7):
 
-1. Write the two lines into `.env`. No Python packages needed on the host
+1. Write the line into `.env`. No Python packages needed on the host
    (Ubuntu 24.04 refuses `pip install` outside a virtual environment, so this
-   runs in a throw-away container). It asks for your e-mail and a password
-   (12+ characters, typed twice; **nothing appears while you type**; press
-   Enter without typing to get a generated one, shown once, write it down):
+   runs in a throw-away container). It asks for your e-mail:
 
    ```bash
    docker run --rm -it -v "$PWD":/w -w /w python:3.11-slim sh -c "pip install -q --disable-pip-version-check --root-user-action=ignore 'cryptography>=45' && python backend_fastapi/scripts/make_admin_hash.py --write .env"
    ```
 
-   It ends with `Done: both lines are now in .env`. Without `--write` it only
-   prints the two lines. They start with `a2:` and contain no `$`, so they
-   need no quotes and nothing (Compose, `source .env`) can mangle them. Older
-   raw `$argon2id$…` lines still work if they were single-quoted.
+   It ends with `Done: the line is now in .env`. Without `--write` it only
+   prints the line. It starts with `a2:` and contains no `$`, so it needs no
+   quotes and nothing (Compose, `source .env`) can mangle it.
 
-2. `docker compose up -d --force-recreate`. **Not** `restart`: a restart keeps
+2. Put your Google client ID and secret in `.env` (`GOOGLE_LOGIN_SETUP.md`).
+3. `docker compose up -d --force-recreate`. **Not** `restart`: a restart keeps
    the old environment and the server never sees the new lines.
-3. Wait about 30 seconds, then check:
+4. Wait about 30 seconds, then check:
    `docker compose exec backend python -m backend_fastapi.scripts.cli_bootstrap admin-status`
-   must say both lines are `set` and `/admin-login: OPEN`.
-4. Open **`https://your-site/admin-login`** (type it, there is no link; on a
-   local trial `http://localhost:8080/admin-login`). Enter the e-mail and
-   password, add the setup key it shows to your authenticator app
-   (**+ → Enter a setup key**, type *Time based*), type the 6-digit code. On
-   first sign-in you also complete the profile page like every new account,
-   then land on `/admin` as the main admin.
-5. The page is now gone (`admin-status` says `CLOSED`). You may delete the
-   used password line (`sed -i '/^MAIN_ADMIN_PASSWORD_HASH=/d' .env`, then
-   `docker compose up -d --force-recreate`); keep `MAIN_ADMIN_EMAIL_HASH`. Set
-   up Google / Microsoft / e-mail in the Secret Vault (6.1); from then on sign
-   in normally, and every admin page asks for the authenticator code.
+   must say `MAIN_ADMIN_EMAIL_HASH: set`, `Google sign-in: set up` and
+   `Owner: not claimed yet`.
+5. Open the site, **Log in → Continue with Google**, and pick the Google
+   account with that e-mail. On first sign-in you complete the profile page
+   like every new account. You are now the owner (`admin-status` says
+   `Owner: claimed`).
+6. Open **Admin**. It asks you to set up an authenticator app (Google
+   Authenticator, Aegis, 1Password…): add the setup key it shows (**+ → Enter a
+   setup key**, type *Time based*) and type the 6-digit code. Admin pages stay
+   shut until you have. From then on every admin page, Admin Settings and the
+   Secret Vault ask for a fresh code.
+7. Move the rest of the settings (SMTP, OCR, API keys…) into the Secret Vault
+   (6.1). You may move the Google client there too and delete it from `.env`.
    Until e-mail works, you can make a sign-in link on the server (see "Other
    server-side tools" below).
 
 **On a public server do this sign-in over HTTPS** (Section 8) or through the SSH
 tunnel from Section 4, never over plain `http://` on a public address.
 
-**Why a stolen Gmail isn't enough:** someone who gets into your Gmail can at
-most sign in as a normal reader. Once the one-time sign-in has been used (even
-if you delete the password line afterwards), every admin page, Admin Settings
-and the Secret Vault ask for the authenticator code, and the owner's
-authenticator can't be replaced or removed from the website at all, only on
-the server.
+**Why a stolen Gmail password isn't enough:** someone who gets into your Google
+account can sign in as you, but every admin page, Admin Settings and the Secret
+Vault still ask for the authenticator code on your phone. The owner's
+authenticator can't be turned off from the website, only on the server.
 
-**Password not accepted?** Test what is in `.env`: the same `docker run …` line
-with `--check .env` instead of `--write .env`:
+**Google doesn't make me owner?** Test what is in `.env`: the same `docker run …`
+line with `--check .env` instead of `--write .env`:
 
 ```bash
 docker run --rm -it -v "$PWD":/w -w /w python:3.11-slim sh -c "pip install -q --disable-pip-version-check --root-user-action=ignore 'cryptography>=45' && python backend_fastapi/scripts/make_admin_hash.py --check .env"
 ```
 
-It tells you whether the e-mail or the password doesn't match, or whether a
-line is damaged.
-
-**Entering the owner e-mail on the normal login page** (and pressing *Send magic
-link*) while the one-time page is still open takes you straight to `/admin-login`;
-no link is e-mailed. After the password has been used, the same e-mail is an
-ordinary reader sign-in and `/admin-login` is gone for good.
+It tells you whether the e-mail matches or the line is damaged. Also check that
+you signed in with exactly that Google address and that `admin-status` doesn't
+already say `Owner: claimed` for another account.
 
 **Lost your phone?** Remove the old authenticator (put your own e-mail on the
 first line):
@@ -868,9 +865,7 @@ OWNER_EMAIL=you@example.com
 docker compose exec backend python -m backend_fastapi.scripts.cli_bootstrap reset-2fa --email "$OWNER_EMAIL"
 ```
 
-then make a new one-time password (step 1), `docker compose up -d --force-recreate`,
-and `/admin-login` sets up the new phone. A new password opens the page once
-more.
+then sign in with Google and open **Admin**: it asks you to set up the new phone.
 
 Other server-side tools:
 
@@ -889,8 +884,8 @@ Other server-side tools:
 
 ### 6.1 Move the remaining settings into the Secret Vault
 
-1. Sign in through Admin sign-in (Section 6); that also set up your
-   authenticator, which the vault requires.
+1. Sign in with Google as the owner and set up your authenticator (Section 6);
+   the vault requires it.
 2. Open **Admin → Secret Vault**, enter a 6-digit code to unlock it (10
    minutes), and set what you need — at minimum:
    - **Translation & OCR → Server OCR enabled = true** (then restart, 4.1);
@@ -911,8 +906,8 @@ Other server-side tools:
 - **Off:** anyone can read; signing in is only needed for bookmarks sync,
   translation, comments and settings.
 
-The sign-in page, sign-up, Admin sign-in (`/admin-login`), the admin area
-and the server commands (Section 6) are never behind this switch, so turning
+The sign-in page, sign-up, the admin area and the server commands
+(Section 6) are never behind this switch, so turning
 it on can't lock you out. It starts **off**.
 
 ---
@@ -1182,8 +1177,8 @@ You don't need it for this guide.
 
 ### Step 9 — First sign-in and test
 
-Open `https://manga.example.com`, do the one-time admin sign-in (Section 6) at
-`https://manga.example.com/admin-login`, then run an import (Section 7).
+Open `https://manga.example.com`, sign in with Google as the owner (Section 6), then run an
+import (Section 7).
 
 ### Updating later
 
@@ -1241,7 +1236,7 @@ To undo it and go back to the `FRONTEND_URL` from `.env`:
 docker compose exec backend python -m backend_fastapi.scripts.set_site_domain --clear
 ```
 
-and sign in at `/admin-login` on the new domain (Section 6). A value you set
+and sign in with Google on the new domain (Section 6; add the new domain's redirect address in Google Cloud too). A value you set
 explicitly in the vault for one of the derived keys (e.g. `FRONTEND_URL`)
 wins over the domain; remove it if the switch seems to have no effect. If a
 bad vault value ever stops the site from starting, set
@@ -1402,13 +1397,11 @@ command and the machine, not a broken site.
 | Reader says "Text was found but not translated" | OCR works but nothing translates: add an AI key in *Settings → AI & OCR Engines* (press **Test connection**), or a site default in Admin → API Management. |
 | `tesseract: not found` / OCR "engine not available" | The backend image is old: rebuild it (Section 4.1) and check `docker compose exec backend tesseract --list-langs`. Non-Docker: install the packages in Section 5. |
 | Korean/Chinese pages read as garbage | Set the series' *Text language on pages* (Series → layout) to the language actually printed on the pages. |
-| Secret Vault / admin pages say "Set up your authenticator app" | Do the one-time Admin sign-in (Section 6); it sets up the authenticator. |
-| `/admin-login` shows "Page not found" after the first sign-in | Expected: the page is gone after one use. Sign in with Google, Microsoft, a magic link or `cli_bootstrap login-link`. |
-| `/admin-login` shows "Page not found" before any sign-in (older versions: greyed-out **Continue**) | The server doesn't see the admin lines. `cli_bootstrap admin-status` says why: *not set* → you used `restart`; run `docker compose up -d --force-recreate`. *DAMAGED* → an old raw hash pasted without quotes; make new lines (Section 6). |
-| `/admin-login`: "Email, password or code is not right" | `make_admin_hash.py --check .env` (Section 6) tells you whether the e-mail or the password doesn't match. Make new lines if needed. Check Caps Lock and the keyboard language. |
-| `/admin-login`: "Too many requests" | Ten wrong tries from one address lock the page for 15 minutes. Wait, then try again. |
+| Secret Vault / admin pages say "Set up your authenticator app" | Expected on the owner's first visit: open **Admin**, add the setup key to your authenticator app and type the code (Section 6). |
+| Signed in with Google but I'm not the owner | `cli_bootstrap admin-status` says why. *MAIN_ADMIN_EMAIL_HASH not set* → you used `restart`; run `docker compose up -d --force-recreate`. *DAMAGED* → an old raw hash pasted without quotes; make a new line (Section 6). *Owner: claimed* → the seat is already taken (ownership never passes). Otherwise `make_admin_hash.py --check .env` tells you whether the e-mail matches; use exactly that Google address, verified. |
+| "Continue with Google" says not configured | `GOOGLE_OAUTH_CLIENT_ID` / `GOOGLE_OAUTH_CLIENT_SECRET` are missing in `.env` (and the vault). See `GOOGLE_LOGIN_SETUP.md`. Until Google works, `cli_bootstrap login-link` signs you in, but you can't claim the owner seat without Google. |
 | Authenticator code refused | The phone's clock is off. Turn on automatic date & time on the phone, then type a fresh code (each lasts 30 seconds). |
-| Lost the phone with the authenticator | `cli_bootstrap reset-2fa --email you@example.com`, then a new one-time password and `/admin-login` (Section 6). |
+| Lost the phone with the authenticator | `cli_bootstrap reset-2fa --email you@example.com`, then sign in with Google and open **Admin** to set up the new phone (Section 6). |
 | Visitors are sent to the login page | Admin Settings → *Sign-in required* is on (Section 6.2). |
 | Someone can't open a second account with another Gmail spelling | Intended: `john.doe@gmail.com`, `johndoe+x@gmail.com` and `@googlemail.com` are one inbox and one account. |
 | Update cards say "Just now" or show no time | Rebuild (Section 4.1). Old builds misread server times. A card without any chapter shows the series' added time. |
@@ -1437,7 +1430,7 @@ command and the machine, not a broken site.
 - [ ] `docker compose up -d --build`; all services healthy; `curl http://localhost:8000/healthz` answers `{"ok":true}`
 - [ ] `docker compose exec backend tesseract --list-langs` lists `kor jpn chi_sim`
 - [ ] Production: `ufw` allows only 22/80/443; `docker-compose.override.yml` from Section 8 step 5 in place (production mode, ports on `127.0.0.1`); Caddy serves `https://your-domain`
-- [ ] `make_admin_hash.py --write .env`, `up -d --force-recreate`, `admin-status` says OPEN; first sign-in at `/admin-login` done (authenticator enrolled); `admin-status` now says CLOSED
+- [ ] `make_admin_hash.py --write .env`, Google client in `.env`, `up -d --force-recreate`, `admin-status` says `Owner: not claimed yet`; first Google sign-in done, authenticator set up in **Admin**; `admin-status` now says `Owner: claimed`
 - [ ] OCR, e-mail and sign-in settings entered in **Admin → Secret Vault**
 - [ ] Sign-in required on/off chosen (Admin Settings); donation links added if wanted
 - [ ] First series imported; new chapters arrive via beat

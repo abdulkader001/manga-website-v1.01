@@ -12,9 +12,7 @@ from fastapi import APIRouter, Depends, Request, Response
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
-from sqlalchemy.orm import object_session
-
-from ...core.admin_identity import admin_sign_in_in_use
+from ...core.admin_identity import owner_sign_in_in_use
 from ...core.api_errors import ApiError, ErrorCode
 from ...core.db import get_db
 from ...core.settings import settings
@@ -42,22 +40,10 @@ async def _admin_only(current_user: User = Depends(get_current_user)) -> User:
     return current_user
 
 
-def _owner_managed(user: User) -> bool:
-    return is_main_admin(user) and admin_sign_in_in_use(object_session(user))
+def _owner_must_enrol(user: User) -> bool:
+    """The owner always needs an authenticator once the owner e-mail is set up."""
 
-
-def _managed_by_admin_sign_in(user: User) -> None:
-    """The main admin's authenticator is set up only by the one-time Admin
-    sign-in (e-mail + server password) or reset on the server -- never from a
-    session that a stolen Google account or inbox could have produced."""
-
-    if _owner_managed(user):
-        raise ApiError(
-            ErrorCode.FORBIDDEN,
-            "The site owner's authenticator can only be changed on the server. "
-            "Lost your phone? See the guide: reset-2fa, then a new one-time password.",
-            details={"reason": "managed_by_admin_sign_in"},
-        )
+    return is_main_admin(user) and owner_sign_in_in_use()
 
 
 async def _limit_codes(request: Request, user: User) -> None:
@@ -93,8 +79,7 @@ def _status(request: Request, user: User) -> Dict[str, Any]:
     return {
         "enabled": enabled,
         "unlocked": bool(unlocked),
-        "required": _owner_managed(user),
-        "managed_by_admin_sign_in": _owner_managed(user),
+        "required": _owner_must_enrol(user),
     }
 
 
@@ -110,8 +95,6 @@ def two_factor_setup(
     user: User = Depends(_admin_only), db: Session = Depends(get_db)
 ) -> Dict[str, Any]:
     """Create a secret to scan into an authenticator app (not active yet)."""
-
-    _managed_by_admin_sign_in(user)
 
     if user.totp_enabled:
         raise ApiError(
@@ -134,7 +117,6 @@ async def two_factor_enable(
     user: User = Depends(_admin_only),
     db: Session = Depends(get_db),
 ) -> Dict[str, Any]:
-    _managed_by_admin_sign_in(user)
     await _limit_codes(request, user)
     from ...utils.bounded_threadpool import run_in_db_threadpool
 
@@ -180,7 +162,6 @@ async def two_factor_disable(
     user: User = Depends(_admin_only),
     db: Session = Depends(get_db),
 ) -> Dict[str, Any]:
-    _managed_by_admin_sign_in(user)
     await _limit_codes(request, user)
     from ...utils.bounded_threadpool import run_in_db_threadpool
 

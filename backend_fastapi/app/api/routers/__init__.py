@@ -3,7 +3,6 @@
 from .account import router as account_router
 from .admin import router as admin_router
 from .admin_2fa import router as admin_2fa_router
-from .admin_login import router as admin_login_router
 from .support import router as support_router
 from .ad_slots import router as ad_slots_router
 from .ads import router as ads_router
@@ -50,7 +49,6 @@ __all__ = [
     "site_admin_router",
     "admin_router",
     "admin_2fa_router",
-    "admin_login_router",
     "support_router",
     "ad_slots_router",
     "ads_router",

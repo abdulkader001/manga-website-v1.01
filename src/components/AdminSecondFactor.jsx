@@ -3,8 +3,8 @@ import api from "../services/api";
 
 // Roadmap item 15. Wraps admin pages: when the account has a second factor
 // (authenticator app) and this browser has not entered a code recently, ask for
-// one. The site owner's authenticator is set up only by the one-time Admin
-// sign-in on the server's terms, so an owner without one is told how.
+// one. The site owner (who claimed the seat by signing in with Google) must
+// set up an authenticator here before any admin page opens.
 
 export const STEP_UP_EVENT = "admin-step-up-required";
 
@@ -105,26 +105,6 @@ export function Enrolment({ onDone }) {
   );
 }
 
-// The site owner's authenticator is enrolled only by the one-time Admin
-// sign-in (e-mail + server password), never from a plain session -- so there
-// is no link here: the page exists only while a fresh one-time password is set.
-export function AdminSignInHint() {
-  return (
-    <div className="space-y-2 text-xs text-[#8b93a3]">
-      <p>
-        The site owner&apos;s authenticator app is set up only through the one-time Admin
-        sign-in, which you open from the server.
-      </p>
-      <p>
-        On the server: make a new one-time password with{" "}
-        <span className="font-mono">make_admin_hash.py</span>, put the two lines in{" "}
-        <span className="font-mono">.env</span>, restart, then open{" "}
-        <span className="font-mono">/admin-login</span> (guide, &quot;Lost your phone&quot;).
-      </p>
-    </div>
-  );
-}
-
 export default function AdminSecondFactor({ children }) {
   const [state, setState] = useState(null); // {enabled, unlocked, required}
   const [busy, setBusy] = useState(false);
@@ -170,7 +150,7 @@ export default function AdminSecondFactor({ children }) {
     return (
       <div className={box}>
         <h2 className="text-sm font-bold text-white">Set up two-step sign-in</h2>
-        {state.managed_by_admin_sign_in ? <AdminSignInHint /> : <Enrolment onDone={refresh} />}
+        <Enrolment onDone={refresh} />
       </div>
     );
   }

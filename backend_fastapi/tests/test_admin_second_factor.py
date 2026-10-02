@@ -119,22 +119,33 @@ def test_step_up_cookie_of_another_admin_is_refused(fastapi_client):
     assert fastapi_client.get("/api/admin/cache", headers=stolen).status_code == 403
 
 
-def test_admin_sign_in_holds_back_an_unenrolled_main_admin(fastapi_client, monkeypatch):
+def test_owner_without_an_authenticator_is_held_back_until_they_enrol(fastapi_client, monkeypatch):
     from backend_fastapi.app.core.settings import settings
 
     monkeypatch.setattr(settings, "main_admin_email_hash", "set", raising=False)
-    monkeypatch.setattr(settings, "main_admin_password_hash", "set", raising=False)
-    _, headers = _admin(main=True)
+    uid, headers = _admin(main=True)
     resp = fastapi_client.get("/api/admin/cache", headers=headers)
     assert resp.status_code == 403
     assert resp.json()["error"]["details"]["reason"] == "enrolment_required"
     status = fastapi_client.get("/api/admin/2fa/status", headers=headers).json()
-    assert status["required"] and status["managed_by_admin_sign_in"]
-    # The owner's authenticator is set up only by the one-time Admin sign-in,
-    # never from a session a stolen inbox could have produced.
+    assert status["required"] and not status["enabled"]
+    # The owner enrols right from their Google session: no server visit.
     setup = fastapi_client.post("/api/admin/2fa/setup", headers=headers)
-    assert setup.status_code == 403
-    assert setup.json()["error"]["details"]["reason"] == "managed_by_admin_sign_in"
+    assert setup.status_code == 200, setup.text
+    enable = fastapi_client.post(
+        "/api/admin/2fa/enable", json={"code": _code(uid)}, headers=headers
+    )
+    assert enable.status_code == 200, enable.text
+    unlocked = _with_cookie(headers, _step_up(enable))
+    assert fastapi_client.get("/api/admin/cache", headers=unlocked).status_code == 200
+
+
+def test_main_admin_is_not_held_back_when_no_owner_email_is_set_up(fastapi_client, monkeypatch):
+    from backend_fastapi.app.core.settings import settings
+
+    monkeypatch.setattr(settings, "main_admin_email_hash", None, raising=False)
+    _, headers = _admin(main=True)
+    assert fastapi_client.get("/api/admin/cache", headers=headers).status_code == 200
 
 
 def test_non_admin_cannot_use_2fa_endpoints(fastapi_client, auth_headers):

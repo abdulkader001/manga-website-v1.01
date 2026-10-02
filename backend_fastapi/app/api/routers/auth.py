@@ -297,17 +297,6 @@ async def request_magic_link(
         # Disposable-email rule (SRS 1D.2 / 1D.1A.5): the check runs BEFORE anything
         # is sent, and never as a bypass. A blocked domain receives no link and the
         # SAME non-enumerating confirmation screen — no account is created.
-        # The owner's first sign-in: while the one-time Admin sign-in is open
-        # (set up in .env and not yet used), the configured owner e-mail is
-        # sent on to /admin-login instead of getting a link. No link is e-mailed
-        # and no account is made. Once the password is used this never matches,
-        # so the page can't be found again from here.
-        from ...core.admin_identity import is_configured_main_admin_email
-        from .admin_login import setup_page_open
-
-        if setup_page_open(db) and is_configured_main_admin_email(email):
-            return MagicLinkResponse(message="admin_setup", debug_token=None)
-
         from ...services.disposable_email import is_disposable_domain
 
         if is_disposable_domain(email):

@@ -7,8 +7,9 @@ codes an authenticator app shows) on top of that:
 * An admin enrols an authenticator app (``setup`` then ``enable``).
 * From then on, admin routes also need a short-lived *step-up* cookie, which
   the admin gets by entering a current code (``verify``).
-* Once the one-time Admin sign-in is set up or used, it is mandatory for the
-  main admin, and enrolled only through that sign-in (``admin_login.py``).
+* It is mandatory for the main admin once the owner e-mail is set up
+  (``MAIN_ADMIN_EMAIL_HASH``). The owner enrols from the admin area right after
+  the first Google sign-in; admin features stay shut until they have.
 
 Standard library only; the secret is encrypted at rest like OAuth tokens.
 """
