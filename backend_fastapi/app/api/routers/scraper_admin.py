@@ -19,6 +19,7 @@ from sqlalchemy.orm import Session
 from ...core.api_errors import ApiError, ErrorCode
 from ...core.db import get_db
 from ...dependencies.auth import get_current_user, is_main_admin, require_permission
+from ...dependencies.powers import require_power
 from ...models import AdminTaskResult, ParserVersion, User
 from ...utils.endpoint_limiter import async_endpoint_limiter
 
@@ -105,7 +106,7 @@ class GenerateParserPayload(BaseModel):
 async def start_parser_generation(
     request: Request,
     payload: GenerateParserPayload,
-    current_user: User = Depends(require_permission("trigger_scraper_ai")),
+    current_user: User = Depends(require_power("trigger_scraper_ai")),
     db: Session = Depends(get_db),
 ) -> Dict[str, Any]:
     await async_endpoint_limiter.check_limit(

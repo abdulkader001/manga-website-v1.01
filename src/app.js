@@ -148,7 +148,7 @@ function AppRoutes() {
         <Route
           path="/admin/roles"
           element={
-            <AuthGuard requireMainAdmin>
+            <AuthGuard requireAdmin allowSecondaryAdmins permission="manage_roles">
               <RoleManagement />
             </AuthGuard>
           }
@@ -164,7 +164,7 @@ function AppRoutes() {
         <Route
           path="/admin/ads"
           element={
-            <AuthGuard requireAdmin>
+            <AuthGuard requireAdmin allowSecondaryAdmins permission="manage_ads">
               <AdsManager />
             </AuthGuard>
           }
@@ -172,7 +172,7 @@ function AppRoutes() {
         <Route
           path="/admin/ad-slots"
           element={
-            <AuthGuard requireAdmin>
+            <AuthGuard requireAdmin allowSecondaryAdmins permission="manage_ads">
               <AdSlotsManager />
             </AuthGuard>
           }
@@ -204,7 +204,7 @@ function AppRoutes() {
         <Route
           path="/admin/vault"
           element={
-            <AuthGuard requireAdmin requireMainAdmin>
+            <AuthGuard requireAdmin allowSecondaryAdmins permission="manage_secret_vault">
               <SecretVault />
             </AuthGuard>
           }
@@ -212,7 +212,7 @@ function AppRoutes() {
         <Route
           path="/admin/backups"
           element={
-            <AuthGuard requireAdmin requireMainAdmin>
+            <AuthGuard requireAdmin allowSecondaryAdmins permission="manage_backups">
               <StorageBackups />
             </AuthGuard>
           }
@@ -220,7 +220,7 @@ function AppRoutes() {
         <Route
           path="/admin/geolock"
           element={
-            <AuthGuard requireAdmin requireMainAdmin>
+            <AuthGuard requireAdmin allowSecondaryAdmins permission="manage_geolock">
               <Geolock />
             </AuthGuard>
           }
@@ -228,7 +228,7 @@ function AppRoutes() {
         <Route
           path="/admin/settings"
           element={
-            <AuthGuard requireAdmin>
+            <AuthGuard requireAdmin allowSecondaryAdmins permission="manage_admin_settings">
               <AdminSettings />
             </AuthGuard>
           }
@@ -236,7 +236,7 @@ function AppRoutes() {
         <Route
           path="/admin/api-management"
           element={
-            <AuthGuard requireAdmin>
+            <AuthGuard requireAdmin allowSecondaryAdmins permission="view_providers">
               <ApiManagement />
             </AuthGuard>
           }
@@ -244,7 +244,7 @@ function AppRoutes() {
         <Route
           path="/admin/audit-report"
           element={
-            <AuthGuard requireAdmin>
+            <AuthGuard requireAdmin allowSecondaryAdmins permission="view_system_health">
               <AuditReport />
             </AuthGuard>
           }

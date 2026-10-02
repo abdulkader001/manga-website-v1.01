@@ -465,8 +465,12 @@ const api = {
       catalogue: () => api.get("/admin/permissions/catalogue"),
       mine: () => api.get("/admin/permissions/me"),
       effective: (userId) => api.get(`/admin/users/${userId}/permissions`),
-      setOverrides: (userId, overrides) =>
-        api.put(`/admin/users/${userId}/permissions`, { overrides }),
+      // `code`: the owner's authenticator code, needed to give a site-owner power.
+      setOverrides: (userId, overrides, code) =>
+        api.put(`/admin/users/${userId}/permissions`, code ? { overrides, code } : { overrides }),
+      managed: () => api.get("/admin/permissions/managed"),
+      succession: () => api.get("/admin/roles/succession"),
+      saveSuccession: (body) => api.put("/admin/roles/succession", body),
       reset: (userId) => api.post(`/admin/users/${userId}/permissions/reset`),
       presets: () => api.get("/admin/permissions/presets"),
       applyPreset: (userId, preset) =>

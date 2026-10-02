@@ -1688,6 +1688,7 @@ def my_permissions(
     record_activity(db, current_user)
     held = [key for key in ALL_PERMISSIONS if has_permission(db, current_user, key)]
     return {
+        "user_id": current_user.id,
         "is_main_admin": is_main_admin(current_user),
         "is_deputy": not is_main_admin(current_user) and is_deputy(db, current_user),
         "authenticator": bool(getattr(current_user, "totp_enabled", False)),
@@ -2157,7 +2158,7 @@ def promote_secondary_admin(
     db: Session = Depends(get_db),
     # SRS 1F.7: promoting a Secondary Administrator is the Permanent
     # Administrator's by default; enforced via the permission engine.
-    current_user: User = Depends(require_permission("promote_secondary")),
+    current_user: User = Depends(require_power("promote_secondary")),
 ) -> RoleToggleResponse:
     """Grant secondary admin rights to a user."""
 
@@ -2181,7 +2182,7 @@ def promote_secondary_admin(
 def demote_secondary_admin(
     payload: UserLookupPayload,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_permission("demote_secondary")),
+    current_user: User = Depends(require_power("demote_secondary")),
 ) -> RoleToggleResponse:
     """Remove secondary admin rights from a user."""
 

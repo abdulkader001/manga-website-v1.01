@@ -22,17 +22,25 @@
 - Only database/Redis connection, the site address, signing/encryption keys
   and the admin identity stay in `.env`. Every other setting belongs in the
   Secret Vault.
-- The Secret Vault, Admin Settings (including its cache purge and
-  delete-all actions), API Management (OCR / translation / AI
-  providers), branding, donations, Storage & Backups, Geolock and Role
-  Management (permissions, presets, appointing or removing sub-admins, any
-  role change) are main-admin only and can never be granted to sub-admins —
-  not even read access.
-- The Scraper AI is main-admin only: its API key (Series Management →
-  Scraper AI API) and creating parsers with it (Custom Parser). Sub-admins
-  don't see those sections, can't be granted them, and scrapes they start
-  never call the AI.
-- Roles: admin (main), sub-admin (per-person permission toggles), user.
+- Site-owner powers: the Secret Vault, Admin Settings (including its cache
+  purge and delete-all actions), API Management (OCR / translation / AI
+  providers), the Scraper AI (its key and Custom Parser), branding,
+  donations, Storage & Backups, Geolock, revealing e-mails and Role
+  Management (permissions, presets, appointing or removing sub-admins).
+  The owner (main admin) can give any of them to a trusted sub-admin and
+  take them back at any time. Guardrails that must stay: only the owner
+  gives or takes them, giving needs the owner's authenticator code; at most
+  two sub-admins ("deputies") hold any of them; a holder needs an
+  authenticator and a fresh code to use them; they are never in presets; a
+  sub-admin can never pass them on, change their own permissions, or change,
+  reset or demote a deputy; demotion strips them.
+- Automatic succession (owner only, off by default, owner's code to change):
+  a deputy idle longer than the chosen days (default 60) becomes a user and
+  the most active eligible sub-admin inherits their site-owner powers.
+  Switching it on never demotes anyone at once; every change is audited and
+  sent to the owner.
+- Roles: admin (main, the owner), sub-admin (per-person permission toggles;
+  up to two can be deputies), user.
 - Readers sign in with a magic link, Google or Microsoft only. No reader
   passwords. One inbox gives one account, for life.
 - Bookmarks and reading history stay in the reader's browser, not on the

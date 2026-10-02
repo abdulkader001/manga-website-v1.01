@@ -454,11 +454,17 @@ def ping():
 
 
 @task_prerun.connect
-def _refresh_vault_overrides(**_kwargs) -> None:  # pragma: no cover - exercised by workers
+def _refresh_vault_overrides(task=None, **_kwargs) -> None:
     """Workers read SMTP/OAuth/API settings too, so keep vault overrides current.
 
-    ``refresh_if_stale`` hits the database at most every 30 seconds.
+    ``refresh_if_stale`` hits the database at most every 30 seconds. A task run
+    inline (eager mode, inside the API process) is skipped: that process keeps
+    its own overrides current, and opening a second session there could end
+    the caller's still-open transaction on a shared connection (SQLite).
     """
+
+    if task is not None and getattr(task.request, "is_eager", False):
+        return
 
     from ..services.secret_vault import refresh_if_stale
 
