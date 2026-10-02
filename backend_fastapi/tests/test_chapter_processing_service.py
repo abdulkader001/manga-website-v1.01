@@ -14,6 +14,7 @@ from backend_fastapi.app.services import (
     chapter_processing_service as cps,
     processing_settings_service,
 )
+from backend_fastapi.app.models.processing_settings import UserProcessingSettings
 from backend_fastapi.app.services.processing_plan import resolve_plan
 
 
@@ -62,6 +63,10 @@ def _make_user(db) -> User:
     db.add(user)
     db.commit()
     db.refresh(user)
+    # Same rowid reuse as _make_chapter: a settings row left by a deleted
+    # user (e.g. a used-up translation limit) must not leak into this one.
+    db.query(UserProcessingSettings).filter(UserProcessingSettings.user_id == user.id).delete()
+    db.commit()
     return user
 
 
