@@ -133,6 +133,7 @@ Branch `claude/great-faraday-nh2dwx`. PR number and merge SHA: fill in when know
 
 - **Database:** none.
 - **Settings:** none. API: the endpoints above answer 403 to sub-admins.
+- **Destructive Admin Settings actions** (clear site cache, delete all manga, purge / mirror all images, cache clear/refresh/priority, saving settings) were already main-admin only on the server; a regression test now proves a sub-admin holding every grantable toggle gets 403 and nothing is deleted.
 - **Check:** `pytest backend_fastapi/tests/test_api_management_main_admin_only.py`; as a sub-admin, Role Management (seen by the main admin) shows no API-management toggles.
 - **Undo:** `git revert` the commit. No migration.
 

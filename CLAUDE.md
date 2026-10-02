@@ -22,7 +22,8 @@
 - Only database/Redis connection, the site address, signing/encryption keys
   and the admin identity stay in `.env`. Every other setting belongs in the
   Secret Vault.
-- The Secret Vault, Admin Settings, API Management (OCR / translation / AI
+- The Secret Vault, Admin Settings (including its cache purge and
+  delete-all actions), API Management (OCR / translation / AI
   providers), branding, donations and Role Management (permissions,
   presets, appointing or removing sub-admins, any role change) are
   main-admin only and can never be granted to sub-admins — not even read
