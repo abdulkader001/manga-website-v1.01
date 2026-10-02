@@ -90,12 +90,15 @@ class AIFallbackService:
         return definition if gen._test_chapter_selectors(html_content, definition)["passed"] else None
 
     @staticmethod
-    def extract_selectors(html_content: str, type: str) -> Optional[Dict[str, str]]:
+    def extract_selectors(
+        html_content: str, type: str, *, use_ai: bool = True
+    ) -> Optional[Dict[str, str]]:
         """Selectors for this page, cheapest trustworthy source first:
         known parsers (presets, parsers approved for other domains -- this is
         what recognises a site on a new domain), structure detection, then
-        the scraper AI. Each candidate is tested against ``html_content``
-        before it is returned."""
+        the scraper AI (skipped when ``use_ai`` is False: the scrape runs for
+        someone who may not use it). Each candidate is tested against
+        ``html_content`` before it is returned."""
         from ..core.db import SessionLocal
         from ..services import scraper_ai_service
         from . import autodetect, presets
@@ -124,6 +127,10 @@ class AIFallbackService:
             found = AIFallbackService._validated(html_content, finder(), type)
             if found:
                 return found
+
+        if not use_ai:
+            logger.info("Scraper AI skipped: it is main-admin only and this scrape was not requested by them.")
+            return None
 
         if scraper_ai_service.get_config() is None:
             logger.info(

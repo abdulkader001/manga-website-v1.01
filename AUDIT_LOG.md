@@ -42,7 +42,7 @@ Contents
 ### People and roles
 
 - **Main admin**: one owner. Proves it **once** at `/admin-login` with e-mail, a **one-time** password from `.env` and an authenticator code. After that the page is gone (404, no link anywhere), the owner signs in like readers, and every admin page asks for the authenticator code. A new password hash in `.env` (server access) re-opens the page once, for recovery. Signing in with the owner's e-mail alone never grants admin.
-- **Sub-admin**: a user with per-person permission toggles (Role Management). Can never get the Secret Vault, Admin Settings, branding or role management.
+- **Sub-admin**: a user with per-person permission toggles (Role Management). Can never get the Secret Vault, Admin Settings (not even read), **API Management** (OCR / translation / AI providers), branding, **Role Management** (permissions, presets, appointing/removing sub-admins, any role change), or the **Scraper AI** (its API key and Custom Parser; `core/permissions.py` `MAIN_ADMIN_ONLY`). Previews, imports and re-scrapes a sub-admin starts use built-in and detected parsers only, never the AI.
 - **User (reader)**: signs in with a magic link, Google or Microsoft. **No passwords.** One inbox gives one account for life.
 
 ### Data that is deliberately *not* on the server
@@ -120,9 +120,41 @@ exceptions; for those, restore the database backup taken before the update.
 
 ## Change entries
 
+### 2026-10-02 — API Management, Admin Settings and Role Management main-admin only; full audit
+
+Branch `claude/great-faraday-nh2dwx`. PR number and merge SHA: fill in when known.
+
+| Change | Why | Main files |
+| --- | --- | --- |
+| **Sub-admins can no longer read Admin Settings** (`GET /admin/settings`), the OCR provider check (`/admin/validate-ocr-providers`), the unused `/config` snapshot, or trigger `/admin/database/alembic-status`; all are main-admin only. The session policy is readable only by whoever may change it (`set_session_policy`) | Owner's rule; audit finding F-88 showed every sub-admin could read them | `app/api/routers/admin.py`, `app/api/routers/management.py` |
+| **API Management toggles are main-admin only**: `view_providers`, `configure_ocr`, `configure_translation`, `configure_ai`, `set_provider_priority` join `MAIN_ADMIN_ONLY` (no Role Management toggle, stored grants ignored, presets skip them; the *Operations* preset no longer lists them) | They guarded nothing (API Management was already main-admin only in code) but showed sub-admins as holding it (F-98) | `app/core/permissions.py` |
+| **Role Management is main-admin only**: the permission catalogue and presets are no longer readable by sub-admins; `promote_secondary` / `demote_secondary` join `MAIN_ADMIN_ONLY`; `/admin/promote/{id}`, `/demote/{id}` and their `-by-email` forms require the main admin at the route (the service already refused sub-admins promoting; now a sub-admin can't change any role, not even an ordinary user's). Sub-admins keep `GET /admin/permissions/me` (their own toggles drive their admin tiles) | Owner's rule | `app/api/routers/admin.py`, `app/core/permissions.py`, `tests/test_role_escalation_guard.py` |
+| **Full audit report** (F-86 – F-98) with prioritised recommendations, and a step-by-step fix guide for an AI agent | Owner asked for a whole-site review and fix instructions | `audit/full-audit-2026-10-02.md`, `audit/fix-guide-2026-10-02.md` |
+
+- **Database:** none.
+- **Settings:** none. API: the endpoints above answer 403 to sub-admins.
+- **Check:** `pytest backend_fastapi/tests/test_api_management_main_admin_only.py`; as a sub-admin, Role Management (seen by the main admin) shows no API-management toggles.
+- **Undo:** `git revert` the commit. No migration.
+
+### 2026-10-02 — Scraper AI is main-admin only
+
+Branch `claude/great-faraday-nh2dwx` (commit on top of `a41aff1`, which `main` merged as `93acd4d` with no other change). PR number and merge SHA: fill in when known.
+
+| Change | Why | Main files |
+| --- | --- | --- |
+| **Scraper AI API and Custom Parser are hidden from sub-admins** (buttons and panels on Series Management; the key is not even loaded) | Owner's rule: only the main admin enters Scraper AI keys or creates parsers with the AI | `src/pages/Admin/SeriesManagement.jsx` |
+| **`trigger_scraper_ai` and `configure_scraper_ai` can never be held by a sub-admin**: `has_permission` ignores stored grants, granting is refused (403 "main-admin only"), presets skip them, Role Management shows no toggle for them (catalogue flag `main_admin_only`) | A toggle or an old override could hand the AI to a sub-admin | `app/core/permissions.py` (`MAIN_ADMIN_ONLY`), `app/services/permissions_service.py`, `src/pages/Admin/RoleManagement.jsx` |
+| **Scrapes a sub-admin starts never call the AI**: import preview, import jobs (`ensure_parser` and the in-scrape fallback), staged re-scrapes. They use existing, built-in and detected parsers; otherwise the message says to ask the main admin to add the site with Custom Parser. System jobs with no requester (schedules, health redetect) keep using it and only create candidates | The preview and import used to run the AI for whoever started them | `app/scrapers/source_pipeline.py` (`may_use_scraper_ai`, `allow_ai`), `app/scrapers/ai_fallback.py`, `app/scrapers/base_scraper.py`, `app/services/scraper_workflow_service.py`, `app/services/rescrape_service.py` |
+| **A website a sub-admin approves gets no automatic AI parser.** The background job queued on save checks the website's `approved_by`; for a sub-admin it skips the AI and tells the main admin to use Custom Parser. The default `trigger` of `attempt_generation` / `generate_parser_task` is now `"requested"`, so only the website-save call (which passes `"website_saved"`) is checked | Approving a website started AI generation for whoever approved it | `app/services/parser_generation_service.py` (`_saved_by_scraper_ai_user`), `app/tasks/scraper_tasks.py` |
+
+- **Database:** none. Existing `permission_overrides` rows granting these two keys to a sub-admin are ignored (and removed the next time that toggle is touched).
+- **Settings:** none. API: `PUT /admin/users/{id}/permissions` granting either key → 403 `main_admin_only`; the catalogue entries carry `main_admin_only`.
+- **Check:** sign in as a sub-admin → Series Management shows no *Scraper AI API* / *Custom Parser* buttons; Role Management (as main admin) has no Scraper AI toggles. `pytest backend_fastapi/tests/test_scraper_ai_main_admin_only.py`.
+- **Undo:** `git revert` this PR's merge commit. No migration.
+
 ### 2026-10-01 — PR #30: scraper engine upgrades, Scraper AI playbook and guard
 
-Commit `d1f7415`. Merge SHA: filled in by the next PR.
+Merge `93acd4d`. Commits `d1f7415`, `a41aff1`.
 
 | Change | Why | Main files |
 | --- | --- | --- |

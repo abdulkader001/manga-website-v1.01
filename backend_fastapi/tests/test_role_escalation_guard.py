@@ -148,11 +148,20 @@ def test_main_admin_retains_both_promotion_routes(fastapi_client, actors):
     assert _role_of(actors["plain"]) == UserRole.USER
 
 
-def test_secondary_admin_may_still_demote_an_ordinary_user(fastapi_client, actors):
-    """The gate closes the escalation path without breaking delegated work."""
+def test_secondary_admin_cannot_change_any_role(fastapi_client, actors):
+    """Role management is main-admin only (owner's rule): a sub-admin can't
+    change even an ordinary user's role; the main admin can."""
 
     resp = fastapi_client.post(
         f"/api/admin/demote/{actors['plain']}",
         headers=_headers(actors["secondary"]),
+    )
+    assert resp.status_code == 403, resp.text
+
+
+def test_main_admin_can_still_demote_an_ordinary_user(fastapi_client, actors):
+    resp = fastapi_client.post(
+        f"/api/admin/demote/{actors['plain']}",
+        headers=_headers(actors["main"]),
     )
     assert resp.status_code == 200, resp.text

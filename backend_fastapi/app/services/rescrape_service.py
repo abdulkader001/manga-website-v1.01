@@ -407,6 +407,12 @@ def run_staged_rescrape(
     db.commit()
 
     scraper = BaseScraper(domain)
+    if actor_id is not None:
+        # Started by a person: the Scraper AI only helps the main admin.
+        from ..models import User
+        from ..scrapers.source_pipeline import may_use_scraper_ai
+
+        scraper.allow_ai = may_use_scraper_ai(db, db.get(User, actor_id))
 
     def _abort(reason: str) -> Dict[str, Any]:
         manga.ingestion_status = "complete"

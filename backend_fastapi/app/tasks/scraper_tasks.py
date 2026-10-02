@@ -516,7 +516,7 @@ def prune_history_task():
 def generate_parser_task(
     domain: str,
     base_url: str,
-    trigger: str = "website_saved",
+    trigger: str = "requested",
     series_url: str | None = None,
     chapter_urls: list[str] | None = None,
 ):

@@ -85,6 +85,7 @@ class ScraperWorkflowService:
                 # Built after _prepare_options: it may have just activated the
                 # parser this scrape should use.
                 scraper = BaseScraper(domain)
+                scraper.allow_ai = self._requester_may_use_ai(job)
 
                 remap = bool(options.get("remap_chapters")) and manga is not None
                 existing_chapters = (
@@ -184,6 +185,18 @@ class ScraperWorkflowService:
                     self._record_health(domain, success=False, exc=e)
                 raise e
 
+    def _requester_may_use_ai(self, job) -> bool:
+        """The Scraper AI is main-admin only: a job a sub-admin submitted
+        never calls it. Jobs with no requester are the system's own
+        (schedules, repairs) and keep using it."""
+
+        if not job.requested_by:
+            return True
+        from ..models import User
+        from ..scrapers.source_pipeline import may_use_scraper_ai
+
+        return may_use_scraper_ai(self.db, self.db.get(User, job.requested_by))
+
     def _prepare_options(self, job, url: str) -> Dict[str, Any]:
         """Resolve what the submitter asked for before scraping starts.
 
@@ -204,7 +217,12 @@ class ScraperWorkflowService:
 
             actor = self.db.get(User, job.requested_by) if job.requested_by else None
             result = resolve_parser(
-                self.db, url, base_url=options.get("base_url"), actor=actor, activate=True
+                self.db,
+                url,
+                base_url=options.get("base_url"),
+                actor=actor,
+                activate=True,
+                allow_ai=self._requester_may_use_ai(job),
             )
             if not result.get("ok"):
                 raise ExtractionError(

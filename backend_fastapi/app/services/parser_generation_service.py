@@ -261,16 +261,52 @@ def generate_and_test(
     }
 
 
+WEBSITE_LOOKUP_ATTEMPTS = 5
+
+
+def _saved_by_scraper_ai_user(db: Session, domain: str) -> bool:
+    """Whether the person who approved ``domain`` may use the Scraper AI.
+
+    Websites with no recorded approver (older rows, system-created) keep the
+    automatic generation; a row that cannot be found does not. The save that
+    queued this job may still be committing, so a missing row is looked up a
+    few more times first (this runs in a Celery worker; sleeping is fine).
+    """
+
+    import time
+
+    from ..models import ApprovedSourceDomain, User
+    from ..scrapers.source_pipeline import may_use_scraper_ai
+
+    key = (domain or "").strip().lower()
+    website = None
+    for attempt in range(WEBSITE_LOOKUP_ATTEMPTS):
+        website = db.query(ApprovedSourceDomain).filter(ApprovedSourceDomain.domain == key).one_or_none()
+        if website is not None:
+            break
+        if attempt + 1 < WEBSITE_LOOKUP_ATTEMPTS:
+            db.rollback()  # end the snapshot so the next read sees new commits
+            time.sleep(1)
+    if website is None:
+        return False
+    if not website.approved_by:
+        return True
+    return may_use_scraper_ai(db, db.get(User, website.approved_by))
+
+
 def attempt_generation(
     db: Session,
     *,
     domain: str,
     base_url: str,
-    trigger: str = "website_saved",
+    trigger: str = "requested",
     series_url: Optional[str] = None,
     chapter_urls: Optional[List[str]] = None,
 ) -> Dict[str, Any]:
     """Invoke the scraper AI for a website and record the outcome (1G.6.0A).
+
+    ``trigger="website_saved"`` (passed by the website-save endpoint) runs
+    only when the person who approved the website may use the Scraper AI.
 
     Every outcome notifies the Permanent Administrator — the admin is never
     left guessing. The output is only ever a *candidate* (1G.8.3).
@@ -279,6 +315,23 @@ def attempt_generation(
     from the 1G.9 honest-failure report; when given, generation uses them
     instead of discovering pages from the homepage.
     """
+
+    if trigger == "website_saved" and not _saved_by_scraper_ai_user(db, domain):
+        # The Scraper AI is main-admin only: a website a sub-admin approved
+        # gets its parser when the main admin runs Custom Parser for it.
+        notification_service.notify_async(
+            type="parser.needed",
+            title=f"{domain}: added by a sub-admin, parser not generated",
+            body=(
+                f"{domain} was approved by a sub-admin. The Scraper AI only runs "
+                "for the main admin, so no parser was generated. Open Series -> "
+                "Custom Parser and paste a series page of this site if it needs one."
+            ),
+            data={"domain": domain, "trigger": trigger},
+            target_type="website",
+            target_id=domain,
+        )
+        return {"status": "skipped_main_admin_only"}
 
     if not scraper_ai_service.is_configured():
         # 1G.8.8: with no scraper AI configured, the administrator is told a

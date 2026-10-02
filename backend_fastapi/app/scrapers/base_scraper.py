@@ -135,6 +135,10 @@ class BaseScraper:
         self.last_problem: Optional[str] = None
         # The Scraper AI's reason when it declined a site (bot check, paywall).
         self.ai_verdict: Optional[str] = None
+        # False when the scrape runs for someone who may not use the Scraper
+        # AI (it is main-admin only): fallbacks then use known parsers and
+        # structure detection, never the AI.
+        self.allow_ai: bool = True
 
     @property
     def module_id(self) -> str:
@@ -1132,4 +1136,6 @@ class BaseScraper:
         logger.info(f"AI fallback analyzing HTML for {url} (type: {type})")
         from .ai_fallback import AIFallbackService
 
-        return AIFallbackService.extract_selectors(str(soup), type)
+        return AIFallbackService.extract_selectors(
+            str(soup), type, use_ai=getattr(self, "allow_ai", True)
+        )

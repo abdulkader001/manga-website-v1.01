@@ -93,6 +93,26 @@ _CATALOGUE: dict[str, tuple[Group, bool, bool]] = {
 }
 
 
+# Owner's rules: the Scraper AI (its API key, and creating parsers with it --
+# the Series Management "Scraper AI API" and "Custom Parser" sections), API
+# Management (OCR / translation / AI providers) and Role Management
+# (appointing/removing sub-admins) belong to the main admin alone. The main admin holds these like every catalogue permission; a
+# sub-admin can never hold them -- no toggle, preset or stored override grants
+# them (enforced in ``permissions_service``).
+MAIN_ADMIN_ONLY: frozenset[str] = frozenset(
+    {
+        "trigger_scraper_ai",
+        "configure_scraper_ai",
+        "view_providers",
+        "configure_ocr",
+        "configure_translation",
+        "configure_ai",
+        "set_provider_priority",
+        "promote_secondary",
+        "demote_secondary",
+    }
+)
+
 # SRS 1F.8 — no toggle exists for these; absent from the catalogue entirely.
 NEVER_GRANTABLE: frozenset[str] = frozenset(
     {
@@ -118,16 +138,16 @@ DESCRIPTIONS: dict[str, str] = {
     "approve_website": "Approve a new source website for scraping.",
     "modify_website": "Change an approved website's settings.",
     "remove_website": "Remove an approved website.",
-    "trigger_scraper_ai": "Ask the scraper AI to write a parser for a new site.",
+    "trigger_scraper_ai": "Main admin only: create a parser for a website with the Scraper AI (Custom Parser).",
     "approve_parser": "Approve a generated parser.",
     "activate_parser": "Switch a parser on.",
     "rollback_parser": "Go back to an earlier parser version.",
-    "view_providers": "See the OCR / translation / AI provider list (keys stay hidden).",
-    "configure_ocr": "Change OCR providers.",
-    "configure_translation": "Change translation providers.",
-    "configure_ai": "Change AI providers.",
-    "configure_scraper_ai": "Change the scraper AI.",
-    "set_provider_priority": "Reorder providers.",
+    "view_providers": "Main admin only: see API Management (OCR / translation / AI providers).",
+    "configure_ocr": "Main admin only: change OCR providers.",
+    "configure_translation": "Main admin only: change translation providers.",
+    "configure_ai": "Main admin only: change AI providers.",
+    "configure_scraper_ai": "Main admin only: add or change the Scraper AI API key.",
+    "set_provider_priority": "Main admin only: reorder providers.",
     "correct_translation": "Fix a wrong translation.",
     "force_regen_translation": "Throw away a cached translation and make it again.",
     "review_quality_flags": "Review translations flagged as poor.",
@@ -143,8 +163,8 @@ DESCRIPTIONS: dict[str, str] = {
     "ban_account": "Ban an account.",
     "restore_account": "Restore a suspended or banned account.",
     "revoke_user_sessions": "Sign a user out everywhere.",
-    "promote_secondary": "Appoint sub-admins.",
-    "demote_secondary": "Remove sub-admins.",
+    "promote_secondary": "Main admin only: appoint sub-admins (Role Management).",
+    "demote_secondary": "Main admin only: remove sub-admins (Role Management).",
     "view_limits": "See usage limits.",
     "set_limits": "Change usage limits.",
     "set_session_policy": "Change how long logins last.",
@@ -213,6 +233,8 @@ def role_default(key: str, role: UserRole) -> bool:
     if role in (UserRole.PERMANENT, UserRole.ADMIN):
         # Main/permanent-admin accounts hold every catalogue permission.
         return True
+    if key in MAIN_ADMIN_ONLY:
+        return False
     if role == UserRole.SECONDARY:
         return secondary_d
     # Registered users / guests hold no catalogue (admin) permissions.
@@ -280,13 +302,8 @@ BUILTIN_PRESETS: dict[str, dict] = {
     },
     "operations_admin": {
         "label": "Sub-admin: Operations",
-        "description": "Providers, limits, users. No website approval.",
+        "description": "Users and accounts. No website approval (API Management is main-admin only).",
         "grant": [
-            "view_providers",
-            "configure_ocr",
-            "configure_translation",
-            "configure_ai",
-            "set_provider_priority",
             "view_user_list",
             "view_user_detail",
             "suspend_account",
@@ -325,15 +342,18 @@ def catalogue() -> list[dict]:
 
     out: list[dict] = []
     for key, (group, admin_d, secondary_d) in _CATALOGUE.items():
+        main_only = key in MAIN_ADMIN_ONLY
         out.append(
             {
                 "key": key,
                 "group": group.value,
                 "description": DESCRIPTIONS.get(key, ""),
+                # The Role Management page shows no toggle for these.
+                "main_admin_only": main_only,
                 "defaults": {
                     "permanent_admin": True,
                     "admin": admin_d,
-                    "secondary_admin": secondary_d,
+                    "secondary_admin": False if main_only else secondary_d,
                 },
             }
         )

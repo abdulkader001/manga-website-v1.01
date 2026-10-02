@@ -22,8 +22,15 @@
 - Only database/Redis connection, the site address, signing/encryption keys
   and the admin identity stay in `.env`. Every other setting belongs in the
   Secret Vault.
-- The Secret Vault, Admin Settings, branding, donations and role management
-  are main-admin only and can never be granted to sub-admins.
+- The Secret Vault, Admin Settings, API Management (OCR / translation / AI
+  providers), branding, donations and Role Management (permissions,
+  presets, appointing or removing sub-admins, any role change) are
+  main-admin only and can never be granted to sub-admins — not even read
+  access.
+- The Scraper AI is main-admin only: its API key (Series Management →
+  Scraper AI API) and creating parsers with it (Custom Parser). Sub-admins
+  don't see those sections, can't be granted them, and scrapes they start
+  never call the AI.
 - Roles: admin (main), sub-admin (per-person permission toggles), user.
 - Readers sign in with a magic link, Google or Microsoft only. No reader
   passwords. One inbox gives one account, for life.
