@@ -24,10 +24,10 @@
   Secret Vault.
 - The Secret Vault, Admin Settings (including its cache purge and
   delete-all actions), API Management (OCR / translation / AI
-  providers), branding, donations and Role Management (permissions,
-  presets, appointing or removing sub-admins, any role change) are
-  main-admin only and can never be granted to sub-admins — not even read
-  access.
+  providers), branding, donations, Storage & Backups, Geolock and Role
+  Management (permissions, presets, appointing or removing sub-admins, any
+  role change) are main-admin only and can never be granted to sub-admins —
+  not even read access.
 - The Scraper AI is main-admin only: its API key (Series Management →
   Scraper AI API) and creating parsers with it (Custom Parser). Sub-admins
   don't see those sections, can't be granted them, and scrapes they start

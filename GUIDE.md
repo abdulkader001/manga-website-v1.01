@@ -585,6 +585,8 @@ sub-admin's preview says "ask the main admin", add the site as below.
 | Translated chapter names | Same translator as the overlay. Source names like `522 원준 522화 2024-11-07` show as `Chapter 522`; real subtitles are translated and cached. |
 | Notifications, storage alerts | `celery_worker_notifications`, `celery_worker_maintenance`, beat |
 | Ads, branding, announcements, maintenance mode | Admin → Site settings |
+| Whole-site backups, download, restore, R2/B2 storage | Admin → Storage & Backups (Section 9.1). Main admin only |
+| Geolock (block countries) | Admin → Geolock: press *Download free database (DB-IP)* once (or upload a MaxMind `GeoLite2-Country.mmdb`), tick countries, save. Behind Cloudflare you can use its country header instead. Main admin only |
 | Backups | Section 9 |
 
 ---
@@ -699,6 +701,41 @@ Three things hold your site's state:
 Scheduled runs: `backend_fastapi/deployment/manga-backup.timer`. Restore
 procedure: `backend_fastapi/deployment/backups.md` and `deployment/runbook.md`.
 
+### 9.1 From the admin panel: Storage & Backups
+
+**Admin → Storage & Backups** (main admin only) does the same from the
+website, and is the easiest way to keep the site safe:
+
+1. **Set a backup password** first (at least 10 characters) and write it down
+   **off the server**. Every backup is then encrypted; without the password
+   no backup can be restored, here or on a new server.
+2. **Weekly backup** is on by default: Sunday 03:00 UTC, the newest 2 kept,
+   pictures included. Change the day, hour, how many to keep and whether
+   pictures go in. A backup with pictures is about as big as your pictures
+   folder; it is refused (not half-made) when the disk lacks room.
+3. **Back up now** makes one immediately. **Download** saves any backup to
+   your computer (or Google Drive from there).
+4. **Connect storage** to copy every backup off the server: any
+   S3-compatible storage. Paste the endpoint, bucket, region and an access key
+   limited to that bucket, press **Test connection**, then **Connect**.
+   Examples: Cloudflare R2 `https://<account-id>.r2.cloudflarestorage.com`,
+   region `auto`; Backblaze B2 `https://s3.<region>.backblazeb2.com`, region
+   e.g. `us-west-004`. **Disconnect** forgets the keys; files already there
+   stay. Old backups are pruned there too.
+5. **Restore**: press Restore on a backup, type `RESTORE`. A database-only
+   safety copy of the current site is made first (it appears in the list). Then
+   restart so the restored database is upgraded if it came from an older
+   version: `docker compose up -d --force-recreate`.
+
+**Moving to a new server:** install the site (sections 2–6) with the **same
+`.env`** (above all `EMAIL_ENCRYPTION_KEY` and `INTEGRATIONS_SECRET`), sign in,
+open Storage & Backups, then either **Upload a backup** from your computer or
+connect the same storage and **Bring to this server**, and Restore it with
+the backup password.
+
+Backups live in the `app-storage` volume under `backups/` (never served to
+visitors). Put `BACKUP_DIR` on another disk in `.env` if the main one is small.
+
 ---
 
 ## 10. Troubleshooting
@@ -738,6 +775,12 @@ procedure: `backend_fastapi/deployment/backups.md` and `deployment/runbook.md`.
 | Site unreachable after switching the domain | DNS or HTTPS for the new name isn't ready. Run `set_site_domain --clear` on the server to go back (Section 8.1). |
 | A Secret Vault value stops the site from starting | Set `VAULT_PRELOAD_DISABLED=true` in `.env`, recreate the containers, fix the value, then remove the flag. |
 | Server slow, swapping, or containers killed for memory on a 1-2 GB server | Use the small profile (Section 4.2): `docker compose -f docker-compose.yml -f docker-compose.small.yml up -d`. |
+| Backup says "Not enough free disk" | Delete old backups, keep fewer, turn off *Include pictures*, or set `BACKUP_DIR` to a bigger disk. |
+| Backup "Storage copy failed" | The archive is safe on the server. Press *Test connection* in Storage & Backups to see why (wrong key, bucket, region, or key not allowed to write). |
+| Restore says "Wrong backup password" | Enter the password that was set when that backup was made. |
+| Backup upload stops at 10 MB (own nginx in front) | Your outer proxy caps uploads. Copy the backups location from `deployment/manga-site.conf` (no size cap for `/api/v1/admin/backups/upload`). |
+| You blocked your own country with Geolock | On the server: `docker compose exec backend python -m backend_fastapi.scripts.cli_bootstrap geolock-off`. |
+| Geolock blocks nobody | Turn it on, tick countries, and install the country database (Geolock tab). Visitors on a local network or VPN aren't matched. |
 | Port already in use | Another program uses 8080/8000/5432; stop it or change the published port in `docker-compose.yml`. |
 | Windows: `exec ... no such file or directory` in a container | Line endings; clone inside WSL (Section 1) or run `git config core.autocrlf false` before cloning. |
 | API docs (`/docs`) missing | Intentional in production; set `EXPOSE_API_DOCS=true` on a private deploy. |
@@ -757,7 +800,8 @@ procedure: `backend_fastapi/deployment/backups.md` and `deployment/runbook.md`.
 - [ ] Updating from before PR #33: provider keys that were saved in a **custom header** (e.g. Azure `api-key`) were publicly readable; rotate them at the provider and save the new key in Admin → API Management
 - [ ] Scraper AI key tested (Admin → Series → Scraper AI API) before adding new source sites with Custom Parser (main admin only)
 - [ ] Domain + HTTPS in front (production)
-- [ ] `.env` and backups stored safely off the server
+- [ ] `.env` and backups stored safely off the server: in **Admin → Storage & Backups** set a backup password (kept off the server), check the weekly schedule, and connect R2/B2 storage
+- [ ] Geolock set if needed (Admin → Geolock; install the country database first)
 
 More detail: `README.md`, `backend_fastapi/README.md`, `deployment/README.md`,
 `deployment/runbook.md`, `deployment/key-rotation.md`.
