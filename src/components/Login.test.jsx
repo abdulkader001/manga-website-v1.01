@@ -9,6 +9,8 @@ vi.mock("../services/api", () => ({
   default: { auth: { requestMagicLink: (...a) => requestMagicLink(...a) } },
   apiFetch: vi.fn(),
 }));
+const navigate = vi.hoisted(() => vi.fn());
+vi.mock("react-router", async (orig) => ({ ...(await orig()), useNavigate: () => navigate }));
 vi.mock("../hooks/useAuth", () => ({
   default: () => ({ login: vi.fn(), refetchUser: vi.fn() }),
 }));
@@ -58,5 +60,15 @@ describe("Login", () => {
     await user.type(screen.getByPlaceholderText("you@example.com"), "reader@example.com");
     await user.keyboard("{Enter}");
     expect(await screen.findByText("Too many requests")).toBeInTheDocument();
+  });
+
+  it("sends the owner's e-mail on to the one-time admin page", async () => {
+    requestMagicLink.mockResolvedValue({ message: "admin_setup" });
+    const user = userEvent.setup();
+    renderAt(<Login />);
+    await user.type(screen.getByPlaceholderText("you@example.com"), "owner@example.com");
+    await user.keyboard("{Enter}");
+    await waitFor(() => expect(navigate).toHaveBeenCalledWith("/admin-login"));
+    expect(screen.queryByText(/We sent a verification link/i)).not.toBeInTheDocument();
   });
 });

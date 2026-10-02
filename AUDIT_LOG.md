@@ -43,7 +43,9 @@ Contents
 
 - **Main admin**: one owner. Proves it **once** at `/admin-login` with e-mail, a **one-time** password from `.env` and an authenticator code. After that the page is gone (404, no link anywhere), the owner signs in like readers, and every admin page asks for the authenticator code. A new password hash in `.env` (server access) re-opens the page once, for recovery. Signing in with the owner's e-mail alone never grants admin.
 - **Sub-admin**: a user with per-person permission toggles (Role Management). Sees only **their own** rows in the admin audit log unless granted *See the full audit log* (`view_full_audit`). Previews, imports and re-scrapes use the Scraper AI only for a sub-admin who holds it.
-- **Deputy**: a sub-admin the owner gave one or more **site-owner powers** (`core/permissions.py` `OWNER_POWERS`: Secret Vault, Admin Settings, cache, purge, API Management, Scraper AI, Role Management, branding, donations, Storage & Backups, Geolock, e-mail reveal). At most **two** deputies. Only the owner gives or takes these (giving needs the owner's authenticator code); the deputy needs an authenticator and enters a code to use them (`dependencies/powers.py`). A sub-admin can't pass them on, change their own permissions, or change/reset/demote a deputy; demotion strips them. **Automatic succession** (owner only, off by default): a deputy idle longer than the chosen days (default 60) becomes a user and the most active eligible sub-admin inherits their powers (`services/admin_succession.py`, daily job). Stepping down as owner (`/admin/demote-main`) stays owner-only.
+- **Admin** (`UserRole.CO_ADMIN`; at most **two**, `MAX_ADMINS`): the owner's right hand. Holds every power except Admin Settings, the cache and "delete all manga" (`ADMIN_OFF_BY_DEFAULT`) until the owner switches them on; only the owner changes an Admin's toggles (switching a site-owner power on needs the owner's authenticator code). Has power over sub-admins and users only (`permissions_service.assert_may_act_on`, `authorize_change`): never over another Admin, themselves or the owner. Sees sub-admins' and users' e-mail, never an Admin's or the owner's. Needs an authenticator and a fresh code to use site-owner powers (`dependencies/powers.py`). Appoints sub-admins from a shared pool of **50** seats (`SUB_ADMIN_POOL`; an equal share unless the owner sets it). Keeps a **succession line** of up to two sub-admins (`admin_successors`); only the owner makes, removes or hands over an Admin seat (`services/admin_roles.py`, `api/routers/roles_admins.py`). `UserRole.ADMIN` is only the old name of the owner tier.
+- **Sub-admin**: per-person toggles set by an Admin or the owner, never above the owner's **ceiling** (`system_settings.sub_admin_blocked_permissions`) and never a site-owner power. Power over users only. Custom roles (presets) are created by the owner only.
+- **Automatic succession** (owner only, off by default, owner's code to change): an Admin idle longer than the chosen days (default 60) becomes a user and the first eligible sub-admin in their line (still a sub-admin, active, with an authenticator) takes the seat as it is: the owner's restrictions, the seats and the appointees (`services/admin_succession.py`, daily job). The owner can hand a seat over at once. Ownership never passes to anyone; `/admin/demote-main` stays owner-only.
 - **User (reader)**: signs in with a magic link, Google or Microsoft. **No passwords.** One inbox gives one account for life.
 
 ### Data that is deliberately *not* on the server
@@ -83,6 +85,7 @@ back what the upgrade removed, so restore a backup instead.
 | `20261011_admin_password_single_use` | #27 | `system_settings.admin_setup_password_used` | Drops it, so the **current admin password works again** |
 | `20261012_overlay_text_scale` | #33 | `user_processing_settings.overlay_font_size` becomes the 1-100 slider (pixels converted: 20 px → 28.5); new `overlay_outline_color`, `overlay_match_bubble` | **Lossy**: sizes go back to pixels rounded and capped at 10-40 px (a reader on 100 = 70 px gets 40 px); outline colour and bubble switch are dropped |
 | `20261013_admin_succession` | #34 | `admin_activity_days` table (one row per admin per active day) and `system_settings.succession_enabled` / `succession_inactive_days` / `succession_enabled_at` | Drops them. **Lossy**: the activity history and the succession switch are gone (succession is off again) |
+| `20261014_four_roles` | this PR | Adds role `CO_ADMIN` (Postgres enum value if native), `users.appointed_by` / `sub_admin_quota` / `admin_since`, `admin_successors`, `system_settings.sub_admin_blocked_permissions`; deletes site-owner overrides held by sub-admins (they can no longer hold them) | **Lossy**: Admins go back to sub-admins, and the new columns, succession lines and ceiling are dropped. The deleted overrides do not come back (re-promote in Role Management) |
 
 Check where a server is: `docker compose exec backend alembic current`.
 
@@ -123,6 +126,24 @@ exceptions; for those, restore the database backup taken before the update.
 ---
 
 ## Change entries
+
+### 2026-10-02 — Four roles: owner, Admin, sub-admin, user
+
+Branch `claude/eager-noether-0jg9xq`. Merge SHA: fill in when known.
+
+| Change | Why | Main files |
+| --- | --- | --- |
+| **Admin tier** (max two) replaces "deputies": almost every power by default except Admin Settings, cache and delete-all; only the owner switches an Admin's powers; Admins change sub-admins and users only and see only their e-mail | Owner wants a clear chain of command: owner > Admin > sub-admin > user | `core/permissions.py`, `services/permissions_service.py`, `services/admin_service.py`, `api/routers/admin.py`, `dependencies/auth.py` |
+| **Seats**: Admins share 50 sub-admin seats (25 each, owner adjusts); **ceiling**: powers no sub-admin may hold; custom roles owner-only | Owner limits how many staff each Admin makes and what they can get | `services/admin_roles.py`, `api/routers/roles_admins.py` |
+| **Succession lines**: each Admin names two sub-admins; idle (default 60 days, owner's switch) or owner hand-over gives the seat on as it is; old Admin becomes a user | Replaces "most active sub-admin inherits" | `services/admin_succession.py`, `services/admin_roles.py` |
+| Community moderation (block, unblock, time out, remove a comment) follows the chain of command: only people of a lower tier | Same hierarchy everywhere | `services/moderation_service.py`, `services/comment_service.py` |
+| Login: the owner's e-mail (matching `MAIN_ADMIN_EMAIL_HASH`) sent from the login page goes to `/admin-login` while that page is open; never once the password is used | Owner wants the first sign-in to flow from the normal login page | `api/routers/auth.py`, `src/components/Login.js` |
+| Role Management page: Admins panel, ceiling, succession | UI for the above | `src/pages/Admin/RoleManagement.jsx`, `src/services/api.js`, `src/contexts/AuthContext.js` |
+
+- **Database:** `20261014_four_roles` (added to §2). Existing deputies become plain sub-admins; the owner re-promotes them as Admins.
+- **Settings:** none in `.env`. The owner's e-mail stays the admin identity in `.env`, never in code.
+- **Check:** Role Management as owner: make an Admin (code), set seats, tick a ceiling, name a line; as the Admin: toggles for sub-admins work, another Admin's are refused. `pytest backend_fastapi/tests/test_four_roles.py`.
+- **Undo:** `alembic downgrade 20261013_admin_succession` before deploying reverted code (Admins become sub-admins), then `git revert -m 1 <merge>`.
 
 ### 2026-10-02 — PR #34: Storage & Backups, Geolock, deputies and automatic succession
 

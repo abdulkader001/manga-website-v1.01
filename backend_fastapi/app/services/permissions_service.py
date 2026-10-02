@@ -5,11 +5,12 @@ default. Effective permission is resolved server-side on every request; there is
 no client input to the decision. Overrides are stored per person; absence means
 inherited.
 
-The owner changes any sub-admin's overrides; a sub-admin holding
-``manage_roles`` changes other sub-admins' everyday powers only
-(``authorize_change``). Site-owner powers (``OWNER_POWERS``) are given and
-taken by the owner alone, to at most ``MAX_DEPUTIES`` sub-admins who keep an
-authenticator. Attempting to grant a never-grantable permission (1F.8) is
+Four roles (owner's rules, 2026-10-02): the owner holds everything and changes
+anyone's toggles (never their own). An Admin holds almost everything by
+default; only the owner changes an Admin's toggles. An Admin changes
+sub-admins' toggles: never their own, never another Admin's, never a
+site-owner power, never one the owner's ceiling blocks, and only powers they
+hold themselves. Attempting to grant a never-grantable permission (1F.8) is
 refused.
 """
 
@@ -21,16 +22,19 @@ from ..core.api_errors import ApiError, ErrorCode
 from ..core.permissions import (
     ALL_PERMISSIONS,
     BUILTIN_PRESETS,
-    MAX_DEPUTIES,
     NEVER_GRANTABLE,
     OWNER_POWERS,
+    OWNER_ROLES,
     builtin_presets,
     catalogue,
     effective_role,
     is_valid_permission,
+    rank,
     role_default,
 )
 from ..models import PermissionOverride, PermissionPreset, User, UserRole
+
+ADJUSTABLE = (UserRole.SECONDARY, UserRole.CO_ADMIN)
 
 
 def _overrides_for(db: Session, user_id: int) -> dict[str, str]:
@@ -40,6 +44,39 @@ def _overrides_for(db: Session, user_id: int) -> dict[str, str]:
     return {r.permission: r.state for r in rows}
 
 
+def sub_admin_blocked(db: Session) -> set[str]:
+    """The owner's ceiling: permissions no sub-admin can hold."""
+
+    from .system_settings_service import get_or_create_system_settings
+
+    raw = get_or_create_system_settings(db).sub_admin_blocked_permissions or []
+    return {key for key in raw if is_valid_permission(key)}
+
+
+def _decide(user: User, role: UserRole, key: str, state: str | None, blocked: set[str]) -> tuple[bool, str]:
+    """(effective, label) for ``key``: the one rule both ``has_permission`` and
+    the toggle page use, so they can't disagree."""
+
+    if role in OWNER_ROLES:
+        return True, "inherited"
+    if role not in ADJUSTABLE:
+        return False, "inherited"
+    if role == UserRole.SECONDARY:
+        if key in OWNER_POWERS:
+            return False, "inherited"  # a sub-admin never holds a site-owner power
+        if key in blocked:
+            return False, "blocked"  # the owner's ceiling
+    if state == "granted":
+        effective, label = True, "granted"
+    elif state == "revoked":
+        effective, label = False, "revoked"
+    else:
+        effective, label = role_default(key, role), "inherited"
+    if effective and key in OWNER_POWERS and not getattr(user, "totp_enabled", False):
+        effective = False  # paused until they set up an authenticator
+    return effective, label
+
+
 def has_permission(db: Session, user: User, permission: str) -> bool:
     """Return the effective value of ``permission`` for ``user`` (1F.10)."""
 
@@ -47,6 +84,14 @@ def has_permission(db: Session, user: User, permission: str) -> bool:
     if permission in NEVER_GRANTABLE or not is_valid_permission(permission):
         return False
 
+    # F-4: resolve via effective_role, not the raw role column, so a flag-only
+    # admin gets the same catalogue access require_admin_user's role-tier gate
+    # already grants them.
+    role = effective_role(user)
+    if role in OWNER_ROLES:
+        return True
+    if role not in ADJUSTABLE:
+        return False  # a regular user never holds a catalogue permission
     override = (
         db.query(PermissionOverride)
         .filter(
@@ -55,59 +100,25 @@ def has_permission(db: Session, user: User, permission: str) -> bool:
         )
         .first()
     )
-    role = effective_role(user)
-    # Three roles: a regular user never holds a catalogue (admin) permission,
-    # whatever overrides exist, and the main admin always holds all of them.
-    # Overrides only ever refine a sub-admin.
-    if role == UserRole.USER:
-        return False
-    if role in (UserRole.ADMIN, UserRole.PERMANENT):
-        return True
-    if permission in OWNER_POWERS:
-        # Only an explicit grant from the owner, and only while the holder
-        # keeps an authenticator (a deputy who drops it is paused, not kept).
-        return (
-            override is not None
-            and override.state == "granted"
-            and bool(getattr(user, "totp_enabled", False))
-        )
-
-    if override is not None:
-        return override.state == "granted"
-
-    # F-4: resolve via effective_role, not the raw role column, so a flag-only
-    # admin (is_main_admin/is_secondary_admin/permanent set without a
-    # matching role) gets the same catalogue access require_admin_user's
-    # role-tier gate already grants them.
-    return role_default(permission, role)
+    blocked = sub_admin_blocked(db) if role == UserRole.SECONDARY else set()
+    return _decide(user, role, permission, override.state if override else None, blocked)[0]
 
 
 def resolve_effective(db: Session, user: User) -> list[dict]:
     """The person's full effective permission set with state (1F.9.2)."""
 
     role = effective_role(user)
-    # Same rule as has_permission: overrides only refine a sub-admin.
-    overrides = _overrides_for(db, user.id) if role == UserRole.SECONDARY else {}
+    overrides = _overrides_for(db, user.id) if role in ADJUSTABLE else {}
+    blocked = sub_admin_blocked(db) if role == UserRole.SECONDARY else set()
     out: list[dict] = []
     for key in ALL_PERMISSIONS:
-        default = role_default(key, role)
-        state = overrides.get(key)
-        if key in OWNER_POWERS and state != "granted":
-            state = None
-        if state == "granted":
-            effective, label = True, "granted"
-            if key in OWNER_POWERS and not getattr(user, "totp_enabled", False):
-                effective = False  # paused until they set up an authenticator
-        elif state == "revoked":
-            effective, label = False, "revoked"
-        else:
-            effective, label = default, "inherited"
+        effective, label = _decide(user, role, key, overrides.get(key), blocked)
         out.append(
             {
                 "key": key,
                 "effective": effective,
                 "state": label,
-                "role_default": default,
+                "role_default": role_default(key, role),
             }
         )
     return out
@@ -121,78 +132,91 @@ def modified_count(db: Session, user: User) -> int:
     )
 
 
-def _assert_sub_admin(target: User) -> None:
-    if effective_role(target) != UserRole.SECONDARY:
+def _assert_adjustable(target: User) -> None:
+    if effective_role(target) not in ADJUSTABLE:
         raise ApiError(
             ErrorCode.FORBIDDEN,
-            "Only a sub-admin's permissions can be adjusted. Make the person a sub-admin first.",
+            "Only an Admin's or a sub-admin's permissions can be adjusted. Make the person a sub-admin first.",
             details={"reason": "not_a_sub_admin"},
         )
 
 
 def _is_owner(user: User) -> bool:
-    return effective_role(user) in (UserRole.ADMIN, UserRole.PERMANENT)
+    return effective_role(user) in OWNER_ROLES
 
 
-def deputy_ids(db: Session) -> set[int]:
-    """Sub-admins holding at least one site-owner power (granted)."""
+def admin_ids(db: Session) -> set[int]:
+    """The people holding the Admin tier."""
 
-    rows = (
-        db.query(PermissionOverride.user_id)
-        .join(User, User.id == PermissionOverride.user_id)
-        .filter(
-            PermissionOverride.permission.in_(sorted(OWNER_POWERS)),
-            PermissionOverride.state == "granted",
-            User.role == UserRole.SECONDARY,
-        )
-        .distinct()
-        .all()
-    )
+    rows = db.query(User.id).filter(User.role == UserRole.CO_ADMIN).all()
     return {row[0] for row in rows}
 
 
-def is_deputy(db: Session, user: User) -> bool:
-    return user.id in deputy_ids(db)
+def is_admin(db: Session, user: User) -> bool:
+    return effective_role(user) == UserRole.CO_ADMIN
 
 
 def _refuse(message: str, reason: str, **details) -> ApiError:
     return ApiError(ErrorCode.FORBIDDEN, message, details={"reason": reason, **details})
 
 
+def assert_may_act_on(actor: User, target: User, what: str = "do that to", *, allow_self: bool = False) -> None:
+    """The chain of command: an Admin has power over sub-admins and users, a
+    sub-admin over users only, and nobody over the owner. Power over a person
+    needs a strictly higher tier."""
+
+    if allow_self and actor.id == target.id:
+        return
+    if rank(target) >= 3 or rank(actor) <= rank(target):
+        raise _refuse(f"You can't {what} someone of your own tier or above.", "above_your_tier")
+
+
 def authorize_change(db: Session, actor: User, target: User, grants: list[str]) -> None:
     """Who may change ``target``'s permissions, and grant ``grants``.
 
     * The owner: anyone but themselves (their own powers are fixed).
-    * A sub-admin with ``manage_roles``: never themselves, never a deputy,
-      never a site-owner power, and only powers they hold themselves.
+    * An Admin with ``manage_roles``: sub-admins only -- never themselves,
+      never another Admin -- and only everyday powers they hold themselves
+      that the owner's ceiling lets a sub-admin hold.
     """
 
     if _is_owner(actor):
         return
     if target.id == actor.id:
         raise _refuse("You can't change your own permissions.", "self_change")
-    if is_deputy(db, target):
-        raise _refuse("Only the site owner can change a deputy's permissions.", "deputy_protected")
+    if rank(target) >= rank(actor):
+        raise _refuse(
+            "You can only change a sub-admin's permissions. Only the site owner changes an Admin's.",
+            "admin_protected" if rank(target) == rank(actor) else "owner_only",
+        )
+    blocked = sub_admin_blocked(db)
     for key in grants:
         if key in OWNER_POWERS:
             raise _refuse("Only the site owner can give site-owner powers.", "owner_only", permission=key)
+        if key in blocked:
+            raise _refuse(
+                f"The site owner doesn't allow sub-admins to hold '{key}'.", "owner_ceiling", permission=key
+            )
         if not has_permission(db, actor, key):
             raise _refuse(f"You can't give '{key}': you don't hold it yourself.", "not_yours_to_give", permission=key)
 
 
 def set_override(
-    db: Session, target: User, permission: str, state: str, actor_id: int, *, by_owner: bool = False
+    db: Session, target: User, permission: str, state: str, actor_id: int | None, *, by_owner: bool = False
 ) -> None:
     """Set or clear a single override (1F.6.2).
 
     ``state`` is 'granted', 'revoked', or 'inherited' (clears the override).
-    Never-grantable permissions (1F.8) are refused, and only a sub-admin's
-    permissions are adjustable (users hold none, the main admin holds all).
-    Site-owner powers need ``by_owner`` (the caller checked the owner's
-    authenticator code), an authenticator on the target, and a free deputy seat.
+    Never-grantable permissions (1F.8) are refused, and only an Admin's or a
+    sub-admin's permissions are adjustable (users hold none, the owner holds
+    all). An Admin's toggles change only through the owner (``by_owner``, the
+    caller having checked the owner's authenticator code for a grant of a
+    site-owner power). A sub-admin can never hold a site-owner power or one
+    the owner's ceiling blocks.
     """
 
-    _assert_sub_admin(target)
+    _assert_adjustable(target)
+    role = effective_role(target)
 
     if permission in NEVER_GRANTABLE or not is_valid_permission(permission):
         raise ApiError(
@@ -207,25 +231,36 @@ def set_override(
             "state must be granted, revoked, or inherited",
             field="state",
         )
-    if permission in OWNER_POWERS:
+    if role == UserRole.CO_ADMIN:
         if not by_owner:
-            raise _refuse("Only the site owner can give or take site-owner powers.", "owner_only", permission=permission)
-        if state == "granted":
-            if not getattr(target, "totp_enabled", False):
-                raise _refuse(
-                    "This sub-admin must set up an authenticator app (Admin -> Security) before holding site-owner powers.",
-                    "authenticator_required",
-                )
-            others = deputy_ids(db) - {target.id}
-            if len(others) >= MAX_DEPUTIES:
-                raise _refuse(
-                    f"Only {MAX_DEPUTIES} sub-admins can hold site-owner powers. Take them from one first.",
-                    "deputy_limit",
-                    limit=MAX_DEPUTIES,
-                )
-        else:
-            # Off is the only other state: drop any stored row.
+            raise _refuse("Only the site owner can change an Admin's powers.", "owner_only", permission=permission)
+        if state == "granted" and permission in OWNER_POWERS and not getattr(target, "totp_enabled", False):
+            raise _refuse(
+                "This Admin must set up an authenticator app (Admin -> Security) before holding site-owner powers.",
+                "authenticator_required",
+            )
+        # Keep only real deviations from the Admin default.
+        if (state == "granted") == role_default(permission, role) and state != "inherited":
             state = "inherited"
+    else:
+        if permission in OWNER_POWERS:
+            if not by_owner:
+                raise _refuse(
+                    "Only the site owner can give or take site-owner powers.", "owner_only", permission=permission
+                )
+            if state == "granted":
+                raise _refuse(
+                    "Site-owner powers belong to Admins. Make the person an Admin first.",
+                    "admin_only",
+                    permission=permission,
+                )
+            state = "inherited"  # nothing to store: a sub-admin never holds one
+        elif state == "granted" and permission in sub_admin_blocked(db):
+            raise _refuse(
+                f"The site owner doesn't allow sub-admins to hold '{permission}'.",
+                "owner_ceiling",
+                permission=permission,
+            )
 
     existing = (
         db.query(PermissionOverride)
@@ -258,7 +293,7 @@ def set_override(
 
 
 def clear_owner_powers(db: Session, target: User) -> int:
-    """Take every site-owner power from ``target`` (demotion, succession)."""
+    """Take every site-owner override from ``target`` (leaving the Admin tier)."""
 
     return (
         db.query(PermissionOverride)
@@ -336,14 +371,26 @@ def apply_preset(db: Session, target: User, preset_key: str, actor_id: int) -> N
             f"Unknown preset '{preset_key}'.",
             field="preset",
         )
-    # A preset shapes everyday powers; site-owner powers are left as they are.
+    # A preset shapes everyday powers; site-owner powers are left as they are,
+    # and a power the owner's ceiling blocks is skipped, not granted.
     reset_to_default(db, target, keep_owner_powers=True)
+    blocked = sub_admin_blocked(db)
+    by_owner = True  # the route already authorised the actor (authorize_change)
     for key in preset.get("revoke", []):
         if _presettable(key):
-            set_override(db, target, key, "revoked", actor_id)
+            set_override(db, target, key, "revoked", actor_id, by_owner=by_owner)
     for key in preset.get("grant", []):
-        if _presettable(key):
-            set_override(db, target, key, "granted", actor_id)
+        if _presettable(key) and key not in blocked:
+            set_override(db, target, key, "granted", actor_id, by_owner=by_owner)
+
+
+def preset_grants(db: Session, preset_key: str) -> list[str]:
+    """The keys applying ``preset_key`` would grant, minus what the owner's
+    ceiling blocks (those are skipped, so they never count as a grant)."""
+
+    preset = _resolve_preset(db, preset_key) or {}
+    blocked = sub_admin_blocked(db)
+    return [k for k in preset.get("grant", []) if _presettable(k) and k not in blocked]
 
 
 def _presettable(key: str) -> bool:
@@ -392,21 +439,23 @@ def create_custom_preset(
     return preset
 
 
-def list_managed_people(db: Session, *, modified_only: bool = False) -> list[dict]:
-    """Sub-admins with their modified count.
+def list_managed_people(
+    db: Session, *, modified_only: bool = False, include_admins: bool = False
+) -> list[dict]:
+    """Sub-admins (and, for the owner, Admins) with their modified count.
 
     Powers the Role & Permission Management list and its "Modified only" filter
     (SRS 1F.9.1).
     """
 
+    roles = [UserRole.SECONDARY] + ([UserRole.CO_ADMIN] if include_admins else [])
     rows = (
         db.query(User)
-        .filter(User.role == UserRole.SECONDARY)
+        .filter(User.role.in_(roles))
         .order_by(User.id.asc())
         .all()
     )
     out: list[dict] = []
-    deputies = deputy_ids(db)
     for user in rows:
         count = modified_count(db, user)
         if modified_only and count == 0:
@@ -417,7 +466,8 @@ def list_managed_people(db: Session, *, modified_only: bool = False) -> list[dic
                 "name": getattr(user, "name", None),
                 "role": user.role.value if user.role else None,
                 "modified_count": count,
-                "deputy": user.id in deputies,
+                "admin": user.role == UserRole.CO_ADMIN,
+                "appointed_by": user.appointed_by,
                 "authenticator": bool(getattr(user, "totp_enabled", False)),
             }
         )

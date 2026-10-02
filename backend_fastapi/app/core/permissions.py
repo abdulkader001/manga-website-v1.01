@@ -1,12 +1,24 @@
 """Permission catalogue, role defaults, and never-grantable set (SRS 1F.6–1F.8).
 
-Effective permission = role default (1F.5/1F.7) modified by that person's
-explicit override (granted/revoked). Every power the owner (main admin) has is
-in the catalogue. The site-owner powers (``OWNER_POWERS``) can only be handed
-out by the owner, to at most ``MAX_DEPUTIES`` sub-admins ("deputies"), with the
-owner's authenticator code; a deputy needs their own authenticator to hold and
-use them (``permissions_service``). Six capabilities (1F.8) are **never
-grantable** — they have no entry in the catalogue at all.
+Four roles, strongest first (owner's rules, 2026-10-02):
+
+* **Owner** (``PERMANENT``, one person, never changed or touched by anyone)
+  holds every catalogue permission.
+* **Admin** (``CO_ADMIN``, at most ``MAX_ADMINS``) holds almost everything by
+  default -- all but Admin Settings, the cache and "delete all manga"
+  (``ADMIN_OFF_BY_DEFAULT``). Only the owner changes an Admin's toggles; an
+  Admin has power over sub-admins and users only.
+* **Sub-admin** (``SECONDARY``) holds the sub-admin defaults, adjustable by an
+  Admin or the owner, never above what the owner's ceiling allows
+  (``system_settings.sub_admin_blocked_permissions``).
+* **User** holds none.
+
+Effective permission = role default modified by that person's explicit
+override (granted/revoked). The site-owner powers (``OWNER_POWERS``) can only be
+held by an Admin (or the owner) who also has an authenticator, and are used
+only after a fresh code (``permissions_service``, ``dependencies.powers``).
+Six capabilities (1F.8) are **never grantable** -- they have no entry in the
+catalogue at all.
 
 Resolution order (SRS 1F.10): never-grantable check -> explicit override ->
 role default.
@@ -107,16 +119,17 @@ _CATALOGUE: dict[str, tuple[Group, bool, bool]] = {
 }
 
 
-# Site-owner powers (owner's rules, 2026-10-02). The owner can hand any of
-# them to a trusted sub-admin and take them back at any time. Guardrails
-# (enforced in ``permissions_service`` and the role routes):
-#   * only the owner grants or revokes them, each grant with the owner's
-#     authenticator code -- a sub-admin can never pass them on;
-#   * at most ``MAX_DEPUTIES`` sub-admins hold any of them at once;
+# Site-owner powers (owner's rules, 2026-10-02). An Admin holds most of them by
+# default (all but ``ADMIN_OFF_BY_DEFAULT``); the owner can switch any of them
+# off, or on, per Admin. Guardrails (enforced in ``permissions_service`` and
+# the role routes):
+#   * only the owner switches them for an Admin, each time they are switched
+#     *on* with the owner's authenticator code;
+#   * a sub-admin can never hold one, however it is set;
 #   * the holder must have an authenticator, and uses them only after a
 #     fresh code (the admin step-up);
-#   * never part of a preset; nobody changes their own permissions; a
-#     sub-admin can't change or remove a deputy.
+#   * never part of a preset; nobody changes their own permissions; an Admin
+#     can't change another Admin.
 OWNER_POWERS: frozenset[str] = frozenset(
     {
         "manage_secret_vault",
@@ -137,7 +150,18 @@ OWNER_POWERS: frozenset[str] = frozenset(
         "reveal_user_email",
     }
 )
-MAX_DEPUTIES = 2
+MAX_ADMINS = 2
+
+# What an Admin does NOT hold until the owner switches it on: Admin Settings
+# (with its cache tools) and "delete all manga / purge all images".
+ADMIN_OFF_BY_DEFAULT: frozenset[str] = frozenset(
+    {"manage_admin_settings", "manage_cache", "purge_site_data"}
+)
+
+# The pool of sub-admin seats Admins share. The owner splits it between the
+# Admins (an equal share unless set), and no one's share can push the total
+# above it. The owner's own appointments don't use it.
+SUB_ADMIN_POOL = 50
 
 # SRS 1F.8 — no toggle exists for these; absent from the catalogue entirely.
 NEVER_GRANTABLE: frozenset[str] = frozenset(
@@ -188,10 +212,10 @@ DESCRIPTIONS: dict[str, str] = {
     "ban_account": "Ban an account.",
     "restore_account": "Restore a suspended or banned account.",
     "revoke_user_sessions": "Sign a user out everywhere.",
-    "reveal_user_email": "See a user's real e-mail address.",
-    "manage_roles": "Role Management: change other sub-admins' everyday powers (never site-owner powers, never their own, never a deputy's).",
-    "promote_secondary": "Appoint sub-admins.",
-    "demote_secondary": "Remove sub-admins (not deputies).",
+    "reveal_user_email": "See the real e-mail address of sub-admins and users (never an Admin's or the owner's).",
+    "manage_roles": "Role Management: change sub-admins' everyday powers (never site-owner powers, never their own, never another Admin's).",
+    "promote_secondary": "Appoint sub-admins (an Admin's seats are limited by the owner).",
+    "demote_secondary": "Remove sub-admins.",
     "view_limits": "See usage limits.",
     "set_limits": "Change usage limits.",
     "set_session_policy": "Change how long logins last.",
@@ -219,57 +243,82 @@ def is_valid_permission(key: str) -> bool:
     return key in _CATALOGUE
 
 
+# The owner tier: ``PERMANENT`` and the legacy ``ADMIN`` alias resolve alike.
+OWNER_ROLES = frozenset({UserRole.PERMANENT, UserRole.ADMIN})
+
+_RANK = {
+    UserRole.PERMANENT: 3,
+    UserRole.ADMIN: 3,
+    UserRole.CO_ADMIN: 2,
+    UserRole.SECONDARY: 1,
+    UserRole.USER: 0,
+}
+
+
 def effective_role(user) -> UserRole:
     """Fold the legacy boolean admin flags into the strongest implied ``UserRole``.
 
     F-4/F-5: three "is this principal privileged" resolvers existed with
-    three different input sets -- ``dependencies.auth``'s main-admin check
-    read ``permanent``/``is_main_admin``/``role``, its secondary-or-higher
-    check added ``is_secondary_admin``, while ``role_default`` (via
-    ``has_permission``) read only ``role``. A ``User`` row carrying an admin
-    *flag* without the matching *role* was an admin to the role-tier gates
-    and a nobody to the permission catalogue -- authorised on
-    ``require_admin_user`` routes, 403'd on ``require_permission`` routes for
-    the same page. This is the single source of truth every "who is this
-    principal" check should consult instead of reading ``user.role`` or the
+    three different input sets. This is the single source of truth every "who
+    is this principal" check consults instead of reading ``user.role`` or the
     boolean flags directly.
+
+    The owner tier is one merged tier: ``permanent``, ``is_main_admin`` and
+    both ``PERMANENT`` and the legacy ``ADMIN`` role resolve to it (nothing
+    downstream distinguishes the two return values). The Admin tier is
+    ``CO_ADMIN``. A legacy ``is_secondary_admin`` flag alone is a sub-admin.
     """
 
     if user is None:
         return UserRole.USER
     role = getattr(user, "role", None)
 
-    # Permanent Admin and Admin are one merged, single-owner tier: nothing
-    # downstream ever distinguishes the two return values (every consumer
-    # checks ``effective_role(...) in {ADMIN, PERMANENT}``, or feeds into
-    # ``role_default``, which grants both identical permissions). Nothing
-    # newly assigns ``UserRole.ADMIN`` any more (the one-time Admin sign-in,
-    # ``routers/admin_login.py``, grants PERMANENT) --
-    # the ADMIN branch below exists solely so pre-existing ``role=ADMIN`` rows
-    # keep resolving to the owner tier.
     if getattr(user, "permanent", False) or role == UserRole.PERMANENT:
         return UserRole.PERMANENT
     if getattr(user, "is_main_admin", False) or role == UserRole.ADMIN:
         return UserRole.ADMIN
+    if role == UserRole.CO_ADMIN:
+        return UserRole.CO_ADMIN
     if getattr(user, "is_secondary_admin", False) or role == UserRole.SECONDARY:
         return UserRole.SECONDARY
-    # Three roles: anything else -- including legacy "moderator" rows -- is a
-    # regular user.
+    # Anything else -- including legacy "moderator" rows -- is a regular user.
     return UserRole.USER
 
 
+def rank(user) -> int:
+    """3 owner, 2 Admin, 1 sub-admin, 0 user. Power over a person needs a
+    strictly higher rank, and nobody outranks the owner."""
+
+    return _RANK[effective_role(user)]
+
+
+def is_owner(user) -> bool:
+    return effective_role(user) in OWNER_ROLES
+
+
+def is_admin_tier(user) -> bool:
+    """True for an Admin (not the owner)."""
+
+    return effective_role(user) == UserRole.CO_ADMIN
+
+
+def role_label(user) -> str:
+    return {3: "owner", 2: "admin", 1: "sub_admin", 0: "user"}[rank(user)]
+
+
 def role_default(key: str, role: UserRole) -> bool:
-    """The 1F.7 default for ``key`` at ``role`` (Permanent Admin holds all)."""
+    """The 1F.7 default for ``key`` at ``role`` (the owner holds all)."""
 
     entry = _CATALOGUE.get(key)
     if entry is None:
         return False
     _group, _admin_d, secondary_d = entry
-    if role in (UserRole.PERMANENT, UserRole.ADMIN):
-        # Main/permanent-admin accounts hold every catalogue permission.
+    if role in OWNER_ROLES:
         return True
+    if role == UserRole.CO_ADMIN:
+        return key not in ADMIN_OFF_BY_DEFAULT
     if key in OWNER_POWERS:
-        return False  # only ever by an explicit grant from the owner
+        return False  # a sub-admin never holds a site-owner power
     if role == UserRole.SECONDARY:
         return secondary_d
     # Registered users / guests hold no catalogue (admin) permissions.
@@ -376,7 +425,7 @@ def catalogue() -> list[dict]:
     """The full catalogue grouped for the toggle page (SRS 1F.9.2)."""
 
     out: list[dict] = []
-    for key, (group, admin_d, secondary_d) in _CATALOGUE.items():
+    for key, (group, _admin_d, secondary_d) in _CATALOGUE.items():
         owner_power = key in OWNER_POWERS
         out.append(
             {
@@ -387,7 +436,7 @@ def catalogue() -> list[dict]:
                 "owner_power": owner_power,
                 "defaults": {
                     "permanent_admin": True,
-                    "admin": admin_d,
+                    "admin": key not in ADMIN_OFF_BY_DEFAULT,
                     "secondary_admin": False if owner_power else secondary_d,
                 },
             }

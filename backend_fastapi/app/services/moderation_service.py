@@ -48,7 +48,17 @@ def assert_can_participate(user: User) -> None:
         )
 
 
+def _chain_of_command(moderator: User, target: User, what: str) -> None:
+    """Moderate only people of a lower tier: sub-admins act on users, Admins on
+    sub-admins and users, nobody on the owner."""
+
+    from .permissions_service import assert_may_act_on
+
+    assert_may_act_on(moderator, target, what)
+
+
 def block_user(db: Session, *, moderator: User, target: User, reason: str) -> User:
+    _chain_of_command(moderator, target, "block")
     target.community_blocked_at = datetime.utcnow()
     target.community_blocked_reason = reason
     target.community_blocked_by_id = moderator.id
@@ -71,6 +81,7 @@ def block_user(db: Session, *, moderator: User, target: User, reason: str) -> Us
 
 
 def unblock_user(db: Session, *, moderator: User, target: User) -> User:
+    _chain_of_command(moderator, target, "unblock")
     target.community_blocked_at = None
     target.community_blocked_reason = None
     target.community_blocked_by_id = None
@@ -93,6 +104,7 @@ def unblock_user(db: Session, *, moderator: User, target: User) -> User:
 def timeout_user(
     db: Session, *, moderator: User, target: User, hours: int, reason: str
 ) -> User:
+    _chain_of_command(moderator, target, "time out")
     if hours <= 0 or hours > MAX_TIMEOUT_HOURS:
         raise ApiError(
             ErrorCode.VALIDATION_FAILED,

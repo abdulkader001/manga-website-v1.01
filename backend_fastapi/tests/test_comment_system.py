@@ -7,7 +7,7 @@ import uuid
 import pytest
 
 from backend_fastapi.app.core.api_errors import ApiError, ErrorCode
-from backend_fastapi.app.models import Chapter, Comment, Manga, User
+from backend_fastapi.app.models import Chapter, Comment, Manga, User, UserRole
 from backend_fastapi.app.models.community import (
     CultivationRealmConfig,
     Pill,
@@ -313,7 +313,7 @@ def test_moderator_remove_revokes_reputation(db_session, community_data):
     author = community_data["author"]
     other = community_data["other"]
     manga = community_data["manga"]
-    moderator = _make_user(db_session)
+    moderator = _make_user(db_session, role=UserRole.SECONDARY, is_secondary_admin=True)  # moderating is staff work
 
     comment = comment_service.create_comment(
         db_session, user=author, target_type="manga", target_id=manga.id, content="hi"
@@ -340,7 +340,7 @@ def test_report_resolution_rewards_reporter_only_when_actioned(
     author = community_data["author"]
     other = community_data["other"]
     manga = community_data["manga"]
-    moderator = _make_user(db_session)
+    moderator = _make_user(db_session, role=UserRole.SECONDARY, is_secondary_admin=True)  # moderating is staff work
 
     comment = comment_service.create_comment(
         db_session, user=author, target_type="manga", target_id=manga.id, content="hi"
@@ -372,7 +372,7 @@ def test_resolve_report_notifies_reporter_exactly_once(
     author = community_data["author"]
     other = community_data["other"]
     manga = community_data["manga"]
-    moderator = _make_user(db_session)
+    moderator = _make_user(db_session, role=UserRole.SECONDARY, is_secondary_admin=True)  # moderating is staff work
 
     comment = comment_service.create_comment(
         db_session, user=author, target_type="manga", target_id=manga.id, content="hi"
@@ -401,7 +401,7 @@ def test_resolve_report_skips_notification_for_system_reports(
 ):
     author = community_data["author"]
     manga = community_data["manga"]
-    moderator = _make_user(db_session)
+    moderator = _make_user(db_session, role=UserRole.SECONDARY, is_secondary_admin=True)  # moderating is staff work
 
     comment = comment_service.create_comment(
         db_session,
@@ -447,7 +447,7 @@ def test_spam_filter_auto_flags_suspicious_comment(db_session, community_data):
 def test_blocked_and_timed_out_users_cannot_post(db_session, community_data):
     author = community_data["author"]
     manga = community_data["manga"]
-    moderator = _make_user(db_session)
+    moderator = _make_user(db_session, role=UserRole.SECONDARY, is_secondary_admin=True)  # moderating is staff work
 
     moderation_service.block_user(
         db_session, moderator=moderator, target=author, reason="abuse"

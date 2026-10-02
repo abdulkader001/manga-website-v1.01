@@ -22,25 +22,28 @@
 - Only database/Redis connection, the site address, signing/encryption keys
   and the admin identity stay in `.env`. Every other setting belongs in the
   Secret Vault.
+- Four roles: **owner** (one; never changed, removed or touched by anyone;
+  ownership never passes), **Admin** (at most two), **sub-admin** (many, within
+  seats) and **user**. Power over a person needs a strictly higher tier: Admins
+  over sub-admins and users, sub-admins over users.
 - Site-owner powers: the Secret Vault, Admin Settings (including its cache
   purge and delete-all actions), API Management (OCR / translation / AI
   providers), the Scraper AI (its key and Custom Parser), branding,
   donations, Storage & Backups, Geolock, revealing e-mails and Role
-  Management (permissions, presets, appointing or removing sub-admins).
-  The owner (main admin) can give any of them to a trusted sub-admin and
-  take them back at any time. Guardrails that must stay: only the owner
-  gives or takes them, giving needs the owner's authenticator code; at most
-  two sub-admins ("deputies") hold any of them; a holder needs an
-  authenticator and a fresh code to use them; they are never in presets; a
-  sub-admin can never pass them on, change their own permissions, or change,
-  reset or demote a deputy; demotion strips them.
-- Automatic succession (owner only, off by default, owner's code to change):
-  a deputy idle longer than the chosen days (default 60) becomes a user and
-  the most active eligible sub-admin inherits their site-owner powers.
-  Switching it on never demotes anyone at once; every change is audited and
-  sent to the owner.
-- Roles: admin (main, the owner), sub-admin (per-person permission toggles;
-  up to two can be deputies), user.
+  Management. An Admin holds all but Admin Settings, cache and delete-all by
+  default; only the owner switches an Admin's powers (switching one on needs the
+  owner's authenticator code). A holder needs an authenticator and a fresh code
+  to use them. Sub-admins can never hold them; they are never in presets. Admins
+  can't change another Admin, themselves or the owner, and see sub-admins' and
+  users' e-mail only.
+- The owner shares 50 sub-admin seats between the Admins (25 each unless set),
+  sets a ceiling on what a sub-admin may hold, and alone creates roles (presets).
+- Each Admin keeps a succession line of two sub-admins. Automatic succession
+  (owner only, off by default, owner's code to change): an Admin idle longer than
+  the chosen days (default 60) becomes a user and the first eligible sub-admin in
+  their line takes the seat as it is. The owner can hand a seat over at once.
+  Every change is audited and sent to the owner.
+- Roles: owner, admin, sub-admin, user.
 - Readers sign in with a magic link, Google or Microsoft only. No reader
   passwords. One inbox gives one account, for life.
 - Bookmarks and reading history stay in the reader's browser, not on the

@@ -161,7 +161,7 @@ async def require_processing_user(
 
 
 def is_main_admin(user: User) -> bool:
-    """Return ``True`` if the user has main/permanent admin privileges.
+    """Return ``True`` if the user is the owner (main/permanent admin tier).
 
     F-4/F-5: a thin comparison against ``core.permissions.effective_role``,
     the single canonical resolver that folds ``permanent``/``is_main_admin``/
@@ -182,7 +182,7 @@ def is_main_admin(user: User) -> bool:
 
 
 def is_secondary_or_higher(user: User) -> bool:
-    """Return ``True`` for secondary admins or higher (see :func:`is_main_admin`)."""
+    """Return ``True`` for sub-admins or higher: sub-admin, Admin, owner (see :func:`is_main_admin`)."""
 
     if not user:
         return False
@@ -190,6 +190,7 @@ def is_secondary_or_higher(user: User) -> bool:
 
     return effective_role(user) in {
         UserRole.SECONDARY,
+        UserRole.CO_ADMIN,
         UserRole.ADMIN,
         UserRole.PERMANENT,
     }

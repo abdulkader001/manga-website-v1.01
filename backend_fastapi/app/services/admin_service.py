@@ -10,7 +10,7 @@ from typing import Any, Dict, Optional
 
 from sqlalchemy.orm import Session
 
-from ..core.permissions import effective_role
+from ..core.permissions import OWNER_ROLES, effective_role, rank
 from ..models import (
     AdminAuditLog,
     AdminPromotionToken,
@@ -295,9 +295,9 @@ def token_to_dict(token: AdminPromotionToken) -> dict[str, Any]:
 
 
 def _is_admin_tier(role: UserRole | None) -> bool:
-    """True when ``role`` is Secondary Administrator or above."""
+    """True when ``role`` is sub-admin or above."""
 
-    return role in {UserRole.SECONDARY, UserRole.ADMIN, UserRole.PERMANENT}
+    return role in {UserRole.SECONDARY, UserRole.CO_ADMIN, UserRole.ADMIN, UserRole.PERMANENT}
 
 
 def assert_may_change_admin_tier(
@@ -306,19 +306,14 @@ def assert_may_change_admin_tier(
     """Enforce the model-wide rule behind every role-changing route (F-70).
 
     Only a principal holding ``promote_secondary`` / ``demote_secondary`` may
-    grant or revoke the Secondary Administrator tier — those two capabilities
-    default to the Permanent/Main Administrator only (see
-    ``core.permissions._CATALOGUE``).
+    grant or revoke the sub-admin tier. The gate lives here, not on a single
+    route, because several endpoints reach the same power through different
+    dependencies; enforcing the invariant at the mutation point means a future
+    route cannot re-open the hole by picking the weaker dependency.
 
-    The gate lives here, not on a single route, because four endpoints reach
-    the same power through three different dependencies:
-    ``/admin/promote-secondary`` and ``/admin/demote-secondary`` gate on the
-    permission, while ``/admin/promote/{id}``, ``/admin/demote/{id}`` and
-    both ``*-by-email`` siblings gated only on ``require_admin_user``
-    ("secondary admin *or higher*") — so a Secondary Administrator could
-    promote peers and demote other admins through the by-id/by-email routes.
-    Enforcing the invariant at the mutation point means a future route
-    cannot re-open the hole by picking the weaker dependency.
+    Chain of command (owner's rules, 2026-10-02): the owner changes anyone but
+    themselves; an Admin changes sub-admins and users only -- never themselves,
+    never another Admin, never the owner.
     """
 
     # Import locally: permissions_service imports models, and admin_service is
@@ -332,25 +327,21 @@ def assert_may_change_admin_tier(
     if not has_permission(db, actor, permission):
         raise AdminServiceError("insufficient_privileges")
 
-    # Deputies (owner's rules): a sub-admin holding these powers never changes
-    # their own tier, the owner's, or a deputy's -- only the owner does that.
+    if _is_owner_tier(effective_role(target)) or getattr(target, "permanent", False):
+        raise AdminServiceError("cannot_modify_permanent_admin")
     if not _is_owner_tier(effective_role(actor)):
-        from .permissions_service import is_deputy
-
         if target.id == actor.id:
             raise AdminServiceError("cannot_change_own_role")
-        if _is_owner_tier(effective_role(target)) or getattr(target, "permanent", False):
-            raise AdminServiceError("cannot_modify_permanent_admin")
-        if is_deputy(db, target):
-            raise AdminServiceError("only_the_owner_can_change_a_deputy")
+        if rank(target) >= rank(actor):
+            raise AdminServiceError("only_the_owner_can_change_an_admin")
 
 
 def _is_owner_tier(role) -> bool:
-    return role in (UserRole.ADMIN, UserRole.PERMANENT)
+    return role in OWNER_ROLES
 
 
 def _drop_owner_powers(db: Session, user: User) -> None:
-    """Leaving the sub-admin tier takes every site-owner power with it, so
+    """Leaving the sub-admin tier takes every site-owner override with it, so
     promoting the person again never quietly hands them back."""
 
     from .permissions_service import clear_owner_powers
@@ -358,17 +349,38 @@ def _drop_owner_powers(db: Session, user: User) -> None:
     clear_owner_powers(db, user)
 
 
+def _appoint_sub_admin(db: Session, user: User, actor: User) -> None:
+    """Make ``user`` a sub-admin. An Admin spends one of their seats."""
+
+    from .admin_roles import claim_seat
+
+    if rank(user) >= 2:
+        raise AdminServiceError("already_admin_tier")
+    if effective_role(user) != UserRole.SECONDARY:
+        claim_seat(db, actor, user)
+    user.role = UserRole.SECONDARY
+    user.is_secondary_admin = True
+
+
+def _end_sub_admin(db: Session, user: User, actor: User) -> None:
+    """Take the sub-admin (or Admin) tier from ``user``: they become a user."""
+
+    from .admin_roles import _leave_lines, demote_admin
+
+    if effective_role(user) == UserRole.CO_ADMIN:
+        demote_admin(db, actor, user, "user")
+    else:
+        user.role = UserRole.USER
+        user.is_secondary_admin = False
+        user.appointed_by = None
+        _leave_lines(db, user.id)
+    _drop_owner_powers(db, user)
+
+
 def promote_user_to_secondary(db: Session, user: User, current_user: User) -> User:
     assert_may_change_admin_tier(db, current_user, user, grant=True)
     previous_role = role_to_string(user.role)
-    user.is_secondary_admin = True
-    if not getattr(user, "is_main_admin", False) and getattr(
-        user, "role", None
-    ) not in {
-        UserRole.ADMIN,
-        UserRole.PERMANENT,
-    }:
-        user.role = UserRole.SECONDARY
+    _appoint_sub_admin(db, user, current_user)
 
     db.commit()
     log_role_change(
@@ -389,10 +401,7 @@ def demote_user_from_secondary(db: Session, user: User, current_user: User) -> U
         raise AdminServiceError("Cannot demote the main admin with this action.")
 
     previous_role = role_to_string(user.role)
-    user.is_secondary_admin = False
-    if getattr(user, "role", None) == UserRole.SECONDARY:
-        user.role = UserRole.USER
-    _drop_owner_powers(db, user)
+    _end_sub_admin(db, user, current_user)
 
     db.commit()
     log_role_change(
@@ -475,7 +484,7 @@ def promote_user_role(
         raise AdminServiceError("cannot_modify_permanent_admin")
 
     # F-70: this route accepts role="secondary_admin", so it is a
-    # promote-to-Secondary path and must clear the same gate its
+    # promote-to-sub-admin path and must clear the same gate its
     # /promote-secondary sibling does. role="user" here demotes, and demoting
     # someone who currently holds an admin tier needs demote_secondary.
     if requested_role == "secondary_admin":
@@ -485,14 +494,11 @@ def promote_user_role(
 
     previous_role = role_to_string(user.role)
     if requested_role == "secondary_admin":
-        user.role = UserRole.SECONDARY
-        user.is_secondary_admin = True
+        _appoint_sub_admin(db, user, current_user)
         action = "admin.promote"
     else:
-        user.role = UserRole.USER
-        user.is_secondary_admin = False
+        _end_sub_admin(db, user, current_user)
         action = "admin.demote"
-        _drop_owner_powers(db, user)
 
     db.commit()
     log_role_change(
@@ -513,14 +519,13 @@ def demote_user_role(
     if getattr(user, "permanent", False):
         raise AdminServiceError("cannot_demote_permanent_admin")
 
-    # F-70: demoting a peer admin is the Permanent Administrator's call.
+    # F-70: demoting someone who holds an admin tier needs demote_secondary,
+    # and an Admin can only demote a sub-admin.
     if _is_admin_tier(effective_role(user)):
         assert_may_change_admin_tier(db, current_user, user, grant=False)
 
     previous_role = role_to_string(user.role)
-    user.role = UserRole.USER
-    user.is_secondary_admin = False
-    _drop_owner_powers(db, user)
+    _end_sub_admin(db, user, current_user)
     db.commit()
     log_role_change(
         db,
