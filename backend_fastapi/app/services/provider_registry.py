@@ -107,13 +107,15 @@ def _normalize_config(raw: Dict[str, Any], api_key: Optional[str]) -> Dict[str, 
 
 
 def _masked_payload(raw: Dict[str, Any], api_key: Optional[str]) -> Dict[str, Any]:
+    # F-89: custom headers often carry the key itself (e.g. Azure ``api-key``),
+    # so only their names ever leave the server.
     headers = raw.get("headers") if isinstance(raw.get("headers"), dict) else None
     return {
         "provider": raw.get("provider_id") or raw.get("provider") or "custom",
         "apiKey": mask_api_key(api_key),
         "apiUrl": raw.get("api_url"),
         "model": raw.get("model"),
-        "headers": headers,
+        "headers": sorted(str(name) for name in headers) if headers else None,
     }
 
 

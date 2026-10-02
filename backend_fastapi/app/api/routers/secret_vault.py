@@ -139,19 +139,24 @@ async def unlock_vault(
     await async_endpoint_limiter.check_limit(
         request, f"admin_vault_ip:{resolve_client_ip(request)}", limit=30, window_seconds=600
     )
-    if not second_factor.verify_user_code(db, user, payload.code, enabled_only=True):
-        log_admin_action(db, request, user, "VAULT_UNLOCK", "vault", "-", "invalid_code")
-        raise ApiError(ErrorCode.VALIDATION_FAILED, "That code is not valid.", field="code")
-    response.set_cookie(
-        UNLOCK_COOKIE,
-        _create_token(str(user.id), UNLOCK_TOKEN_TYPE, timedelta(minutes=UNLOCK_MINUTES)),
-        max_age=UNLOCK_MINUTES * 60,
-        httponly=True,
-        secure=settings.force_https_redirects,
-        samesite="strict",
-    )
-    log_admin_action(db, request, user, "VAULT_UNLOCK", "vault", "-", "success")
-    return {"unlocked": True, "unlock_minutes": UNLOCK_MINUTES}
+    from ...utils.bounded_threadpool import run_in_db_threadpool
+
+    def _work():
+        if not second_factor.verify_user_code(db, user, payload.code, enabled_only=True):
+            log_admin_action(db, request, user, "VAULT_UNLOCK", "vault", "-", "invalid_code")
+            raise ApiError(ErrorCode.VALIDATION_FAILED, "That code is not valid.", field="code")
+        response.set_cookie(
+            UNLOCK_COOKIE,
+            _create_token(str(user.id), UNLOCK_TOKEN_TYPE, timedelta(minutes=UNLOCK_MINUTES)),
+            max_age=UNLOCK_MINUTES * 60,
+            httponly=True,
+            secure=settings.force_https_redirects,
+            samesite="strict",
+        )
+        log_admin_action(db, request, user, "VAULT_UNLOCK", "vault", "-", "success")
+        return {"unlocked": True, "unlock_minutes": UNLOCK_MINUTES}
+
+    return await run_in_db_threadpool(_work)
 
 
 @router.post("/lock")

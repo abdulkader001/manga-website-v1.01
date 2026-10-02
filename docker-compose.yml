@@ -152,6 +152,7 @@ services:
       # `ps`/`docker inspect` reader could see it.
       REDIS_USERNAME: ${REDIS_USERNAME:-default}
       REDIS_PASSWORD: ${REDIS_PASSWORD:-changeme_redis}
+      REDIS_MAXMEMORY: ${REDIS_MAXMEMORY:-0}
     command:
       - sh
       - -c
@@ -169,6 +170,10 @@ services:
           echo "appendonly yes"
           echo "bind 0.0.0.0"
           echo "protected-mode yes"
+          # Memory cap (0 = none). volatile-lru only evicts keys that have an
+          # expiry (caches), never the Celery queues, which have none.
+          echo "maxmemory $${REDIS_MAXMEMORY:-0}"
+          echo "maxmemory-policy volatile-lru"
           printf 'requirepass %s\n' "$${REDIS_PASSWORD}"
         } > "$$conf"
         echo "⚙️  Redis starting with authentication enforcement…"

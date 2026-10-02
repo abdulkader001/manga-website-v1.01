@@ -313,6 +313,35 @@ docker compose down                   # stop (data kept in volumes)
 docker compose down -v                # stop AND DELETE database + images  ⚠
 ```
 
+### 4.2 Small server (about 1 GB RAM, 1 CPU)
+
+The default stack starts eight background workers and four API workers
+(about 2.5 GB of memory). On a small server, add the small profile to
+**every** `docker compose` command:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.small.yml up -d --build
+docker compose -f docker-compose.yml -f docker-compose.small.yml ps
+```
+
+It runs two background workers instead of eight: one for readers'
+translations, OCR, e-mail and notifications, one for scraping, picture
+compression and maintenance, so a big scrape never makes a translation wait.
+It also uses 2 API workers, small database pools, and memory caps for Postgres
+and Redis. The sizes are written in `docker-compose.small.yml` itself (values in
+`.env` don't change them); edit that file to tune. Data is the same, so you can
+switch between small and full at any time.
+
+Both setups now recycle their workers: an API worker restarts after about
+2000 requests, a background worker after 200 jobs or 400 MB, so memory doesn't
+creep up over days. Tune with `GUNICORN_MAX_REQUESTS`,
+`CELERY_MAX_TASKS_PER_CHILD`, `CELERY_MAX_MEMORY_PER_CHILD_KB` in `.env`
+(0 turns a limit off).
+
+Each API worker translates at most `PAGE_PROCESSING_CONCURRENCY` pages at the
+same time (default 2); the rest wait their turn while the site keeps answering
+other visitors. Raise it on a server with more CPU cores.
+
 ---
 
 ## 5. Alternative: run without Docker for the app (developer setup)
@@ -552,7 +581,7 @@ sub-admin's preview says "ask the main admin", add the site as below.
 | --- | --- |
 | Browse, search, ratings, bookmarks, comments | API + DB (works out of the box) |
 | Magic-link / Google / Microsoft login | E-mail or OAuth variables (Section 3.5) + `celery_worker_email` |
-| Page translation overlay | Vault: *Server OCR enabled*; a translator (reader's own AI key in *Settings → AI & OCR Engines*, or a site default in Admin → API Management). Readers switch it on once in *Settings → Reading & Translation*. |
+| Page translation overlay | Vault: *Server OCR enabled*; a translator (reader's own AI key in *Settings → AI & OCR Engines*, or a site default in Admin → API Management). Readers switch it on once in *Settings → Reading & Translation*. There each reader also picks text, outline and box colours (colour pickers), the text size (1-100, half steps, 100 = 70 px; also the quick control in the reader) and *Match the bubble's shape*: round, square and other bubbles are filled in their own shape; text drawn straight on the art stays where it was. |
 | Translated chapter names | Same translator as the overlay. Source names like `522 원준 522화 2024-11-07` show as `Chapter 522`; real subtitles are translated and cached. |
 | Notifications, storage alerts | `celery_worker_notifications`, `celery_worker_maintenance`, beat |
 | Ads, branding, announcements, maintenance mode | Admin → Site settings |
@@ -691,6 +720,9 @@ procedure: `backend_fastapi/deployment/backups.md` and `deployment/runbook.md`.
 | Sub-admin gets "forbidden" on Admin Settings / API Management / Role Management, or the API and "appoint/remove sub-admins" toggles are gone from Role Management | Intended: all three are main-admin only, including read access. Only the main admin appoints or removes sub-admins. |
 | `$argon2id...` value turns into garbage | Wrap values containing `$` in single quotes in `.env`. Admin hash lines made by `make_admin_hash.py` start with `a2:` and have no `$`. |
 | Translation/OCR overlay does nothing | Reader: *Settings → Reading & Translation* must be on. Server: vault *Server OCR enabled* = true and restarted (4.1). |
+| Translation is a plain box instead of the bubble's shape | Expected for text drawn on the art, bubbles with a gap in the outline, bubbles cut by the page edge, or two separately-read lines in one bubble. Also check the reader's *Match the bubble's shape* switch. Pages translated before the update keep boxes until their cached result is cleared (Admin Settings → cache) |
+| Translated text too small or too big | Reader: *Settings → Reading & Translation → Text size* (1-100) or the size control in the reader. Long lines still shrink to fit their bubble |
+| Sub-admin sees only their own entries in the audit log | Intended. Give them *See the full audit log* in Role Management |
 | Reader says "Text was found but not translated" | OCR works but nothing translates: add an AI key in *Settings → AI & OCR Engines* (press **Test connection**), or a site default in Admin → API Management. |
 | `tesseract: not found` / OCR "engine not available" | The backend image is old: rebuild it (Section 4.1) and check `docker compose exec backend tesseract --list-langs`. |
 | Korean/Chinese pages read as garbage | Set the series' *Text language on pages* (Series → layout) to the language actually printed on the pages. |
@@ -705,6 +737,7 @@ procedure: `backend_fastapi/deployment/backups.md` and `deployment/runbook.md`.
 | Donation link or address refused | Links must be `https://` on the platform's own domain; addresses must match the chosen network. The message names the entry. |
 | Site unreachable after switching the domain | DNS or HTTPS for the new name isn't ready. Run `set_site_domain --clear` on the server to go back (Section 8.1). |
 | A Secret Vault value stops the site from starting | Set `VAULT_PRELOAD_DISABLED=true` in `.env`, recreate the containers, fix the value, then remove the flag. |
+| Server slow, swapping, or containers killed for memory on a 1-2 GB server | Use the small profile (Section 4.2): `docker compose -f docker-compose.yml -f docker-compose.small.yml up -d`. |
 | Port already in use | Another program uses 8080/8000/5432; stop it or change the published port in `docker-compose.yml`. |
 | Windows: `exec ... no such file or directory` in a container | Line endings; clone inside WSL (Section 1) or run `git config core.autocrlf false` before cloning. |
 | API docs (`/docs`) missing | Intentional in production; set `EXPOSE_API_DOCS=true` on a private deploy. |
@@ -715,12 +748,13 @@ procedure: `backend_fastapi/deployment/backups.md` and `deployment/runbook.md`.
 
 - [ ] Docker installed, `docker compose version` works
 - [ ] `.env` created; 6 random secrets + 2 passwords + Fernet key set; URLs/passwords consistent
-- [ ] `docker compose build --pull && docker compose up -d --force-recreate`; all services healthy
+- [ ] `docker compose build --pull && docker compose up -d --force-recreate`; all services healthy (on a 1-2 GB server add `-f docker-compose.yml -f docker-compose.small.yml`, Section 4.2)
 - [ ] `docker compose exec backend tesseract --list-langs` lists `kor jpn chi_sim`
 - [ ] `make_admin_hash.py --write .env`, `up -d --force-recreate`, `admin-status` says OPEN; first sign-in at `/admin-login` done (authenticator enrolled); `admin-status` now says CLOSED
 - [ ] OCR, e-mail and sign-in settings entered in **Admin → Secret Vault**
 - [ ] Sign-in required on/off chosen (Admin Settings); donation links added if wanted
 - [ ] First series imported; new chapters arrive via beat
+- [ ] Updating from before PR #33: provider keys that were saved in a **custom header** (e.g. Azure `api-key`) were publicly readable; rotate them at the provider and save the new key in Admin → API Management
 - [ ] Scraper AI key tested (Admin → Series → Scraper AI API) before adding new source sites with Custom Parser (main admin only)
 - [ ] Domain + HTTPS in front (production)
 - [ ] `.env` and backups stored safely off the server

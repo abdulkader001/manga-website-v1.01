@@ -242,8 +242,13 @@ async def upload_meme(
     await async_endpoint_limiter.check_limit(
         request, f"upload_meme:{current_user.id}", limit=20, window_seconds=3600
     )
-    meme = meme_service.upload_meme(db, request, file, user=current_user)
-    return meme_service.meme_to_dict(meme)
+    from ...utils.bounded_threadpool import run_in_db_threadpool
+
+    def _work():
+        meme = meme_service.upload_meme(db, request, file, user=current_user)
+        return meme_service.meme_to_dict(meme)
+
+    return await run_in_db_threadpool(_work)
 
 
 @router.get("/memes/file/{filename}")
@@ -280,7 +285,12 @@ async def report_meme(
     await async_endpoint_limiter.check_limit(
         request, f"report_meme:{current_user.id}", limit=20, window_seconds=3600
     )
-    report = meme_service.report_meme(
-        db, user=current_user, meme_id=meme_id, reason=payload.reason
-    )
-    return comment_service.report_to_dict(report)
+    from ...utils.bounded_threadpool import run_in_db_threadpool
+
+    def _work():
+        report = meme_service.report_meme(
+            db, user=current_user, meme_id=meme_id, reason=payload.reason
+        )
+        return comment_service.report_to_dict(report)
+
+    return await run_in_db_threadpool(_work)

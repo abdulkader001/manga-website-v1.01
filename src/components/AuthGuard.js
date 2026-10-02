@@ -3,6 +3,7 @@ import { Navigate, useLocation } from "react-router";
 import { useQuery } from "@tanstack/react-query";
 import api from "../services/api";
 import useAuth from "../hooks/useAuth";
+import useStaffPermissions from "../hooks/useStaffPermissions";
 import AdminSecondFactor from "./AdminSecondFactor";
 
 // `followSiteSetting`: guests may pass unless the main admin switched on
@@ -12,9 +13,13 @@ export default function AuthGuard({
   requireAdmin,
   requireMainAdmin,
   allowSecondaryAdmins,
+  permission,
   followSiteSetting,
 }) {
   const { user, isAdmin, isSecondaryAdmin, isLoading } = useAuth();
+  // `permission`: a sub-admin passes only with this toggle on (the main admin
+  // always passes). Matches the tile filter on the admin hub.
+  const { can, isLoading: permissionsLoading } = useStaffPermissions();
   const location = useLocation();
   const siteAccess = useQuery({
     queryKey: ["siteAccess"],
@@ -61,6 +66,16 @@ export default function AuthGuard({
   // 4. Admin permissions check
   if (requireAdmin) {
     if (allowSecondaryAdmins && (isAdmin || isSecondaryAdmin)) {
+      if (permission && !isAdmin) {
+        if (permissionsLoading) {
+          return (
+            <div className="min-h-[50vh] flex items-center justify-center text-xs text-[#8b93a3]">
+              Checking permissions…
+            </div>
+          );
+        }
+        if (!can(permission)) return <Navigate to="/admin" replace />;
+      }
       return <AdminSecondFactor>{children}</AdminSecondFactor>;
     }
     if (isAdmin) {

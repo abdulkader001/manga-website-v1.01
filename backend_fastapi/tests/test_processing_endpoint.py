@@ -266,3 +266,44 @@ def test_processing_endpoint_404_for_missing_page(fastapi_client) -> None:
         headers=headers,
     )
     assert response.status_code == 404
+
+
+def test_page_work_runs_off_the_event_loop(fastapi_client, monkeypatch, allow_remote_host) -> None:
+    """F-93: OCR + translation must never run on the event loop, or one
+    reader's page freezes the API worker for everybody else."""
+
+    import asyncio
+
+    from backend_fastapi.app.api.routers import ocr as ocr_router
+    from backend_fastapi.app.api.routers import processing as processing_router
+
+    monkeypatch.setattr(ocr_router, "ocr_service", DummyNormalizedOCR())
+    monkeypatch.setattr(processing_router, "_fetch_image_bytes_sync", lambda url: b"fake-bytes")
+    monkeypatch.setattr(processing_router, "TranslationService", lambda *a, **kw: DummyTranslator())
+
+    seen = {}
+    original = processing_router.cps.process_page
+
+    def spy(*args, **kwargs):
+        try:
+            asyncio.get_running_loop()
+            seen["on_event_loop"] = True
+        except RuntimeError:
+            seen["on_event_loop"] = False
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(processing_router.cps, "process_page", spy)
+
+    with SessionLocal() as session:
+        chapter_id = _make_chapter(session).id
+    email = f"processing-loop-{uuid.uuid4().hex}@example.com"
+    with SessionLocal() as session:
+        session.add(User(email=email, is_active=True, provider="magic_link"))
+        session.commit()
+    headers = {"Authorization": f"Bearer {_login(fastapi_client, email)}"}
+
+    response = fastapi_client.get(
+        f"/api/processing/chapter/{chapter_id}/page/0", params={"target": "en"}, headers=headers
+    )
+    assert response.status_code == 200, response.text
+    assert seen == {"on_event_loop": False}

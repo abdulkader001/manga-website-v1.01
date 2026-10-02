@@ -19,7 +19,8 @@ class ProcessingSettingsResponse(BaseModel):
     share_translations: bool
     overlay_style: str
     overlay_font: str
-    overlay_font_size: int
+    # 1-100 slider (half steps); drawn at value * 0.7 px.
+    overlay_font_size: float
     translate_sound_effects: bool
     auto_translate_comments: bool = True
     overlay_enabled: bool = True
@@ -27,6 +28,8 @@ class ProcessingSettingsResponse(BaseModel):
     overlay_text_color: Optional[str] = None
     overlay_box_color: Optional[str] = None
     overlay_box_opacity: int = 100
+    overlay_outline_color: Optional[str] = None
+    overlay_match_bubble: bool = True
     context_translation: bool = True
 
 
@@ -39,7 +42,7 @@ class UpdateProcessingSettingsRequest(BaseModel):
     share_translations: Optional[bool] = None
     overlay_style: Optional[str] = None
     overlay_font: Optional[str] = None
-    overlay_font_size: Optional[int] = None
+    overlay_font_size: Optional[float] = None
     translate_sound_effects: Optional[bool] = None
     auto_translate_comments: Optional[bool] = None
     # Explicit, because a null usage_limit_value is indistinguishable from
@@ -51,6 +54,8 @@ class UpdateProcessingSettingsRequest(BaseModel):
     overlay_text_color: Optional[str] = Field(default=None, max_length=7)
     overlay_box_color: Optional[str] = Field(default=None, max_length=7)
     overlay_box_opacity: Optional[int] = None
+    overlay_outline_color: Optional[str] = Field(default=None, max_length=7)
+    overlay_match_bubble: Optional[bool] = None
     context_translation: Optional[bool] = None
 
 

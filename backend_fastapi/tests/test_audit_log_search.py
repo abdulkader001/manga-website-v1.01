@@ -10,6 +10,7 @@ import pytest
 from backend_fastapi.app.core.db import Base, SessionLocal, engine
 from backend_fastapi.app.core.security import create_access_token
 from backend_fastapi.app.models import AdminAuditLog, User, UserRole
+from backend_fastapi.app.services.permissions_service import set_override
 
 
 @pytest.fixture(scope="module", autouse=True)
@@ -211,6 +212,11 @@ def test_secondary_admin_gets_masked_email_main_admin_gets_plaintext(fastapi_cli
         actor_email = session.get(User, actor_id).email_plaintext
         secondary_id = _secondary_admin(session)
         main_id = _admin(session)
+        # F-91: only a sub-admin granted the full log sees other admins' rows.
+        set_override(
+            session, session.get(User, secondary_id), "view_full_audit", "granted", actor_id=main_id
+        )
+        session.commit()
 
         marker = uuid.uuid4().hex[:8]
         session.add(
@@ -254,3 +260,69 @@ def test_secondary_admin_gets_masked_email_main_admin_gets_plaintext(fastapi_cli
     assert all(
         item["user_email"] is None for item in unfiltered_secondary.json()
     )
+
+
+def test_sub_admin_sees_only_own_rows_unless_granted_full_log(fastapi_client):
+    """F-91: a default sub-admin must not read the main admin's actions
+    (with their IP address) from the audit log -- only their own."""
+    marker = uuid.uuid4().hex[:8]
+    session = SessionLocal()
+    try:
+        main_id = _admin(session)
+        sub_id = _secondary_admin(session)
+        session.add(
+            AdminAuditLog(
+                user_id=main_id,
+                action=f"MAIN_{marker}",
+                metadata_json={"ip": "203.0.113.9"},
+                operator="admin_router",
+            )
+        )
+        session.add(
+            AdminAuditLog(
+                user_id=sub_id, action=f"SUB_{marker}", metadata_json={}, operator="admin_router"
+            )
+        )
+        session.commit()
+    finally:
+        session.close()
+
+    def actions(path, uid, **params):
+        r = fastapi_client.get(path, headers=_h(uid), params=params)
+        assert r.status_code == 200, r.text
+        body = r.json()
+        items = body["items"] if isinstance(body, dict) else body
+        return {e["action"] for e in items if marker in e["action"]}, body
+
+    seen, page = actions("/api/admin/audit/logs/search", sub_id, action=marker)
+    assert seen == {f"SUB_{marker}"}
+    assert page["total"] == 1  # counted after scoping: no hint of hidden rows
+    seen, _ = actions("/api/admin/audit/logs/search", sub_id, action=marker, actor_id=main_id)
+    assert seen == set()
+    seen, _ = actions("/api/admin/audit/logs", sub_id, limit=500)
+    assert seen == {f"SUB_{marker}"}
+
+    seen, _ = actions("/api/admin/audit/logs/search", main_id, action=marker)
+    assert seen == {f"MAIN_{marker}", f"SUB_{marker}"}
+
+    session = SessionLocal()
+    try:
+        set_override(session, session.get(User, sub_id), "view_full_audit", "granted", actor_id=main_id)
+        session.commit()
+    finally:
+        session.close()
+    seen, _ = actions("/api/admin/audit/logs/search", sub_id, action=marker)
+    assert seen == {f"MAIN_{marker}", f"SUB_{marker}"}
+
+
+def test_sub_admin_without_audit_permission_is_refused(fastapi_client):
+    session = SessionLocal()
+    try:
+        main_id = _admin(session)
+        sub_id = _secondary_admin(session)
+        set_override(session, session.get(User, sub_id), "view_scope_audit", "revoked", actor_id=main_id)
+        session.commit()
+    finally:
+        session.close()
+    for path in ("/api/admin/audit/logs", "/api/admin/audit/logs/search"):
+        assert fastapi_client.get(path, headers=_h(sub_id)).status_code == 403

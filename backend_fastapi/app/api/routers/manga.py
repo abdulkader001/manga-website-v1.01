@@ -121,7 +121,9 @@ async def _list_manga_impl(
         payload["cache_hit"] = True
     # The cached payload is shared between viewers: work on a copy.
     payload = {**payload, "items": [dict(i) for i in payload.get("items") or []]}
-    catalogue_service.apply_viewer_fields(db, payload["items"], user)
+    from backend_fastapi.app.utils.bounded_threadpool import run_in_db_threadpool
+
+    await run_in_db_threadpool(catalogue_service.apply_viewer_fields, db, payload["items"], user)
     return payload
 
 
@@ -225,20 +227,22 @@ async def get_manga_batch(
 
     from backend_fastapi.app.utils.bounded_threadpool import run_in_db_threadpool
 
+    from ...dependencies.auth import is_secondary_or_higher
+    from ...services.content_rights import hostable_manga_ids
+
+    staff = user is not None and is_secondary_or_higher(user)
+
     def _work():
         with SessionLocal() as db:
             rows = db.query(Manga).filter(Manga.id.in_(wanted)).all()
-            items = catalogue_service.enrich(db, [m.to_dict() for m in rows])
-            return items
+            if not staff:
+                # Taken-down / not-hostable series are left out for readers
+                # (admins still see them), checked for the whole list at once.
+                allowed = hostable_manga_ids(db, rows)
+                rows = [m for m in rows if m.id in allowed]
+            return catalogue_service.enrich(db, [m.to_dict() for m in rows])
 
-    items = await run_in_db_threadpool(_work)
-    visible = []
-    for item in items:
-        try:
-            await _enforce_series_hostable(item["id"], user)
-        except HTTPException:
-            continue
-        visible.append(item)
+    visible = await run_in_db_threadpool(_work)
     order = {mid: i for i, mid in enumerate(wanted)}
     visible.sort(key=lambda it: order.get(it["id"], 0))
     return {"items": visible}
@@ -281,7 +285,9 @@ async def get_manga_detail(
         celery_task_kwargs={"cache_key": cache_key, "ttl": 60, "manga_id": manga_id},
     )
     payload = dict(payload)
-    catalogue_service.apply_viewer_fields(db, [payload], user)
+    from backend_fastapi.app.utils.bounded_threadpool import run_in_db_threadpool
+
+    await run_in_db_threadpool(catalogue_service.apply_viewer_fields, db, [payload], user)
     return payload
 
 

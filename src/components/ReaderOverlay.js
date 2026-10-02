@@ -72,6 +72,20 @@ export default function ReaderOverlay({
             // text; only trusted when the surrounding art is plain.
             bg: r.background_clean ? r.background : null,
             fg: r.background_clean ? r.text_color : null,
+            // The speech bubble around the text, when the server found a
+            // closed one (text drawn straight onto the art has none).
+            bubble:
+              r.background_clean && r.bubble && r.bubble.width > 0 && r.bubble.height > 0
+                ? {
+                    shape: r.bubble.shape,
+                    polygon: r.bubble.polygon,
+                    inner: r.bubble.inner,
+                    x: r.bubble.x / size.w,
+                    y: r.bubble.y / size.h,
+                    w: r.bubble.width / size.w,
+                    h: r.bubble.height / size.h,
+                  }
+                : null,
           }));
         setBoxes(found);
       } catch {
@@ -90,20 +104,26 @@ export default function ReaderOverlay({
 
   return (
     <div className="absolute inset-0 pointer-events-none z-10 overflow-hidden">
-      {boxes.map((box) => (
-        <OverlayBox
-          key={box.id}
-          region={box}
-          settings={settings}
-          title={`Original: ${box.original}`}
-          style={{
-            left: `${box.x * 100}%`,
-            top: `${box.y * 100}%`,
-            width: `${box.w * 100}%`,
-            height: `${box.h * 100}%`,
-          }}
-        />
-      ))}
+      {boxes.map((box) => {
+        // "Match the bubble shape" (default on): fill the bubble; off, or no
+        // bubble found: the original text area, as a plain box.
+        const shaped = settings.overlay_match_bubble !== false && box.bubble;
+        const area = shaped ? box.bubble : box;
+        return (
+          <OverlayBox
+            key={box.id}
+            region={shaped ? box : { ...box, bubble: null }}
+            settings={settings}
+            title={`Original: ${box.original}`}
+            style={{
+              left: `${area.x * 100}%`,
+              top: `${area.y * 100}%`,
+              width: `${area.w * 100}%`,
+              height: `${area.h * 100}%`,
+            }}
+          />
+        );
+      })}
     </div>
   );
 }

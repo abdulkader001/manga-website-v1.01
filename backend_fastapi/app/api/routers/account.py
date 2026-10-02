@@ -154,11 +154,16 @@ async def check_username(
     await async_endpoint_limiter.check_limit(
         request, f"check_username:{current_user.id}", limit=120, window_seconds=600
     )
-    clean = _clean_username(username)
-    problem = _username_problem(db, clean, exclude_user_id=current_user.id)
-    if problem:
-        return {"available": False, "username": clean, "message": problem}
-    return {"available": True, "username": clean, "message": f'"{clean}" is unique and available!'}
+    from ...utils.bounded_threadpool import run_in_db_threadpool
+
+    def _work():
+        clean = _clean_username(username)
+        problem = _username_problem(db, clean, exclude_user_id=current_user.id)
+        if problem:
+            return {"available": False, "username": clean, "message": problem}
+        return {"available": True, "username": clean, "message": f'"{clean}" is unique and available!'}
+
+    return await run_in_db_threadpool(_work)
 
 
 class CompleteProfilePayload(BaseModel):
@@ -177,19 +182,24 @@ async def complete_profile(
     await async_endpoint_limiter.check_limit(
         request, f"complete_profile:{current_user.id}", limit=30, window_seconds=3600
     )
-    name = _clean_name(payload.name)
-    username = _clean_username(payload.username)
-    problem = _username_problem(db, username, exclude_user_id=current_user.id)
-    if problem:
-        raise ApiError(ErrorCode.VALIDATION_FAILED, problem, field="username")
-    _apply_birth_date(current_user, payload.birth_date)
+    from ...utils.bounded_threadpool import run_in_db_threadpool
 
-    current_user.name = name
-    current_user.username = username
-    current_user.profile_completed = True
-    db.commit()
-    db.refresh(current_user)
-    return {"success": True, "message": "Profile completed.", "user": _user_payload(current_user)}
+    def _work():
+        name = _clean_name(payload.name)
+        username = _clean_username(payload.username)
+        problem = _username_problem(db, username, exclude_user_id=current_user.id)
+        if problem:
+            raise ApiError(ErrorCode.VALIDATION_FAILED, problem, field="username")
+        _apply_birth_date(current_user, payload.birth_date)
+
+        current_user.name = name
+        current_user.username = username
+        current_user.profile_completed = True
+        db.commit()
+        db.refresh(current_user)
+        return {"success": True, "message": "Profile completed.", "user": _user_payload(current_user)}
+
+    return await run_in_db_threadpool(_work)
 
 
 class ProfileUpdatePayload(BaseModel):
@@ -211,29 +221,34 @@ async def update_profile(
     await async_endpoint_limiter.check_limit(
         request, f"update_profile:{current_user.id}", limit=60, window_seconds=3600
     )
-    if payload.name is not None:
-        current_user.name = _clean_name(payload.name)
-    if payload.username:
-        username = _clean_username(payload.username)
-        if username != (current_user.username or "").lower():
-            problem = _username_problem(db, username, exclude_user_id=current_user.id)
-            if problem:
-                raise ApiError(ErrorCode.VALIDATION_FAILED, problem, field="username")
-            current_user.username = username
-    if payload.gender is not None:
-        gender = strip_all_html(payload.gender).strip()
-        current_user.gender = gender if gender.lower() in GENDERS else "Not specified"
-    _apply_birth_date(current_user, payload.birth_date)
-    image = _clean_profile_image(payload.profile_image or payload.avatar_url)
-    if image:
-        current_user.profile_image = image
-    db.commit()
-    db.refresh(current_user)
-    return {
-        "success": True,
-        "message": "Profile and identity updated successfully.",
-        "user": _user_payload(current_user),
-    }
+    from ...utils.bounded_threadpool import run_in_db_threadpool
+
+    def _work():
+        if payload.name is not None:
+            current_user.name = _clean_name(payload.name)
+        if payload.username:
+            username = _clean_username(payload.username)
+            if username != (current_user.username or "").lower():
+                problem = _username_problem(db, username, exclude_user_id=current_user.id)
+                if problem:
+                    raise ApiError(ErrorCode.VALIDATION_FAILED, problem, field="username")
+                current_user.username = username
+        if payload.gender is not None:
+            gender = strip_all_html(payload.gender).strip()
+            current_user.gender = gender if gender.lower() in GENDERS else "Not specified"
+        _apply_birth_date(current_user, payload.birth_date)
+        image = _clean_profile_image(payload.profile_image or payload.avatar_url)
+        if image:
+            current_user.profile_image = image
+        db.commit()
+        db.refresh(current_user)
+        return {
+            "success": True,
+            "message": "Profile and identity updated successfully.",
+            "user": _user_payload(current_user),
+        }
+
+    return await run_in_db_threadpool(_work)
 
 
 # ---------------------------------------------------------------------------

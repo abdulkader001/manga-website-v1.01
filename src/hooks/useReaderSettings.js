@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import api from "../services/api";
+import { DEFAULT_TEXT_SCALE } from "../utils/overlayText";
 
 // The reader's translation/overlay preferences, stored on their account
 // (GET/PUT /user/processing-settings). Shared through React Query so the
@@ -12,8 +13,10 @@ export const READER_DEFAULTS = {
   target_language: "en",
   overlay_style: "white_box",
   overlay_font: "standard_sans",
-  overlay_font_size: 20,
+  overlay_font_size: DEFAULT_TEXT_SCALE,
   overlay_text_color: null,
+  overlay_outline_color: null,
+  overlay_match_bubble: true,
   overlay_box_color: null,
   overlay_box_opacity: 100,
   context_translation: true,

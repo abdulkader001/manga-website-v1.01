@@ -84,7 +84,7 @@ def _database_ok(session: Session) -> bool:
 
 
 @router.get("", response_model=None)
-async def get_health(db: Session = Depends(get_db)) -> dict[str, object]:
+def get_health(db: Session = Depends(get_db)) -> dict[str, object]:
     """Return overall service health state."""
 
     cpu_percent = psutil.cpu_percent(interval=0.0)

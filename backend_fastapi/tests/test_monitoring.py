@@ -3,8 +3,34 @@ from __future__ import annotations
 from fastapi.testclient import TestClient
 
 
+def _main_admin_headers() -> dict:
+    import uuid
+
+    from backend_fastapi.app.core.db import Base, SessionLocal, engine
+    from backend_fastapi.app.core.security import create_access_token
+    from backend_fastapi.app.models import User, UserRole
+
+    Base.metadata.create_all(bind=engine)
+    with SessionLocal() as session:
+        user = User(
+            email=f"stats-{uuid.uuid4().hex}@example.com",
+            is_active=True,
+            name="Stats",
+            role=UserRole.ADMIN,
+            is_main_admin=True,
+            provider="magic_link",
+        )
+        session.add(user)
+        session.commit()
+        return {"Authorization": f"Bearer {create_access_token(str(user.id))}"}
+
+
+def test_system_stats_requires_main_admin(fastapi_client: TestClient) -> None:
+    assert fastapi_client.get("/api/v1/system/stats").status_code in (401, 403)
+
+
 def test_system_stats_endpoint_available(fastapi_client: TestClient) -> None:
-    response = fastapi_client.get("/api/v1/system/stats")
+    response = fastapi_client.get("/api/v1/system/stats", headers=_main_admin_headers())
     assert response.status_code == 200
     headers = response.headers
     if isinstance(headers, list):

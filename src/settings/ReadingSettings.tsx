@@ -2,6 +2,14 @@ import { formatUtcTime } from "../utils/gstTime";
 import React, { useEffect, useMemo, useState } from "react";
 import useReaderSettings, { READER_DEFAULTS } from "../hooks/useReaderSettings";
 import OverlayBox from "../components/OverlayBox";
+import ColorPicker from "../components/ColorPicker";
+import {
+  TEXT_SCALE_MAX,
+  TEXT_SCALE_MIN,
+  TEXT_SCALE_STEP,
+  clampTextScale,
+  textScaleToPx,
+} from "../utils/overlayText";
 import { OVERLAY_FONTS } from "../fonts/overlayFonts";
 
 // Everything about translated pages in one place: on/off, language, how the
@@ -46,25 +54,44 @@ function Toggle({ checked, onChange, title, desc }: { checked: boolean; onChange
   );
 }
 
-function ColorField({ value, onChange, autoLabel }: { value: string | null; onChange: (v: string | null) => void; autoLabel: string }) {
+function ColorField({
+  value,
+  onChange,
+  autoLabel,
+  name,
+}: {
+  value: string | null;
+  onChange: (v: string | null) => void;
+  autoLabel: string;
+  name: string;
+}) {
+  const [open, setOpen] = useState(false);
   return (
-    <div className="flex items-center gap-2">
-      <input
-        type="color"
-        value={value || "#ffffff"}
-        onChange={(e) => onChange(e.target.value)}
-        className="w-10 h-9 rounded-lg bg-[#101216] border border-[#262a33] cursor-pointer"
-      />
-      <button
-        type="button"
-        onClick={() => onChange(null)}
-        className={`px-3 py-2 rounded-xl border text-[11px] font-semibold transition ${
-          value ? "border-[#262a33] text-gray-400 hover:text-white" : "border-[#00AEF0] text-[#00AEF0] bg-[#00AEF0]/10"
-        }`}
-      >
-        {autoLabel}
-      </button>
-      {value && <span className="font-mono text-[11px] text-gray-400">{value}</span>}
+    <div className="space-y-2">
+      <div className="flex items-center gap-2">
+        <button
+          type="button"
+          onClick={() => setOpen((o) => !o)}
+          aria-expanded={open}
+          aria-label={`Pick ${name.toLowerCase()}`}
+          className="w-10 h-9 rounded-lg border border-[#262a33] hover:border-[#00AEF0] transition bg-[conic-gradient(#f00,#ff0,#0f0,#0ff,#00f,#f0f,#f00)]"
+          style={value ? { background: value } : undefined}
+        />
+        <button
+          type="button"
+          onClick={() => {
+            onChange(null);
+            setOpen(false);
+          }}
+          className={`px-3 py-2 rounded-xl border text-[11px] font-semibold transition ${
+            value ? "border-[#262a33] text-gray-400 hover:text-white" : "border-[#00AEF0] text-[#00AEF0] bg-[#00AEF0]/10"
+          }`}
+        >
+          {autoLabel}
+        </button>
+        {value && <span className="font-mono text-[11px] text-gray-400">{value}</span>}
+      </div>
+      {open && <ColorPicker value={value} onChange={onChange} label={name} />}
     </div>
   );
 }
@@ -92,6 +119,7 @@ export default function ReadingSettings() {
       [
         "overlay_enabled", "target_language", "overlay_style", "overlay_font", "overlay_font_size",
         "overlay_text_color", "overlay_box_color", "overlay_box_opacity", "context_translation",
+        "overlay_outline_color", "overlay_match_bubble",
         "ai_assist_enabled", "translate_sound_effects", "usage_limit_unit", "usage_limit_window",
         "usage_limit_value",
       ].some((k) => (draft as any)[k] !== (settings as any)[k]),
@@ -109,6 +137,8 @@ export default function ReadingSettings() {
         overlay_text_color: draft.overlay_text_color || "",
         overlay_box_color: draft.overlay_box_color || "",
         overlay_box_opacity: draft.overlay_box_opacity,
+        overlay_outline_color: draft.overlay_outline_color || "",
+        overlay_match_bubble: draft.overlay_match_bubble,
         context_translation: draft.context_translation,
         ai_assist_enabled: draft.ai_assist_enabled,
         translate_sound_effects: draft.translate_sound_effects,
@@ -129,10 +159,12 @@ export default function ReadingSettings() {
   const limit = settings.usage_limit_value;
   const unitLabel = draft.usage_limit_unit === "words" ? "words" : "pages";
   const windowLabel = { day: "day", week: "week", month: "month" }[draft.usage_limit_window as string] || "day";
+  const shaped = draft.overlay_match_bubble !== false;
   const preview = {
     translated: "I won't lose to a bug like you!",
     bg: "#ffffff",
     fg: "#111111",
+    bubble: shaped ? { shape: "ellipse", inner: { x: 0.15, y: 0.15, width: 0.7, height: 0.7 } } : null,
   };
 
   return (
@@ -191,19 +223,43 @@ export default function ReadingSettings() {
 
             <div>
               <div className="flex items-center justify-between">
-                <label className={label}>Largest text size</label>
-                <span className="font-mono font-bold text-[#00AEF0]">{draft.overlay_font_size}px</span>
+                <label className={label} htmlFor="overlay-text-size">Text size</label>
+                <span className="flex items-center gap-1.5">
+                  <input
+                    type="number"
+                    min={TEXT_SCALE_MIN}
+                    max={TEXT_SCALE_MAX}
+                    step={TEXT_SCALE_STEP}
+                    value={draft.overlay_font_size}
+                    onChange={(e) => set({ overlay_font_size: clampTextScale(e.target.value) })}
+                    aria-label="Text size number"
+                    className="w-16 px-2 py-1 rounded-lg bg-[#101216] border border-[#262a33] font-mono font-bold text-[#00AEF0] text-right focus:outline-none focus:border-[#00AEF0]"
+                  />
+                  <span className="font-mono text-[10px] text-[#8b93a3]">= {textScaleToPx(draft.overlay_font_size)} px</span>
+                </span>
               </div>
               <input
+                id="overlay-text-size"
                 type="range"
-                min={10}
-                max={40}
+                min={TEXT_SCALE_MIN}
+                max={TEXT_SCALE_MAX}
+                step={TEXT_SCALE_STEP}
                 value={draft.overlay_font_size}
-                onChange={(e) => set({ overlay_font_size: Number(e.target.value) })}
+                onChange={(e) => set({ overlay_font_size: clampTextScale(e.target.value) })}
                 className="w-full accent-[#00AEF0]"
               />
-              <p className="text-[10px] text-[#8b93a3]">Long lines shrink automatically to fit the original text area.</p>
+              <p className="text-[10px] text-[#8b93a3]">
+                1 to 100 in half steps (100 = 70 px). Only the translated text on manga pages changes. Long lines
+                still shrink to fit their bubble.
+              </p>
             </div>
+
+            <Toggle
+              checked={draft.overlay_match_bubble !== false}
+              onChange={(v) => set({ overlay_match_bubble: v })}
+              title="Match the bubble's shape"
+              desc="Round, square or any other bubble is filled in its own shape, with the text inside. Text drawn straight on the art stays where it was. Off = a plain box over the original text."
+            />
 
             <div>
               <label className={label}>Box style</label>
@@ -229,12 +285,27 @@ export default function ReadingSettings() {
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
                 <label className={label}>Text colour</label>
-                <ColorField value={draft.overlay_text_color} onChange={(v) => set({ overlay_text_color: v })} autoLabel="Automatic" />
+                <ColorField
+                  name="Text colour"
+                  value={draft.overlay_text_color}
+                  onChange={(v) => set({ overlay_text_color: v })}
+                  autoLabel="Automatic"
+                />
+              </div>
+              <div>
+                <label className={label}>Text outline colour</label>
+                <ColorField
+                  name="Outline colour"
+                  value={draft.overlay_outline_color}
+                  onChange={(v) => set({ overlay_outline_color: v })}
+                  autoLabel="No outline"
+                />
               </div>
               {draft.overlay_style !== "transparent_box" && (
                 <div>
                   <label className={label}>Box colour</label>
                   <ColorField
+                    name="Box colour"
                     value={draft.overlay_box_color}
                     onChange={(v) => set({ overlay_box_color: v })}
                     autoLabel={draft.overlay_style === "white_box" ? "Match bubble" : "White"}
@@ -275,12 +346,18 @@ export default function ReadingSettings() {
                 <OverlayBox
                   region={preview}
                   settings={draft}
-                  style={{ left: "17%", top: "26%", width: "66%", height: "48%" }}
+                  style={
+                    shaped
+                      ? { left: 0, top: 0, width: "100%", height: "100%" }
+                      : { left: "17%", top: "26%", width: "66%", height: "48%" }
+                  }
                 />
               </div>
             </div>
             <p className="text-[10px] text-[#8b93a3]">
-              Only the text area is covered; the rest of the art stays untouched.
+              {shaped
+                ? "The bubble is filled in its own shape; the art around it stays untouched."
+                : "Only the text area is covered; the rest of the art stays untouched."}
             </p>
           </div>
         </div>

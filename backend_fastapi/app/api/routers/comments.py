@@ -135,18 +135,23 @@ async def add_comment(
     await async_endpoint_limiter.check_limit(
         request, f"post_comment:{current_user.id}", limit=20, window_seconds=3600
     )
-    comment = comment_service.create_comment(
-        db,
-        user=current_user,
-        target_type=payload.target_type,
-        target_id=payload.target_id,
-        content=payload.content,
-        parent_id=payload.parent_id,
-        attachment_type=payload.attachment_type,
-        attachment_url=payload.attachment_url,
-        attachment_metadata=payload.attachment_metadata,
-    )
-    return comment_service.serialize_comment(db, comment, viewer=current_user)
+    from ...utils.bounded_threadpool import run_in_db_threadpool
+
+    def _work():
+        comment = comment_service.create_comment(
+            db,
+            user=current_user,
+            target_type=payload.target_type,
+            target_id=payload.target_id,
+            content=payload.content,
+            parent_id=payload.parent_id,
+            attachment_type=payload.attachment_type,
+            attachment_url=payload.attachment_url,
+            attachment_metadata=payload.attachment_metadata,
+        )
+        return comment_service.serialize_comment(db, comment, viewer=current_user)
+
+    return await run_in_db_threadpool(_work)
 
 
 @router.patch("/{comment_id}")
@@ -160,10 +165,15 @@ async def edit_comment(
     await async_endpoint_limiter.check_limit(
         request, f"edit_comment:{current_user.id}", limit=30, window_seconds=3600
     )
-    comment = comment_service.edit_comment(
-        db, user=current_user, comment_id=comment_id, content=payload.content
-    )
-    return comment_service.serialize_comment(db, comment, viewer=current_user)
+    from ...utils.bounded_threadpool import run_in_db_threadpool
+
+    def _work():
+        comment = comment_service.edit_comment(
+            db, user=current_user, comment_id=comment_id, content=payload.content
+        )
+        return comment_service.serialize_comment(db, comment, viewer=current_user)
+
+    return await run_in_db_threadpool(_work)
 
 
 @router.delete("/{comment_id}")
@@ -189,10 +199,15 @@ async def vote_comment(
     await async_endpoint_limiter.check_limit(
         request, f"vote_comment:{current_user.id}", limit=200, window_seconds=3600
     )
-    comment = comment_service.toggle_vote(
-        db, user=current_user, comment_id=comment_id, value=payload.value
-    )
-    return comment_service.serialize_comment(db, comment, viewer=current_user)
+    from ...utils.bounded_threadpool import run_in_db_threadpool
+
+    def _work():
+        comment = comment_service.toggle_vote(
+            db, user=current_user, comment_id=comment_id, value=payload.value
+        )
+        return comment_service.serialize_comment(db, comment, viewer=current_user)
+
+    return await run_in_db_threadpool(_work)
 
 
 @router.post("/{comment_id}/react")
@@ -206,10 +221,15 @@ async def react_to_comment(
     await async_endpoint_limiter.check_limit(
         request, f"react_comment:{current_user.id}", limit=300, window_seconds=3600
     )
-    comment = comment_service.toggle_reaction(
-        db, user=current_user, comment_id=comment_id, emoji=payload.emoji
-    )
-    return comment_service.serialize_comment(db, comment, viewer=current_user)
+    from ...utils.bounded_threadpool import run_in_db_threadpool
+
+    def _work():
+        comment = comment_service.toggle_reaction(
+            db, user=current_user, comment_id=comment_id, emoji=payload.emoji
+        )
+        return comment_service.serialize_comment(db, comment, viewer=current_user)
+
+    return await run_in_db_threadpool(_work)
 
 
 @router.post("/{comment_id}/report")
@@ -223,10 +243,15 @@ async def report_comment(
     await async_endpoint_limiter.check_limit(
         request, f"report_comment:{current_user.id}", limit=20, window_seconds=3600
     )
-    report = comment_service.report_comment(
-        db, user=current_user, comment_id=comment_id, reason=payload.reason
-    )
-    return comment_service.report_to_dict(report)
+    from ...utils.bounded_threadpool import run_in_db_threadpool
+
+    def _work():
+        report = comment_service.report_comment(
+            db, user=current_user, comment_id=comment_id, reason=payload.reason
+        )
+        return comment_service.report_to_dict(report)
+
+    return await run_in_db_threadpool(_work)
 
 
 @router.post("/{comment_id}/remove")

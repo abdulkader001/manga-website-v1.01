@@ -27,4 +27,11 @@ if [ -n "${CELERY_QUEUES:-}" ]; then
   set -- "$@" --queues="${CELERY_QUEUES}"
 fi
 
+# Optional pool override. "solo" runs tasks in the worker process itself (one
+# process instead of parent + child): the small-server profile uses it to
+# halve worker memory (docker-compose.small.yml).
+if [ -n "${CELERY_POOL:-}" ]; then
+  set -- "$@" --pool="${CELERY_POOL}"
+fi
+
 exec celery "$@"

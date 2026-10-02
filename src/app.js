@@ -25,20 +25,27 @@ import ScrollToTopButton from "./components/ScrollToTopButton";
 import ScrollToTop from "./components/ScrollToTop";
 import AntiTamperGuard from "./components/AntiTamperGuard";
 
-// Eagerly imported for lightning-fast, instantaneous navigation
-import SeriesManagement from "./pages/Admin/SeriesManagement";
-import AdsManager from "./pages/Admin/AdsManager";
-import AdSlotsManager from "./pages/Admin/AdSlotsManager";
-import Health from "./pages/Admin/Health";
-import RoleManagement from "./pages/Admin/RoleManagement";
-import UserDatabase from "./pages/Admin/UserDatabase";
-import AdminPanel from "./pages/AdminPanel";
-import AdminSettings from "./pages/Admin/AdminSettings";
-import ApiManagement from "./pages/Admin/ApiManagement";
-import AuditReport from "./pages/Admin/AuditReport";
-import ChapterReports from "./pages/Admin/ChapterReports";
-import AdminSecurity from "./pages/Admin/AdminSecurity";
-import SecretVault from "./pages/Admin/SecretVault";
+// Admin screens are separate chunks (F-95): readers never download them,
+// admins load each on first open.
+const SeriesManagement = React.lazy(() => import("./pages/Admin/SeriesManagement"));
+const AdsManager = React.lazy(() => import("./pages/Admin/AdsManager"));
+const AdSlotsManager = React.lazy(() => import("./pages/Admin/AdSlotsManager"));
+const Health = React.lazy(() => import("./pages/Admin/Health"));
+const RoleManagement = React.lazy(() => import("./pages/Admin/RoleManagement"));
+const UserDatabase = React.lazy(() => import("./pages/Admin/UserDatabase"));
+const AdminPanel = React.lazy(() => import("./pages/AdminPanel"));
+const AdminSettings = React.lazy(() => import("./pages/Admin/AdminSettings"));
+const ApiManagement = React.lazy(() => import("./pages/Admin/ApiManagement"));
+const AuditReport = React.lazy(() => import("./pages/Admin/AuditReport"));
+const ChapterReports = React.lazy(() => import("./pages/Admin/ChapterReports"));
+const AdminSecurity = React.lazy(() => import("./pages/Admin/AdminSecurity"));
+const SecretVault = React.lazy(() => import("./pages/Admin/SecretVault"));
+
+function PageLoading() {
+  return (
+    <div className="min-h-[50vh] flex items-center justify-center text-xs text-[#8b93a3]">Loading…</div>
+  );
+}
 
 // The one-time site-owner sign-in is its own chunk: nothing links to it and
 // regular visitors never download it.
@@ -78,6 +85,7 @@ function AppShell({ children }) {
 
 function AppRoutes() {
   return (
+    <Suspense fallback={<PageLoading />}>
     <Routes>
       {/* Auth Entry & Onboarding Routes */}
       <Route path="/login" element={<Login />} />
@@ -125,7 +133,7 @@ function AppRoutes() {
           }
         />
 
-        {/* Admin Section: Instant render without chunk latency */}
+        {/* Admin Section (lazy chunks, see F-95) */}
         <Route
           path="/admin/series"
           element={
@@ -169,7 +177,7 @@ function AppRoutes() {
         <Route
           path="/admin/health"
           element={
-            <AuthGuard requireAdmin>
+            <AuthGuard requireAdmin allowSecondaryAdmins permission="view_dashboard">
               <Health />
             </AuthGuard>
           }
@@ -225,7 +233,7 @@ function AppRoutes() {
         <Route
           path="/admin/chapter-reports"
           element={
-            <AuthGuard requireAdmin>
+            <AuthGuard requireAdmin allowSecondaryAdmins permission="handle_reports">
               <ChapterReports />
             </AuthGuard>
           }
@@ -235,6 +243,7 @@ function AppRoutes() {
       {/* F-76: anything unmatched renders a real 404 page */}
       <Route path="*" element={<NotFound />} />
     </Routes>
+    </Suspense>
   );
 }
 

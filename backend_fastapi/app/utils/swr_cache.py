@@ -17,6 +17,24 @@ _local_locks = TTLCache(maxsize=10000, ttl=30)
 _local_locks_lock = asyncio.Lock()
 _local_events = TTLCache(maxsize=10000, ttl=30)
 
+# The event loop keeps only weak references to tasks: a fire-and-forget
+# refresh with no other reference can be garbage-collected mid-run (F-86).
+# Hold each one here until it finishes.
+_background_tasks: "set[asyncio.Task]" = set()
+
+
+def _on_background_done(task: "asyncio.Task") -> None:
+    _background_tasks.discard(task)
+    if not task.cancelled() and task.exception() is not None:
+        logger.warning("swr_background_refresh_failed", exc_info=task.exception())
+
+
+def _spawn(coro: Awaitable[Any]) -> "asyncio.Task":
+    task = asyncio.create_task(coro)
+    _background_tasks.add(task)
+    task.add_done_callback(_on_background_done)
+    return task
+
 
 async def get_local_lock(cache_key: str) -> asyncio.Lock:
     async with _local_locks_lock:
@@ -109,14 +127,14 @@ async def cached_with_swr(
                     lock_key = f"{cache_key}:lock"
                     if await redis_client.set(lock_key, "1", nx=True, ex=30):
                         if celery_task_name and celery_task_kwargs is not None:
-                            asyncio.create_task(
+                            _spawn(
                                 _dispatch_celery_refresh(
                                     celery_task_name, celery_task_kwargs, cache_key
                                 )
                             )
                         else:
                             # Fallback: asyncio background task to refresh
-                            asyncio.create_task(
+                            _spawn(
                                 background_refresh(
                                     redis_client, cache_key, ttl, fetch_func
                                 )

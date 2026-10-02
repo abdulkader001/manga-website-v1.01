@@ -17,8 +17,10 @@ def test_defaults_are_created_lazily(fastapi_client, auth_headers) -> None:
     # 2A.3 / D12.
     assert data["ai_assist_enabled"] is True
     assert 0 <= data["ai_confidence_threshold"] <= 1
-    # 2F.2B default scale.
-    assert data["overlay_font_size"] == 20
+    # 2F.2B default: 28.5 on the 1-100 slider, the old 20 px baseline.
+    assert data["overlay_font_size"] == 28.5
+    assert data["overlay_match_bubble"] is True
+    assert data["overlay_outline_color"] is None
     assert data["overlay_style"] == "white_box"
     assert data["overlay_font"] == "standard_sans"
     # D13 resolution: sound-effect translation on by default, opt-out.
@@ -181,3 +183,28 @@ def test_context_translation_off_skips_the_coherence_pass() -> None:
     )
     assert out == ["[안녕]", "[잘가]"]
     assert outcome == {"applied": False, "reason": "disabled_by_user"}
+
+
+def test_text_size_slider_one_to_hundred_in_half_steps(fastapi_client, auth_headers) -> None:
+    url = "/api/user/processing-settings"
+    for sent, stored in ((1, 1.0), (100, 100.0), (55.5, 55.5), (42.26, 42.5)):
+        resp = fastapi_client.put(url, json={"overlay_font_size": sent}, headers=auth_headers)
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["overlay_font_size"] == stored
+    for bad in (0, 0.5, 100.5, "big"):
+        resp = fastapi_client.put(url, json={"overlay_font_size": bad}, headers=auth_headers)
+        assert resp.status_code in (400, 422), bad
+
+
+def test_outline_colour_and_bubble_switch(fastapi_client, auth_headers) -> None:
+    url = "/api/user/processing-settings"
+    resp = fastapi_client.put(
+        url, json={"overlay_outline_color": "#00FF88", "overlay_match_bubble": False}, headers=auth_headers
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["overlay_outline_color"] == "#00ff88"
+    assert resp.json()["overlay_match_bubble"] is False
+    assert fastapi_client.put(url, json={"overlay_outline_color": "blue"}, headers=auth_headers).status_code == 400
+    resp = fastapi_client.put(url, json={"overlay_outline_color": "", "overlay_match_bubble": True}, headers=auth_headers)
+    assert resp.json()["overlay_outline_color"] is None
+    assert resp.json()["overlay_match_bubble"] is True

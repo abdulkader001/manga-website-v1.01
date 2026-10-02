@@ -67,3 +67,9 @@ timeout = _get_int_env("GUNICORN_TIMEOUT", 180)
 # Give in-flight requests the same headroom to finish during a rolling restart
 # instead of being SIGKILLed after gunicorn's 30s default.
 graceful_timeout = _get_int_env("GUNICORN_GRACEFUL_TIMEOUT", timeout)
+
+# Recycle each worker after this many requests (with jitter so they don't all
+# restart together): memory that image/OCR libraries fragment is returned to
+# the OS instead of growing until the host swaps (F-96). 0 disables.
+max_requests = _get_int_env("GUNICORN_MAX_REQUESTS", 2000)
+max_requests_jitter = _get_int_env("GUNICORN_MAX_REQUESTS_JITTER", 200)

@@ -7,7 +7,7 @@ import useAuth from "./useAuth";
 export default function useStaffPermissions() {
   const { isAdmin, isSecondaryAdmin } = useAuth();
   const staff = Boolean(isAdmin || isSecondaryAdmin);
-  const { data } = useQuery({
+  const { data, isLoading } = useQuery({
     queryKey: ["staffPermissions"],
     queryFn: () => api.admin.permissions.mine(),
     enabled: staff,
@@ -17,6 +17,7 @@ export default function useStaffPermissions() {
   const granted = new Set(data?.permissions || []);
   return {
     isMainAdmin: Boolean(isAdmin),
+    isLoading: staff && !isAdmin && isLoading,
     /** true for the main admin, or when the sub-admin has this toggle on */
     can: (key) => Boolean(isAdmin) || (staff && granted.has(key)),
   };

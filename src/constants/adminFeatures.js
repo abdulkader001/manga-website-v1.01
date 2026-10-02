@@ -78,4 +78,13 @@ export const ADMIN_FEATURE_LINKS = [
   },
 ];
 
-export const ADMIN_NAV_LINKS = ADMIN_FEATURE_LINKS.map((item) => ({ ...item }));
+/**
+ * Admin hub tiles a person may see. Tiles marked minRole "admin" open
+ * main-admin-only pages; "secondary" tiles follow the sub-admin's toggle,
+ * the same rule their routes apply (AuthGuard `permission`).
+ */
+export function visibleAdminLinks(links, { isAdmin, isSecondaryAdmin, can }) {
+  if (isAdmin) return links;
+  if (!isSecondaryAdmin) return [];
+  return links.filter((link) => link.minRole === "secondary" && Boolean(link.permission) && can(link.permission));
+}
