@@ -1,7 +1,7 @@
 # Deployment Guide — Manga Reader (Ubuntu)
 
-Step-by-step instructions to get the whole site running on **Ubuntu 22.04 or
-24.04** (Debian 12 works the same): website, API, database, job workers
+Step-by-step instructions to get the whole site running on **Ubuntu 22.04,
+24.04 or 26.04** (Debian 12 works the same): website, API, database, job workers
 (series import, chapter scraping, image compression, OCR, translation, e-mail,
 notifications) and the admin account.
 
@@ -30,6 +30,78 @@ All commands below are run in a terminal on the Ubuntu machine (on a server:
 your SSH session), from the project folder `~/manga-website-v1.01` unless a
 step says otherwise. Lines starting with `#` are comments; copying them is
 harmless.
+
+---
+
+## Read this first: how to copy commands so they match
+
+Almost every "the command doesn't match / doesn't work" report comes from the
+same few things. Check these before anything else.
+
+**1. Copy one block at a time, and wait for the prompt.** Paste a block, press
+Enter, wait until the `$` prompt comes back, read the last lines, and only then
+paste the next block. A block that failed in the middle leaves the next one
+running on a half-finished setup.
+
+**2. Never paste a placeholder.** Words such as `/path/to/project`, `<service>`,
+`<date>`, `you@example.com`, `manga.example.com` and `new-domain.com` are
+examples. This guide keeps every runnable block free of `<…>` placeholders: a
+block that needs *your* value sets it on its **first line** (for example
+`DOMAIN=manga.example.com`). Change that line first. If a pasted command
+mentions a folder or name you don't have (`cd: /path/to/…: No such file or
+directory`), you pasted an example.
+
+**3. Be in the project folder.** Every `docker compose …` command only works
+inside the folder that contains `docker-compose.yml`. Check where you are:
+
+```bash
+cd ~/manga-website-v1.01
+ls docker-compose.yml
+```
+
+It must print `docker-compose.yml`. *"no configuration file provided: not
+found"* means you are in the wrong folder.
+
+**4. Run the site one way only: Docker.** Sections 1–4 start the whole site
+with Docker. Section 5 (developer mode) is a *different* way of running the
+same things, only for people editing the code. It is not a step after Section 4
+and it cannot run at the same time: the names `db` and `redis` in `.env` exist
+only inside Docker (`could not translate host name "db"`), and both want port
+8000 (`Address already in use`).
+
+**5. Use the names that really exist.** Guessing a name or path is the second
+most common reason for an error:
+
+| Thing | Real name |
+| --- | --- |
+| Project folder | `~/manga-website-v1.01` |
+| The site / API health | <http://localhost:8080> / <http://localhost:8000/healthz> |
+| Services (for `docker compose logs`, `exec`, `restart`, `up`) | `db`, `redis`, `manga-stack-migrate`, `backend`, `web`, `celery_beat`, `celery_worker`, `celery_worker_scrape`, `celery_worker_compress`, `celery_worker_ocr`, `celery_worker_translation`, `celery_worker_email`, `celery_worker_maintenance`, `celery_worker_notifications` (small profile, Section 4.2: only `db`, `redis`, `manga-stack-migrate`, `backend`, `web`, `celery_beat`, `celery_worker`, `celery_worker_scrape`) |
+| Containers (for plain `docker logs`, `docker rm`) | `manga-stack-db`, `manga-stack-redis`, `manga-stack-backend`, `manga-stack-web`, `manga-stack-migrate`, `manga-stack-celery-beat`, `manga-stack-celery-worker`; the other workers are `manga-stack-celery_worker_scrape-1` and so on |
+| Docker project, volumes, network | `manga-stack`; `manga-stack_db-data`, `manga-stack_app-storage`; `manga-stack_manga-network` |
+| Database | user **`manga`** (there is no `postgres` user), database `manga`: `docker compose exec db psql -U manga manga` |
+| Files inside the backend container | `/app/backend_fastapi/…` (scripts in `/app/backend_fastapi/scripts/`, not `/app/scripts`), pictures in `/app/storage` |
+| Settings file | `.env` in the project folder (there is no `backend/` folder: the API code is in `backend_fastapi/`) |
+
+`docker compose logs backend` uses the **service** name; `docker logs
+manga-stack-backend` uses the **container** name. Don't mix them up.
+
+**6. Compare with "You should see".** After the important steps this guide
+shows what the output looks like. If yours differs, look up the exact message in
+[Troubleshooting](#10-troubleshooting).
+
+**7. Your Ubuntu version doesn't matter for the Docker path.** On Ubuntu 26.04
+Python is 3.14 and there is no `python3.11` package, no `pip` and no `nvm`;
+22.04 and 24.04 lack them too. You do **not** need any of them: the containers
+bring their own Python and Node. The only thing the host runs is one
+`python3` script (`make_env.py`, standard library only), and `python3` is
+installed by default. Don't install `python3.11`, `python3-pip`, `nvm` or
+`libpq-dev` for the Docker path. Check your version with
+`cat /etc/os-release | head -3`.
+
+**8. Keep secrets out of chats.** `.env` holds your keys and password hashes. Don't
+paste its values (or the output of a key generator) into a chat, issue or
+screenshot. If you did, make new ones: Section 12.5.
 
 ---
 
@@ -87,8 +159,11 @@ server with a domain and HTTPS: [Section 8](#8-go-live-on-a-linux-server-with-a-
 
 ```bash
 sudo apt-get update
-sudo apt-get install -y git curl ca-certificates openssl python3
+sudo apt-get install -y git curl ca-certificates python3
 ```
+
+Nothing else is needed on the host for the Docker path (see "Read this first",
+point 7).
 
 Docker Engine and the Compose plugin (Docker's official installer; it also
 enables the Docker service at boot):
@@ -108,11 +183,22 @@ docker compose version        # must be v2.24 or newer: Section 8 relies on it
 docker run --rm hello-world
 ```
 
+You should see two version lines and, from the last command, `Hello from
+Docker!`.
+
 *"permission denied … docker.sock"* means you have not logged out and in yet.
 *"docker: 'compose' is not a docker command"* means the Compose plugin is
-missing; Ubuntu's own `docker.io` package does not include it. Either use the
-installer above, or on Ubuntu 24.04 install both from Ubuntu's repository:
-`sudo apt-get install -y docker.io docker-compose-v2`.
+missing; Ubuntu's own `docker.io` package does not include it. If Docker's
+installer fails on a brand-new Ubuntu release (it says the release is not
+supported), install both from Ubuntu's own repository instead (package names
+checked on 24.04):
+
+```bash
+sudo apt-get install -y docker.io docker-compose-v2
+sudo usermod -aG docker "$USER"
+```
+
+then log out and in again and repeat the three checks above.
 
 ### Optional but recommended on a server
 
@@ -177,30 +263,41 @@ One command creates `.env` from `.env.example` with new random secrets and
 database/Redis passwords that match inside the URLs. It never overwrites an
 existing `.env`.
 
-```bash
-python3 backend_fastapi/scripts/make_env.py --local   # trying it on this machine, http://localhost:8080
-# or, for a real server with a domain and HTTPS (then do Section 3.3):
-python3 backend_fastapi/scripts/make_env.py
+**Trying it on this machine** (you will open `http://localhost:8080`):
 
-chmod 600 .env        # the file holds every secret; only you should read it
+```bash
+python3 backend_fastapi/scripts/make_env.py --local
 ```
 
-It prints `Created …/.env with new random secrets.` **Copy `.env` somewhere
-safe and private** (password manager, encrypted USB): losing `EMAIL_ENCRYPTION_KEY`
+**A real server with a domain and HTTPS** (then do Section 3.3 as well): the
+same command without `--local`:
+
+```bash
+python3 backend_fastapi/scripts/make_env.py
+```
+
+Then, for both:
+
+```bash
+chmod 600 .env
+```
+
+You should see `Created …/.env with new random secrets.` The `chmod` makes the
+file readable only by you: it holds every secret. **Copy `.env` somewhere safe
+and private** (password manager, encrypted USB): losing `EMAIL_ENCRYPTION_KEY`
 or `INTEGRATIONS_SECRET` makes the stored e-mails and API keys unreadable.
 
-*By hand instead* (`cp .env.example .env`, then):
+It says *".env already exists, so nothing was changed"*? You (or an earlier
+attempt) already made one. Keep it, or start clean with Section 12.5.
 
-```bash
-openssl rand -hex 32        # run 4 times: SECRET_KEY, JWT_SECRET_KEY,
-                            #   MAGIC_LINK_SECRET, INTEGRATIONS_SECRET
-openssl rand -hex 16        # POSTGRES_PASSWORD
-openssl rand -hex 16        # REDIS_PASSWORD
-# EMAIL_ENCRYPTION_KEY (a Fernet key; plain Python, nothing to install):
-python3 -c "import base64,os;print(base64.urlsafe_b64encode(os.urandom(32)).decode())"
-```
-
-Every secret must be different from the others.
+> **Don't make the secrets by hand** (`cp .env.example .env` plus `openssl rand`
+> commands). Each password appears in several lines of `.env`: the database
+> password in `POSTGRES_PASSWORD` and `DATABASE_URL`, the Redis password in
+> `REDIS_PASSWORD`, `REDIS_URL`, `CELERY_BROKER_URL` and `CELERY_RESULT_BACKEND`.
+> A hand edit of only `POSTGRES_PASSWORD` / `REDIS_PASSWORD` leaves the old
+> example password inside the URLs. That is what produces `password authentication
+> failed` and Redis `NOAUTH`. `make_env.py` fills all of them consistently.
+> Section 3.6 has a check that catches the mismatch.
 
 ### 3.2 What the secrets and passwords are
 
@@ -307,43 +404,86 @@ All of these can be set in **Admin → Secret Vault** instead of `.env`
 ```bash
 docker compose config > /dev/null && echo "compose file OK"
 grep -nE '^[A-Z_]+=.*(example-|changeme|<generate)' .env || echo "no leftover placeholders"
-ls -l .env            # should start with -rw-------
+ls -l .env
 ```
 
-If the first command errors with *Set EMAIL_ENCRYPTION_KEY*, fill that
-variable. The `grep` prints any secret line you forgot to replace.
+You should see `compose file OK`, `no leftover placeholders`, and a line
+starting with `-rw-------`. If the first command errors with *Set
+EMAIL_ENCRYPTION_KEY*, there is no `.env` or you are in the wrong folder
+(Read this first, point 3). The `grep` prints any secret line you forgot to
+replace.
+
+Check that the passwords inside the URL lines match the two password lines (the
+mismatch that causes `password authentication failed` / `NOAUTH`):
+
+```bash
+PGPW=$(grep '^POSTGRES_PASSWORD=' .env | cut -d= -f2-)
+RDPW=$(grep '^REDIS_PASSWORD=' .env | cut -d= -f2-)
+echo "Database URL has the right password: $(grep -c "^DATABASE_URL=.*:${PGPW}@db:" .env)   (want 1)"
+echo "Redis URLs have the right password:  $(grep -cE "^(REDIS_URL|CELERY_BROKER_URL|CELERY_RESULT_BACKEND)=.*:${RDPW}@redis:" .env)   (want 3)"
+```
+
+It must print `1` and `3`. Anything else: the file was edited by hand; make a
+clean one (Section 12.5). (It prints only counts, never the passwords.)
 
 ---
 
 ## 4. Start everything (Docker — recommended)
 
 ```bash
+cd ~/manga-website-v1.01
 docker compose up -d --build
 ```
 
 This builds and starts, in order: PostgreSQL → Redis → **migrations** (creates
-every table) → API → 8 Celery workers → Celery beat → nginx + website.
-
-The first build takes 5–15 minutes. Watch progress:
-
-```bash
-docker compose ps                       # every service should become "healthy"/"running"
-docker compose logs -f backend          # API log; Ctrl+C to leave
-docker compose logs manga-stack-migrate # should end without errors
-```
-
-`manga-stack-migrate` shows as *exited (0)*: correct, it runs once and stops.
-If something says `restarting` or `exited (1)`: `docker compose logs --tail 50 <service>`.
-
-Verify:
+every table) → API → 8 Celery workers → Celery beat → nginx + website. The
+first build takes 5–15 minutes and prints hundreds of lines; that is normal.
+When the `$` prompt comes back, check:
 
 ```bash
-curl http://localhost:8000/healthz          # API alive: {"ok":true}
-curl -I http://localhost:8080               # website alive (200)
+docker compose ps
 ```
 
-Open **http://localhost:8080** in a browser (on a server without a domain yet,
-use the SSH tunnel below).
+You should see **13 services** (`backend`, `celery_beat`, `celery_worker`, seven
+`celery_worker_…`, `db`, `redis`, `web`), all `Up`. For the first minute the
+workers say `(health: starting)`; wait and run the command again until every
+line says `(healthy)`. `manga-stack-migrate` is not in this list because it ran
+once and stopped; to see it:
+
+```bash
+docker compose ps -a
+```
+
+It shows `Exited (0)`, which is correct. Its log should end with the line
+`[INFO] System state ready`:
+
+```bash
+docker compose logs manga-stack-migrate | tail -5
+```
+
+Then check the API and the website:
+
+```bash
+curl http://localhost:8000/healthz
+curl -I http://localhost:8080
+```
+
+The first prints `{"ok":true}`; the second starts with a line containing `200`.
+
+Open **http://localhost:8080** in a browser on this machine. Installed in a
+virtual machine (VMware, VirtualBox) and browsing from your main computer? Get
+the VM's address with `hostname -I` and open `http://THAT-ADDRESS:8080`. That
+works on a local trial only (next note); on a public server use the SSH tunnel
+below.
+
+Something is not `healthy` after three minutes? Look at its log (the example
+uses `backend`; use the service name from `docker compose ps`):
+
+```bash
+docker compose logs --tail 50 backend
+```
+
+and find the message in [Troubleshooting](#10-troubleshooting).
 
 | Port | Service |
 | --- | --- |
@@ -417,7 +557,7 @@ Useful commands:
 
 ```bash
 docker compose ps
-docker compose logs -f <service>      # backend | celery_worker_scrape | celery_beat | web | db ...
+docker compose logs -f backend        # also: celery_worker_scrape, celery_beat, web, db ...
 docker compose logs --tail 100 backend
 docker compose restart backend
 docker compose up -d --force-recreate # re-read .env (restart does NOT)
@@ -468,40 +608,56 @@ other visitors. Raise it on a server with more CPU cores.
 
 ---
 
-## 5. Alternative: run the app without Docker (developer setup)
+## 5. Developer mode: run the app without Docker (only if you edit the code)
 
-Use this if you want to edit code with hot reload. You still need PostgreSQL
-and Redis — the easiest way is Docker for just those two. This setup is for
-development; production uses Section 4 and Section 8.
+> **Stop: most people skip this whole section.** If `docker compose up -d --build`
+> (Section 4) gave you a working site at <http://localhost:8080>, you are done:
+> Docker already runs the API, the workers, the scheduler and the website.
+> Developer mode runs the *same things* directly on your machine so that code
+> changes show up at once. It is **not an extra step after Section 4**, and it
+> cannot run alongside Docker's app containers: they use the same port (8000,
+> `Address already in use`), and `.env` names the database `db` and Redis
+> `redis`, which exist only inside Docker (`could not translate host name "db"`).
+> The steps below stop the Docker app first and use a separate settings file, so
+> Docker keeps working afterwards.
 
-**1. Tools.** Node 22 (see `.nvmrc`; `jsdom` asks for 22.22.2 or newer),
-Python 3.11 or 3.12, and, if you want OCR and backups to work on the host,
-Tesseract and the PostgreSQL client:
+**Step 1 — Stop Docker's app containers** (your data is kept):
 
 ```bash
-# Node 22 (NodeSource; installs npm too)
-curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
-sudo apt-get install -y nodejs
-node --version                      # v22.x
-
-# Python
-#   Ubuntu 24.04: its own python3 is 3.12 (the packages install and the API starts on it; Docker and CI use 3.11)
-sudo apt-get install -y python3-venv python3-pip
-#   Ubuntu 22.04: python3 is 3.10. Get 3.11 from the deadsnakes PPA, and use
-#   "python3.11" instead of "python3" in step 3:
-#     sudo add-apt-repository -y ppa:deadsnakes/ppa && sudo apt-get update
-#     sudo apt-get install -y python3.11 python3.11-venv
-
-# OCR languages and database tools (same packages the Docker image installs)
-sudo apt-get install -y tesseract-ocr tesseract-ocr-kor tesseract-ocr-jpn tesseract-ocr-jpn-vert \
-  tesseract-ocr-chi-sim tesseract-ocr-chi-tra postgresql-client
-tesseract --list-langs              # chi_sim chi_tra eng jpn jpn_vert kor osd
+cd ~/manga-website-v1.01
+docker compose down
 ```
 
-**2. Database and Redis in Docker, published to this machine only.**
-`docker-compose.yml` doesn't publish their ports, so add them in a small
-extra file next to it (Compose reads `docker-compose.override.yml`
-automatically):
+**Step 2 — Install Node 22 and Python 3.11.** Ubuntu has neither in its package
+list (26.04 ships Python 3.14; 22.04 and 24.04 ship older Node), and `nvm` and
+`pip` are not installed. These two installers work on every Ubuntu release:
+
+```bash
+curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh | bash
+source ~/.bashrc
+nvm install 22
+node -v
+```
+
+You should see `v22.` and a version number. Then Python 3.11:
+
+```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh
+source $HOME/.local/bin/env
+uv python install 3.11
+python3.11 --version
+```
+
+You should see `Python 3.11.` and a version number. For OCR and backups to work
+outside Docker you also need these (package names checked on Ubuntu 24.04):
+
+```bash
+sudo apt-get install -y tesseract-ocr tesseract-ocr-kor tesseract-ocr-jpn tesseract-ocr-jpn-vert \
+  tesseract-ocr-chi-sim tesseract-ocr-chi-tra postgresql-client
+```
+
+**Step 3 — Start only the database and Redis**, published to this machine only
+(Compose reads `docker-compose.override.yml` by itself):
 
 ```bash
 cat > docker-compose.override.yml <<'EOF'
@@ -511,61 +667,95 @@ services:
   redis:
     ports: ["127.0.0.1:6379:6379"]
 EOF
-python3 backend_fastapi/scripts/make_env.py --local && chmod 600 .env
 docker compose up -d db redis
+docker compose ps
 ```
 
-**3. Point `.env` at localhost** (instead of the Docker names `db` / `redis`).
-This `.env` is then for the no-Docker setup; keep a separate copy for the
-Docker stack:
+You should see exactly two services, `db` and `redis`, and after a few seconds
+both `(healthy)`. (It needs the `.env` from Section 3 to exist.)
+
+**Step 4 — A separate settings file for developer mode.** Leave `.env` alone
+(Docker needs its `db` and `redis` names) and make a copy that points at
+`localhost`:
 
 ```bash
+cp .env .env.dev
 sed -i \
   -e 's#@db:5432#@localhost:5432#' \
   -e 's#@redis:6379#@localhost:6379#' \
   -e 's#^REDIS_HOST=.*#REDIS_HOST=localhost#' \
   -e 's#^BACKEND_URL=.*#BACKEND_URL=http://127.0.0.1:8000#' \
-  .env
+  .env.dev
+chmod 600 .env.dev
+echo '.env.dev' >> .git/info/exclude
 ```
 
-**4. Python environment and migrations.**
+The last line keeps git from ever listing (and so committing) a file full of
+secrets.
+
+**Step 5 — Python environment and database setup:**
 
 ```bash
-python3 -m venv .venv && source .venv/bin/activate
+python3.11 -m venv .venv
+source .venv/bin/activate
 pip install -r backend_fastapi/requirements.lock
-dotenv -f .env run -- alembic upgrade head
-dotenv -f .env run -- python backend_fastapi/scripts/seed_bootstrap_state.py
+dotenv -f .env.dev run -- alembic upgrade head
+dotenv -f .env.dev run -- python backend_fastapi/scripts/seed_bootstrap_state.py
 ```
 
-`dotenv -f .env run -- <command>` (installed with the Python packages) loads
-`.env` for that one command. **Do not use `set -a; source .env`**: the shell
-treats the file as a script, so a line with a space runs as a command
+You should see a long list of `Collecting …` lines, then `Successfully installed
+…`, then `Running upgrade … -> 20261014_four_roles`, and finally
+`[INFO] System state ready`.
+
+`dotenv -f .env.dev run -- <command>` (installed with the Python packages)
+loads that file for that one command. **Do not use `set -a; source .env`**: the
+shell treats the file as a script, so a line with a space runs as a command
 (`magic: command not found`) and the JSON line `CORS_ALLOWED_ORIGINS=["…"]`
 silently loses its quotes, which breaks CORS. And without `dotenv` the API's
 settings are not loaded from the repo's `.env` at all (they look for
 `backend_fastapi/.env`), so it stops at start-up with *Field required*.
 
-**5. Run each process in its own terminal** (in each: `cd ~/manga-website-v1.01`
-and `source .venv/bin/activate`):
+**Step 6 — Run each process in its own terminal.** In every one of them first:
 
 ```bash
-# Terminal 1 — API on http://127.0.0.1:8000
-dotenv -f .env run -- npm run backend
+cd ~/manga-website-v1.01
+source .venv/bin/activate
+```
 
-# Terminal 2 — one worker consuming every queue
-dotenv -f .env run -- celery -A backend_fastapi.app.core.celery_app:celery_app worker \
-  -Q default,celery,scrape,compress,ocr,translation,email,maintenance,notifications -l info
+Terminal 1, the API on `http://127.0.0.1:8000`:
 
-# Terminal 3 — scheduler (REQUIRED for automatic new-chapter checks)
-dotenv -f .env run -- celery -A backend_fastapi.app.core.celery_app:celery_app beat -l info
+```bash
+dotenv -f .env.dev run -- npm run backend
+```
 
-# Terminal 4 — website + gateway on http://localhost:3000 (this one needs no .env)
+Terminal 2, one worker consuming every queue:
+
+```bash
+dotenv -f .env.dev run -- celery -A backend_fastapi.app.core.celery_app:celery_app worker -Q default,celery,scrape,compress,ocr,translation,email,maintenance,notifications -l info
+```
+
+Terminal 3, the scheduler (required for automatic new-chapter checks):
+
+```bash
+dotenv -f .env.dev run -- celery -A backend_fastapi.app.core.celery_app:celery_app beat -l info
+```
+
+Terminal 4, the website and gateway on `http://localhost:3000` (needs no
+settings file):
+
+```bash
 npm ci
 npm run dev
 ```
 
-Check: `curl http://127.0.0.1:8000/healthz` prints `{"ok":true}`, and
-`curl http://localhost:3000/api/v1/version` answers through the gateway.
+Check, from a fifth terminal:
+
+```bash
+curl http://127.0.0.1:8000/healthz
+curl http://localhost:3000/api/v1/version
+```
+
+You should see `{"ok":true}` and `{"version":"dev"}`.
 
 > The README's shorter worker command (`-Q scrape,celery`) only handles
 > scraping. The full queue list above is needed for image compression,
@@ -573,9 +763,22 @@ Check: `curl http://127.0.0.1:8000/healthz` prints `{"ok":true}`, and
 
 The server-side tools in Section 6 work here too: replace
 `docker compose exec backend python -m …` with
-`dotenv -f .env run -- python -m …` (venv active). The scheduler leaves a
+`dotenv -f .env.dev run -- python -m …` (venv active). The scheduler leaves a
 `celerybeat-schedule.db` file in the folder; it is not part of the project and
 can be deleted when beat is stopped.
+
+**Step 7 — Go back to Docker.** Press `Ctrl+C` in the four terminals, then:
+
+```bash
+cd ~/manga-website-v1.01
+deactivate
+rm docker-compose.override.yml
+docker compose up -d
+docker compose ps
+```
+
+All 13 services come back `(healthy)` after a minute. The database kept its
+data the whole time. Delete `.venv` and `.env.dev` if you don't need them again.
 
 ---
 
@@ -629,8 +832,8 @@ Set it up (the same steps with more detail: `guide/`, Steps 6–7):
    `docker compose up -d --force-recreate`); keep `MAIN_ADMIN_EMAIL_HASH`. Set
    up Google / Microsoft / e-mail in the Secret Vault (6.1); from then on sign
    in normally, and every admin page asks for the authenticator code.
-   Until e-mail works, `cli_bootstrap login-link --email you@example.com`
-   prints a sign-in link.
+   Until e-mail works, you can make a sign-in link on the server (see "Other
+   server-side tools" below).
 
 **On a public server do this sign-in over HTTPS** (Section 8) or through the SSH
 tunnel from Section 4, never over plain `http://` on a public address.
@@ -657,14 +860,28 @@ link*) while the one-time page is still open takes you straight to `/admin-login
 no link is e-mailed. After the password has been used, the same e-mail is an
 ordinary reader sign-in and `/admin-login` is gone for good.
 
-**Lost your phone?** `docker compose exec backend python -m backend_fastapi.scripts.cli_bootstrap reset-2fa --email you@example.com`,
-then a new one-time password (step 1), `up -d --force-recreate`, and
-`/admin-login` sets up the new phone. A new password opens the page once more.
+**Lost your phone?** Remove the old authenticator (put your own e-mail on the
+first line):
+
+```bash
+OWNER_EMAIL=you@example.com
+docker compose exec backend python -m backend_fastapi.scripts.cli_bootstrap reset-2fa --email "$OWNER_EMAIL"
+```
+
+then make a new one-time password (step 1), `docker compose up -d --force-recreate`,
+and `/admin-login` sets up the new phone. A new password opens the page once
+more.
 
 Other server-side tools:
 
-- `cli_bootstrap login-link --email …` prints a one-time sign-in link without
-  sending an e-mail (a normal session; admin pages still ask for the code).
+- `cli_bootstrap login-link` prints a one-time sign-in link without sending an
+  e-mail (a normal session; admin pages still ask for the code). Open the
+  printed link in your browser:
+
+  ```bash
+  OWNER_EMAIL=you@example.com
+  docker compose exec backend python -m backend_fastapi.scripts.cli_bootstrap login-link --email "$OWNER_EMAIL"
+  ```
 - `cli_bootstrap geolock-off` switches Geolock off if you blocked your own
   country (Section 7).
 
@@ -987,7 +1204,9 @@ Vault. The data, accounts and settings stay as they are.
      fetches the certificate by itself:
 
      ```bash
-     sudo sed -i 's/^manga.example.com {/manga.example.com, new-domain.com, www.new-domain.com {/' /etc/caddy/Caddyfile
+     OLD_DOMAIN=manga.example.com
+     NEW_DOMAIN=new-domain.com
+     sudo sed -i "s/^$OLD_DOMAIN {/$OLD_DOMAIN, $NEW_DOMAIN, www.$NEW_DOMAIN {/" /etc/caddy/Caddyfile
      sudo caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
      sudo systemctl reload caddy
      ```
@@ -1012,8 +1231,13 @@ Vault. The data, accounts and settings stay as they are.
 **Can't reach the admin page at all?** Do the switch from the server:
 
 ```bash
-docker compose exec backend python -m backend_fastapi.scripts.set_site_domain new-domain.com
-# undo / go back to FRONTEND_URL from .env:
+NEW_DOMAIN=new-domain.com
+docker compose exec backend python -m backend_fastapi.scripts.set_site_domain "$NEW_DOMAIN"
+```
+
+To undo it and go back to the `FRONTEND_URL` from `.env`:
+
+```bash
 docker compose exec backend python -m backend_fastapi.scripts.set_site_domain --clear
 ```
 
@@ -1046,6 +1270,10 @@ Restore procedure: Section 12.3, `backend_fastapi/deployment/backups.md` and
 > `/app/storage`. In the Docker setup neither is true (the database port isn't
 > published and the pictures live in a volume), so use the commands below or
 > the admin panel (9.1) instead.
+
+> The database user is **`manga`** and the database is `manga`. There is no
+> `postgres` user, so `pg_dumpall -U postgres` fails with *role "postgres" does
+> not exist*. Use `pg_dump -U manga` as below.
 
 ### Nightly backup with cron
 
@@ -1114,10 +1342,32 @@ visitors). Put `BACKUP_DIR` on another disk in `.env` if the main one is small.
 
 ## 10. Troubleshooting
 
+### Errors people hit while following this guide
+
+Look for the exact words you see. Most of these are a mismatch between the
+command and the machine, not a broken site.
+
+| What you see | What it means and what to do |
+| --- | --- |
+| `cd: /path/to/…: No such file or directory`, or `cd: …/backend: No such file or directory` | You pasted an example path. The project is `~/manga-website-v1.01` (`cd ~/manga-website-v1.01`). There is no `backend` folder; the API code is in `backend_fastapi/`. |
+| `no configuration file provided: not found` | `docker compose` was run outside the project folder. `cd ~/manga-website-v1.01 && ls docker-compose.yml`. |
+| `could not translate host name "db"` or `Error -3 connecting to redis:6379. Temporary failure in name resolution` | A Python or Celery command ran on the host with the Docker `.env`, where `db` and `redis` are Docker-only names. Run it inside Docker (`docker compose exec backend …`), or follow Section 5 properly (separate `.env.dev`). Don't mix the two ways of running the site. |
+| `[Errno 98] Address already in use` (port 8000 or 8080) | Something already listens there, usually Docker's own `backend` / `web`. See what: `sudo ss -ltnp \| grep -E ':(8000\|8080)\b'`. Section 5 needs `docker compose down` first. |
+| `role "postgres" does not exist` | The database user is `manga`, not `postgres`: use `-U manga` (Section 9). |
+| `python: can't open file '/app/scripts/…'` | Scripts inside the container are under `/app/backend_fastapi/scripts/`. The migration service already runs the seed script, so you rarely need it by hand. |
+| `no such service: migrate`, or logs say nothing | The service is called `manga-stack-migrate`. The table in "Read this first" lists every real name. |
+| `Command 'nvm' not found`, `Command 'pip' not found`, `E: Unable to locate package python3.11` | Not needed for the Docker path, and Ubuntu doesn't offer them (26.04 has Python 3.14 only). Install them only for developer mode, with the installers in Section 5. Don't `apt install python3-pip` for this. |
+| `password authentication failed` or Redis `NOAUTH` right after you edited `.env` by hand | The URL lines still contain the old example password. Run the check at the end of Section 3.6 (it must print `1` and `3`); the clean fix is Section 12.5. |
+| `docker compose ps` doesn't list `manga-stack-migrate` | Normal: it ran once and stopped. `docker compose ps -a` shows it as `Exited (0)`. |
+| The site still opens in Firefox after everything was removed | It is the browser's cache or service worker, not a server. Section 12.5 has the three clicks. |
+| The terminal prompt lost its colour | `~/.bashrc` was deleted by a clean-up: `cp /etc/skel/.bashrc ~/.bashrc && source ~/.bashrc`. |
+
+### All other problems
+
 | Symptom | Cause / fix |
 | --- | --- |
 | `permission denied … /var/run/docker.sock` | You are not in the `docker` group yet: log out and back in after `usermod` (Section 1), or run `newgrp docker`, or prefix commands with `sudo`. |
-| `docker: 'compose' is not a docker command` | The Compose plugin is missing (Ubuntu's `docker.io` lacks it). Use Docker's installer (Section 1) or `sudo apt-get install -y docker-compose-v2` on 24.04. |
+| `docker: 'compose' is not a docker command` | The Compose plugin is missing (Ubuntu's `docker.io` lacks it). Use Docker's installer, or Ubuntu's own `docker.io` + `docker-compose-v2` packages if the installer rejects your Ubuntu release (Section 1). |
 | `unknown tag !override` / `yaml: unknown tag` | Docker Compose older than v2.24. Update Docker (Section 1) and check `docker compose version`. |
 | `Set EMAIL_ENCRYPTION_KEY to a Fernet key` | There is no `.env`, or you are in the wrong folder (`cd ~/manga-website-v1.01`), or the variable is empty. Section 3.1. |
 | Backend exits at startup about `FORCE_HTTPS_REDIRECTS` | You're in production mode with it `false`. Enable TLS, or use development mode (Section 3.4). |
@@ -1130,9 +1380,8 @@ visitors). Put `BACKUP_DIR` on another disk in `.env` if the main one is small.
 | Build dies with `Killed` / exit code 137 / `npm ci` stops | Out of memory on a small server. Add the swap file (Section 1) and run `docker compose up -d --build` again. |
 | `no space left on device` | `df -h /` and `docker system df`. Free space with `docker image prune -f` (old images) and `docker builder prune -f` (build cache). Cap the logs (Section 1). `docker compose down -v` would delete your data: never use it to free space. |
 | Ports 8000/8080 answer from the internet although `ufw` blocks them | Docker bypasses `ufw` for published ports. Add the server file from Section 8 step 5 (binds them to `127.0.0.1`) and `docker compose up -d --force-recreate`. |
-| `pip install` says `externally-managed-environment` (Ubuntu 24.04) | Python packages must go into a virtual environment: `python3 -m venv .venv && source .venv/bin/activate` (Section 5). Don't use `--break-system-packages`. |
-| `apt install python3.11`: *Unable to locate package* | Ubuntu 24.04 ships Python 3.12 (works) and 22.04 ships 3.10; get 3.11 from the deadsnakes PPA (Section 5) or use the Docker setup. |
-| Non-Docker: `magic: command not found`, or CORS errors after `source .env` | Don't `source .env`; use `dotenv -f .env run -- <command>` (Section 5). |
+| `pip install` says `externally-managed-environment` (Ubuntu 24.04 and newer) | Python packages must go into a virtual environment (Section 5, Step 5). Don't use `--break-system-packages`. |
+| Developer mode: `magic: command not found`, or CORS errors after `source .env` | Don't `source` the settings file; use `dotenv -f .env.dev run -- <command>` (Section 5). |
 | Caddy: no certificate / `ERR_SSL_PROTOCOL_ERROR` | DNS must point at this server and ports 80/443 must be open: `getent hosts manga.example.com`, `sudo ufw status`, `sudo journalctl -u caddy -n 50`. |
 | Custom Parser: "answered with a bot check" | The site shows Cloudflare/CAPTCHA to servers. It cannot be added; use another source for the series. |
 | Custom Parser: "No parser could read a title and a chapter list" | You pasted a homepage, list or chapter. Paste one series page with 2+ chapters (Section 7, *Add a new source website*). |
@@ -1181,9 +1430,10 @@ visitors). Put `BACKUP_DIR` on another disk in `.env` if the main one is small.
 
 ## 11. Quick checklist
 
-- [ ] Ubuntu 22.04/24.04; Docker installed, `docker compose version` is v2.24+ and `docker run --rm hello-world` works without `sudo`
+- [ ] Ubuntu 22.04/24.04/26.04; Docker installed, `docker compose version` is v2.24+ and `docker run --rm hello-world` works without `sudo`
+- [ ] You run the site one way only (Docker); developer mode (Section 5) is either not used or fully stopped with `docker compose down` first
 - [ ] On a 1-2 GB server: swap file added, and `COMPOSE_FILE=docker-compose.yml:docker-compose.small.yml` in `.env` (Sections 1 and 4.2)
-- [ ] `.env` made with `make_env.py` (`--local` for a trial), `chmod 600 .env`, copy stored safely; domain lines set for production (Section 3.3); `docker compose config` passes
+- [ ] `.env` made with `make_env.py` (`--local` for a trial), `chmod 600 .env`, copy stored safely; domain lines set for production (Section 3.3); `docker compose config` passes and the password check in Section 3.6 prints `1` and `3`
 - [ ] `docker compose up -d --build`; all services healthy; `curl http://localhost:8000/healthz` answers `{"ok":true}`
 - [ ] `docker compose exec backend tesseract --list-langs` lists `kor jpn chi_sim`
 - [ ] Production: `ufw` allows only 22/80/443; `docker-compose.override.yml` from Section 8 step 5 in place (production mode, ports on `127.0.0.1`); Caddy serves `https://your-domain`
@@ -1263,31 +1513,59 @@ Pick the smallest step that fixes it (details in `AUDIT_LOG.md` §3):
 1. **Switch it off**: many features have a switch (Admin Settings, Secret Vault).
 2. **Go back to the previous code version** (keeps the database):
 
+   In 12.1 `git log -1 --oneline` printed something like
+   `178bb3d Merge pull request #37 …`; the first word is the version. Put
+   yours on the first line:
+
    ```bash
-   git checkout <the version you wrote down in 12.1>
+   OLD_VERSION=178bb3d
+   git checkout "$OLD_VERSION"
    docker compose build --pull && docker compose up -d --force-recreate
    ```
 
    Newer database columns are ignored by older code. The migration service
    will report the database is ahead, which is expected until you update again.
    To return to the latest code later: `git checkout main && git pull --ff-only`.
-3. **Also undo database changes**: before step 2, run
-   `docker compose run --rm manga-stack-migrate alembic downgrade <database version you wrote down>`.
-4. **Lossy migration, or data looks wrong**: restore the backup from 12.1:
+3. **Also undo database changes**: before step 2, run this with the database
+   version `alembic current` printed in 12.1 (for example
+   `20261013_admin_succession`):
 
    ```bash
+   DB_VERSION=20261013_admin_succession
+   docker compose run --rm manga-stack-migrate alembic downgrade "$DB_VERSION"
+   ```
+4. **Lossy migration, or data looks wrong**: restore the backup from 12.1:
+
+   See which backups you have, and put the date part of the one you want on
+   the first line (`db-2026-10-02-1530.dump` → `2026-10-02-1530`):
+
+   ```bash
+   ls ~/manga-backups
+   ```
+
+   ```bash
+   BACKUP_STAMP=2026-10-02-1530
    docker compose stop backend celery_beat $(docker compose config --services | grep '^celery_worker')
-   docker compose exec -T db pg_restore -U manga -d manga --clean --if-exists < ~/manga-backups/db-<date>.dump
-   # pictures too, only if they were lost or damaged:
-   docker compose run --rm --no-deps -T --entrypoint tar backend xzf - -C /app/storage < ~/manga-backups/storage-<date>.tgz
+   docker compose exec -T db pg_restore -U manga -d manga --clean --if-exists < ~/manga-backups/db-$BACKUP_STAMP.dump
    docker compose up -d --force-recreate
+   ```
+
+   Only if the pictures were lost or damaged too (this works while the site
+   is running):
+
+   ```bash
+   docker compose run --rm --no-deps -T --entrypoint tar backend xzf - -C /app/storage < ~/manga-backups/storage-$BACKUP_STAMP.tgz
    ```
 
    (More detail: `backend_fastapi/deployment/backups.md`.)
 
-To undo one change permanently, revert its merge commit on `main`
-(`git revert -m 1 <merge sha>`, listed in each `AUDIT_LOG.md` entry), push,
-and update as in 12.2.
+To undo one change permanently, revert its merge commit on `main` (the merge
+commit is listed in each `AUDIT_LOG.md` entry), push, and update as in 12.2:
+
+```bash
+MERGE_SHA=178bb3d
+git revert -m 1 "$MERGE_SHA"
+```
 
 ### 12.4 Keeping this guide useful
 
@@ -1298,3 +1576,87 @@ Whenever the site changes, the same pull request:
 
 The PR template (`.github/pull_request_template.md`) and `CLAUDE.md` list
 these as required steps.
+
+### 12.5 Start again from zero (delete everything and redo it)
+
+Use this when the site never worked, when `.env` was edited by hand and the
+passwords no longer match, after pasting a secret somewhere public, or to test
+this guide on a clean machine. **It deletes the database, every uploaded
+picture and your `.env`.** Back up first if there is anything worth keeping.
+
+**Step 1 — Back up (skip it if the site never ran).** The database user is
+`manga`:
+
+```bash
+cd ~/manga-website-v1.01
+mkdir -p ~/manga-backups && chmod 700 ~/manga-backups
+docker compose exec -T db pg_dump -U manga -Fc manga > ~/manga-backups/db-before-reset.dump
+cp .env ~/manga-backups/env-before-reset && chmod 600 ~/manga-backups/env-before-reset
+```
+
+If it says the service `db` is not running, there is nothing to back up.
+
+**Step 2 — Remove this project's containers, volumes and images:**
+
+```bash
+cd ~/manga-website-v1.01
+docker compose down --volumes --rmi all --remove-orphans
+```
+
+That is all Docker needs for a clean slate; it removes only what belongs to
+this project (the PostgreSQL and Redis images are downloaded again next time).
+`docker system prune -a --volumes -f` is not needed: it also deletes unused
+data of every *other* Docker project on the machine.
+
+**Step 3 — Check that it is really gone:**
+
+```bash
+docker ps -a
+docker volume ls
+ss -ltn | grep -E ':(8080|8000)\b' || echo "ports 8080 and 8000 are free"
+```
+
+You should see no containers, no volumes, and the line `ports 8080 and 8000 are
+free`.
+
+**Step 4 — Delete the folder and begin again** (from here it is Sections 2–4):
+
+```bash
+cd ~
+rm -rf ~/manga-website-v1.01
+git clone https://github.com/abdulkader001/manga-website-v1.01.git
+cd ~/manga-website-v1.01
+python3 backend_fastapi/scripts/make_env.py --local
+chmod 600 .env
+docker compose up -d --build
+```
+
+Then continue at Section 4 ("You should see" lines) and Section 6 (admin). For a
+real server use `make_env.py` without `--local` and do Section 3.3 first.
+
+**The project folder is already gone but the site still answers.** Without the
+folder `docker compose down` can't run. Remove by the project label instead:
+
+```bash
+docker ps -aq --filter label=com.docker.compose.project=manga-stack | xargs -r docker rm -f
+docker volume ls -q --filter label=com.docker.compose.project=manga-stack | xargs -r docker volume rm
+docker network ls -q --filter label=com.docker.compose.project=manga-stack | xargs -r docker network rm
+docker rmi manga-backend:latest manga-stack-web
+```
+
+(The last line may say an image doesn't exist; that is fine.) Then check as in
+Step 3.
+
+**It still opens in the browser.** If `curl -I http://localhost:8080` says
+*Failed to connect*, the server is gone and Firefox is showing a stored copy.
+Open `about:serviceworkers`, **Unregister** `localhost:8080`; then press
+`Ctrl+Shift+Delete`, choose **Everything**, tick **Cache** and **Cookies and
+Site Data**, and reload.
+
+**Cleaning the whole PC?** A clean-up that empties `~/Desktop`, `~/Documents` or
+`~/Downloads` also deletes a project or backups kept there; then
+`docker compose down` can no longer find its folder and the containers keep
+running (the case above). Keep the project in `~/manga-website-v1.01` and
+backups in `~/manga-backups`, and run Step 2 *before* any clean-up. If it also
+removed `~/.bashrc` (the terminal prompt loses its colour):
+`cp /etc/skel/.bashrc ~/.bashrc && source ~/.bashrc`.
