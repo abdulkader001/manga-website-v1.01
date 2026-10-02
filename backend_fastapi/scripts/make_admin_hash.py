@@ -1,40 +1,40 @@
 #!/usr/bin/env python3
-"""Make (or check) the two .env lines for the one-time Admin sign-in.
+"""Make (or check) the .env line that says who the site owner is.
 
 Needs only Python 3.9+ and the ``cryptography`` package -- no database, no
 .env, no running site -- so it works on Windows, macOS and Linux directly, or
 inside the backend Docker image.
 
-Make the lines (asks for your e-mail and a password; leave the password empty
-to have a strong one generated for you):
+The site keeps only a hash of your e-mail: ``MAIN_ADMIN_EMAIL_HASH``. The first
+time you sign in with Google using that address (Google must say it is
+verified), your account becomes the owner. There is no admin password.
 
-    python backend_fastapi/scripts/make_admin_hash.py                 # prints them
-    python backend_fastapi/scripts/make_admin_hash.py --write .env    # puts them in .env
+Make the line (asks for your e-mail):
 
-Check what is in .env against an e-mail and password ("my password doesn't
-work"):
+    python backend_fastapi/scripts/make_admin_hash.py                 # prints it
+    python backend_fastapi/scripts/make_admin_hash.py --write .env    # puts it in .env
+
+Check what is in .env against an e-mail ("Google sign-in does not make me
+owner"):
 
     python backend_fastapi/scripts/make_admin_hash.py --check            # reads ./.env
     python backend_fastapi/scripts/make_admin_hash.py --check path/to/.env
 
-The printed values start with ``a2:`` and contain no ``$`` sign, so they can be
-pasted into .env as they are: no quotes needed, and Docker Compose, PowerShell
-and ``source .env`` leave them alone.
+The printed value starts with ``a2:`` and contains no ``$`` sign, so it can be
+pasted into .env as it is: no quotes needed, and Docker Compose, PowerShell
+and ``source .env`` leave it alone.
 """
 
 from __future__ import annotations
 
 import base64
-import getpass
 import os
-import secrets
 import re
 import sys
 from pathlib import Path
 
 PREFIX = "a2:"
-MIN_LENGTH = 12
-KEYS = ("MAIN_ADMIN_EMAIL_HASH", "MAIN_ADMIN_PASSWORD_HASH")
+KEY = "MAIN_ADMIN_EMAIL_HASH"
 
 
 def _argon2():
@@ -84,11 +84,8 @@ def matches(secret: str, value: str) -> bool:
         return False
 
 
-def admin_lines(email: str, password: str) -> list[str]:
-    return [
-        f"MAIN_ADMIN_EMAIL_HASH={make_hash(normalize_email(email))}",
-        f"MAIN_ADMIN_PASSWORD_HASH={make_hash(password.strip())}",
-    ]
+def email_line(email: str) -> str:
+    return f"{KEY}={make_hash(normalize_email(email))}"
 
 
 def _ask_email() -> str:
@@ -98,12 +95,12 @@ def _ask_email() -> str:
     return email
 
 
-def write_lines(path: Path, lines: list[str]) -> None:
-    """Replace (or add) the MAIN_ADMIN_..._HASH lines in an .env file, in place."""
+def write_line(path: Path, line: str) -> None:
+    """Replace (or add) the MAIN_ADMIN_EMAIL_HASH line in an .env file, in place."""
 
     raw = path.read_bytes().decode("utf-8-sig")
     newline = "\r\n" if "\r\n" in raw else "\n"
-    wanted = {line.split("=", 1)[0]: line for line in lines}
+    wanted = {line.split("=", 1)[0]: line}
     out: list[str] = []
     done: set[str] = set()
     for row in raw.splitlines(keepends=True):
@@ -128,37 +125,17 @@ def _make(write_to: str | None = None) -> None:
     _argon2()
     if write_to and not Path(write_to).is_file():
         sys.exit(f"No file at {Path(write_to).resolve()}. Create .env first (see the guide).")
-    email = _ask_email()
-    password = getpass.getpass(
-        f"One-time admin password ({MIN_LENGTH}+ characters, typing is hidden;\n"
-        "  just press Enter to have one generated): "
-    ).strip()
-    generated = not password
-    if generated:
-        password = secrets.token_urlsafe(18)
-    else:
-        if len(password) < MIN_LENGTH:
-            sys.exit(f"Use at least {MIN_LENGTH} characters (a few words is easiest).")
-        if getpass.getpass("Type it again: ").strip() != password:
-            sys.exit("The two passwords are different. Nothing was changed; run it again.")
-
-    lines = admin_lines(email, password)
+    line = email_line(_ask_email())
     print()
-    if generated:
-        print("Your one-time admin password (write it down now, it is not shown again):")
-        print()
-        print(f"    {password}")
-        print()
     if write_to:
-        write_lines(Path(write_to), lines)
-        print(f"Done: both lines are now in {write_to} (old ones replaced).")
+        write_line(Path(write_to), line)
+        print(f"Done: the line is now in {write_to} (an old one is replaced).")
         print("Now restart the site so it reads .env again (see the guide).")
         return
-    print("Put these two lines in .env (replace any old MAIN_ADMIN_..._HASH lines).")
-    print("Paste them exactly as shown -- no quotes needed:")
+    print("Put this line in .env (replace any old MAIN_ADMIN_EMAIL_HASH line).")
+    print("Paste it exactly as shown -- no quotes needed:")
     print()
-    for line in lines:
-        print(line)
+    print(line)
     print()
     print("Then restart the site so it reads .env again (see the guide).")
 
@@ -172,7 +149,7 @@ def _read_env(path: Path) -> dict[str, str]:
         if not line or line.startswith("#") or "=" not in line:
             continue
         key, _, value = line.partition("=")
-        if key.strip() in KEYS:
+        if key.strip() == KEY:
             values[key.strip()] = value.strip()
     return values
 
@@ -181,45 +158,30 @@ def _check(env_path: str) -> None:
     path = Path(env_path)
     if not path.is_file():
         sys.exit(f"No file at {path.resolve()}. Run this from the project folder, or give the path.")
-    values = _read_env(path)
-    ok = True
-    for key in KEYS:
-        value = values.get(key, "")
-        if not value:
-            print(f"[X] {key} is missing or empty in {path}.")
-            ok = False
-            continue
-        try:
-            phc = unwrap(value)
-        except Exception:
-            phc = ""
-        if not phc.startswith("$argon2id$"):
-            print(
-                f"[X] {key} is damaged (often a raw hash pasted without quotes, so every "
-                "'$...' part was removed). Make new lines with this tool."
-            )
-            ok = False
-        else:
-            print(f"[ok] {key} looks valid.")
-    if not ok:
-        sys.exit(1)
-
-    email = _ask_email()
-    password = getpass.getpass("Password to test (hidden): ")
-    email_ok = matches(email, values["MAIN_ADMIN_EMAIL_HASH"])
-    password_ok = matches(password.strip(), values["MAIN_ADMIN_PASSWORD_HASH"]) or matches(
-        password, values["MAIN_ADMIN_PASSWORD_HASH"]
-    )
-    print(f"[{'ok' if email_ok else 'X'}] e-mail {'matches' if email_ok else 'does NOT match'}")
-    print(f"[{'ok' if password_ok else 'X'}] password {'matches' if password_ok else 'does NOT match'}")
-    if email_ok and password_ok:
-        print(
-            "\nThe file is right. If /admin-login still refuses or shows 'Page not found':\n"
-            "  - restart the site so it reads this .env again (see the guide), or\n"
-            "  - the one-time password was already used: make new lines with this tool."
+    value = _read_env(path).get(KEY, "")
+    if not value:
+        sys.exit(f"[X] {KEY} is missing or empty in {path}.")
+    try:
+        phc = unwrap(value)
+    except Exception:
+        phc = ""
+    if not phc.startswith("$argon2id$"):
+        sys.exit(
+            f"[X] {KEY} is damaged (often a raw hash pasted without quotes, so every "
+            "'$...' part was removed). Make a new line with this tool."
         )
-    else:
+    print(f"[ok] {KEY} looks valid.")
+
+    email_ok = matches(_ask_email(), value)
+    print(f"[{'ok' if email_ok else 'X'}] e-mail {'matches' if email_ok else 'does NOT match'}")
+    if not email_ok:
         sys.exit(1)
+    print(
+        "\nThe file is right. If Google sign-in still does not make you the owner:\n"
+        "  - restart the site so it reads this .env again (see the guide),\n"
+        "  - sign in with Google using exactly this address (it must be verified), and\n"
+        "  - the site must not already have an owner (admin-status says so)."
+    )
 
 
 def main(argv: list[str]) -> None:

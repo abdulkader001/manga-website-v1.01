@@ -12,9 +12,9 @@ All three follow the same 9 steps. Only the install commands and the way you
 type a few commands differ. Each guide goes from an empty computer to a
 running site with you signed in as the admin.
 
-**Already installed, and the admin password "doesn't work"?** Jump to
-**Step 6** in your guide. It replaces the old admin lines in `.env` with new
-ones that can't be damaged, and explains every reason the old ones failed.
+**Already installed, and the admin sign-in "doesn't work"?** Jump to
+**Step 6** in your guide. The old admin password and `/admin-login` page are
+gone: you now become the owner by signing in with Google.
 
 ---
 
@@ -32,25 +32,21 @@ ones that can't be damaged, and explains every reason the old ones failed.
 
 ## How the site owner (admin) signs in
 
-The admin sign-in at `/admin-login` is **one-time only**:
+There is no admin password and no admin page. The owner is the first person
+to sign in with Google using the e-mail you choose:
 
-1. On the server you make two lines for `.env`: a hash of your **e-mail** and a
-   hash of a **one-time password**. The site stores only these hashes, never
-   the e-mail or password themselves.
-2. You open `http://<your-site>/admin-login` once and enter the e-mail and
-   password. The page shows a setup key; you add it to your authenticator app
-   and type the 6-digit code.
-3. You are now the main admin. **From that moment the page is gone.**
-   `/admin-login` shows the normal "Page not found", like an address that never
-   existed. Nothing on the site links to it, and the used password can never
-   work again, even if someone finds it in your notes.
-4. From then on you sign in like everyone else (magic link, Google or
-   Microsoft, once you set them up). Every admin page also asks for the
-   authenticator code, so someone who steals your Gmail still can't get in.
-
-The page only comes back if someone with access to the server puts a **new**
-one-time password in `.env` (for example after you lose your phone). That new
-password also works once.
+1. On the server you make one line for `.env`: a hash of your **e-mail**. The
+   site stores only the hash, never the e-mail itself. Your Google client ID and
+   secret also go in `.env` at first (you need Google to get in).
+2. You sign in with Google using that e-mail. Google must say the address is
+   verified, and the site must not have an owner yet. Your account becomes the
+   owner, and nobody else can ever claim the seat.
+3. Open **Admin**. It asks you to set up an authenticator app: add the setup key
+   and type the 6-digit code. Every admin page then asks for a fresh code, so
+   someone who steals your Google password still can't use the admin area.
+4. Nothing is one-time, so nothing can burn out and lock you out. If you lose
+   your phone, remove the old authenticator on the server (`reset-2fa`), sign in
+   with Google and set up the new one.
 
 ---
 
@@ -59,9 +55,9 @@ password also works once.
 | Command | What it does |
 | --- | --- |
 | `backend_fastapi/scripts/make_env.py --local` | Creates `.env` with fresh random secrets (refuses to overwrite an existing one). |
-| `backend_fastapi/scripts/make_admin_hash.py --write .env` | Asks for your e-mail and one-time password and writes the two admin lines into `.env`. |
-| `backend_fastapi/scripts/make_admin_hash.py --check .env` | Tests an e-mail and password against what is in `.env` ("why isn't my password accepted?"). |
-| `python -m backend_fastapi.scripts.cli_bootstrap admin-status` (inside the backend container) | Says whether `/admin-login` is open, used up, or not set up, and whether the server can see the two lines. |
+| `backend_fastapi/scripts/make_admin_hash.py --write .env` | Asks for your e-mail and writes the owner line (`MAIN_ADMIN_EMAIL_HASH`) into `.env`. |
+| `backend_fastapi/scripts/make_admin_hash.py --check .env` | Tests an e-mail against what is in `.env` ("why doesn't Google make me the owner?"). |
+| `python -m backend_fastapi.scripts.cli_bootstrap admin-status` (inside the backend container) | Says whether the server sees the owner line and Google sign-in, and whether the owner seat is claimed. |
 | `python -m backend_fastapi.scripts.cli_bootstrap reset-2fa --email …` | Removes a lost authenticator. |
 | `python -m backend_fastapi.scripts.cli_bootstrap login-link --email …` | Prints a one-time sign-in link without sending an e-mail. |
 

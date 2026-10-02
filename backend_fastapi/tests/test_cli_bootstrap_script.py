@@ -55,28 +55,24 @@ def test_login_link_refuses_a_non_address():
     assert result.exit_code != 0
 
 
-def test_admin_hashes_prints_dollar_free_env_lines_that_verify(monkeypatch):
+def test_admin_hashes_prints_a_dollar_free_env_line_that_verifies():
     from backend_fastapi.scripts import make_admin_hash
 
-    answers = iter(["a long pass phrase", "a long pass phrase"])
-    monkeypatch.setattr(make_admin_hash.getpass, "getpass", lambda prompt="": next(answers))
     result = CliRunner().invoke(cli_bootstrap.cli, ["admin-hashes"], input="Owner@Example.com\n")
     assert result.exit_code == 0, result.output
     lines = dict(
         line.split("=", 1) for line in result.output.splitlines() if line.startswith("MAIN_ADMIN_")
     )
-    assert all("$" not in v and v.startswith("a2:") for v in lines.values())
-    assert make_admin_hash.matches("a long pass phrase", lines["MAIN_ADMIN_PASSWORD_HASH"])
+    # Only the e-mail hash: there is no admin password any more.
+    assert list(lines) == ["MAIN_ADMIN_EMAIL_HASH"]
+    assert "$" not in lines["MAIN_ADMIN_EMAIL_HASH"] and lines["MAIN_ADMIN_EMAIL_HASH"].startswith("a2:")
     assert make_admin_hash.matches("owner@example.com", lines["MAIN_ADMIN_EMAIL_HASH"])
 
 
-def test_admin_hashes_refuses_a_short_password(monkeypatch):
-    from backend_fastapi.scripts import make_admin_hash
-
-    monkeypatch.setattr(make_admin_hash.getpass, "getpass", lambda prompt="": "short")
-    result = CliRunner().invoke(cli_bootstrap.cli, ["admin-hashes"], input="a@example.com\n")
+def test_admin_hashes_refuses_a_non_address():
+    result = CliRunner().invoke(cli_bootstrap.cli, ["admin-hashes"], input="not-an-address\n")
     assert result.exit_code != 0
-    assert "MAIN_ADMIN_PASSWORD_HASH" not in result.output
+    assert "MAIN_ADMIN_EMAIL_HASH=" not in result.output
 
 
 def test_hash_tool_runs_without_the_app(tmp_path):
@@ -89,7 +85,7 @@ def test_hash_tool_runs_without_the_app(tmp_path):
     from backend_fastapi.scripts import make_admin_hash
 
     env_file = tmp_path / ".env"
-    env_file.write_text("\n".join(make_admin_hash.admin_lines("me@example.com", "a long pass phrase")))
+    env_file.write_text(make_admin_hash.email_line("me@example.com") + "\n")
     script = Path(make_admin_hash.__file__)
     run = subprocess.run(
         [sys.executable, str(script), "--check", str(env_file)],
@@ -100,25 +96,27 @@ def test_hash_tool_runs_without_the_app(tmp_path):
         cwd=tmp_path,
         timeout=60,
     )
-    # getpass falls back to stdin without a terminal; stdin is exhausted, so it
-    # stops at the password prompt -- but only after both lines were validated.
+    assert run.returncode == 0, run.stdout + run.stderr
     assert "MAIN_ADMIN_EMAIL_HASH looks valid" in run.stdout, run.stdout + run.stderr
-    assert "MAIN_ADMIN_PASSWORD_HASH looks valid" in run.stdout
+    assert "e-mail matches" in run.stdout
 
 
-def test_admin_status_reports_open_then_closed(fastapi_app, monkeypatch):
+def test_admin_status_reports_the_owner_seat(fastapi_app, monkeypatch):
     from backend_fastapi.app.core.settings import settings
     from backend_fastapi.scripts import make_admin_hash
+    from _support.db_reset import clear_users
 
-    lines = dict(x.split("=", 1) for x in make_admin_hash.admin_lines("st@example.com", "a long pass phrase"))
-    monkeypatch.setattr(settings, "main_admin_email_hash", lines["MAIN_ADMIN_EMAIL_HASH"], raising=False)
-    monkeypatch.setattr(settings, "main_admin_password_hash", lines["MAIN_ADMIN_PASSWORD_HASH"], raising=False)
+    with SessionLocal() as session:
+        clear_users(session)
+    line = make_admin_hash.email_line("st@example.com")
+    monkeypatch.setattr(settings, "main_admin_email_hash", line.split("=", 1)[1], raising=False)
     result = CliRunner().invoke(cli_bootstrap.cli, ["admin-status"])
     assert result.exit_code == 0, result.output
-    assert "OPEN" in result.output
-    monkeypatch.setattr(settings, "main_admin_password_hash", None, raising=False)
+    assert "MAIN_ADMIN_EMAIL_HASH: set" in result.output
+    assert "Owner: not claimed yet" in result.output
+    monkeypatch.setattr(settings, "main_admin_email_hash", None, raising=False)
     result = CliRunner().invoke(cli_bootstrap.cli, ["admin-status"])
-    assert "CLOSED -- not set up" in result.output
+    assert "MAIN_ADMIN_EMAIL_HASH: not set" in result.output
 
 
 def test_reset_2fa_removes_the_authenticator(fastapi_app):
@@ -145,15 +143,15 @@ def test_reset_2fa_removes_the_authenticator(fastapi_app):
         session.close()
 
 
-def test_write_puts_the_lines_into_env_keeping_windows_line_endings(tmp_path):
+def test_write_puts_the_line_into_env_keeping_windows_line_endings(tmp_path):
     from backend_fastapi.scripts import make_admin_hash
 
     env = tmp_path / ".env"
-    env.write_bytes(b"A=1\r\nMAIN_ADMIN_EMAIL_HASH='$old'\r\nB=2\r\nMAIN_ADMIN_EMAIL_HASH=dupe\r\n")
-    lines = make_admin_hash.admin_lines("me@example.com", "a long pass phrase")
-    make_admin_hash.write_lines(env, lines)
+    env.write_bytes(
+        b"A=1\r\nMAIN_ADMIN_EMAIL_HASH='$old'\r\nMAIN_ADMIN_PASSWORD_HASH=old\r\nB=2\r\nMAIN_ADMIN_EMAIL_HASH=dupe\r\n"
+    )
+    make_admin_hash.write_line(env, make_admin_hash.email_line("me@example.com"))
     data = env.read_bytes().decode()
     assert data.count("MAIN_ADMIN_EMAIL_HASH=") == 1
-    assert data.count("MAIN_ADMIN_PASSWORD_HASH=") == 1
     assert "$old" not in data and "\n" not in data.replace("\r\n", "")
     assert data.startswith("A=1\r\n") and "B=2\r\n" in data

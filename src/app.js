@@ -50,15 +50,10 @@ function PageLoading() {
   );
 }
 
-// The one-time site-owner sign-in is its own chunk: nothing links to it and
-// regular visitors never download it.
-const AdminLogin = React.lazy(() => import("./pages/AdminLogin"));
-
 function AppShell({ children }) {
   const location = useLocation();
   const isAuthRoute =
     location.pathname === "/login" ||
-    location.pathname === "/admin-login" ||
     location.pathname === "/complete-profile" ||
     location.pathname.startsWith("/magic-link") ||
     location.pathname.startsWith("/login/magic");
@@ -92,14 +87,6 @@ function AppRoutes() {
     <Routes>
       {/* Auth Entry & Onboarding Routes */}
       <Route path="/login" element={<Login />} />
-      <Route
-        path="/admin-login"
-        element={
-          <Suspense fallback={null}>
-            <AdminLogin />
-          </Suspense>
-        }
-      />
       <Route path="/magic-link/:token" element={<MagicLinkConsume />} />
       <Route path="/login/magic/:token" element={<MagicLinkConsume />} />
       <Route path="/complete-profile" element={<CompleteProfile />} />

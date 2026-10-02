@@ -13,9 +13,9 @@ authenticator app (Google Authenticator, Microsoft Authenticator, Aegis…).
 > `$` comes back) before the next one. Lines starting with `#` are
 > explanations; the terminal ignores them, so copying them is harmless.
 
-**Already installed, and the admin password "doesn't work"?** Go to
-[Step 6](#step-6--make-your-one-time-admin-password). It replaces the old
-admin lines and explains why they failed.
+**Already installed, and the admin sign-in "doesn't work"?** Go to
+[Step 6](#step-6--tell-the-site-who-the-owner-is). The old admin password and
+`/admin-login` page are gone: you now become the owner by signing in with Google.
 
 ---
 
@@ -154,26 +154,26 @@ You should see the home page (empty, no series yet).
 
 ---
 
-## Step 6 — Make your one-time admin password
+## Step 6 — Tell the site who the owner is
 
-This puts two lines into `.env`: a hash of your e-mail and a hash of a
-one-time password. The command runs in a throw-away Docker container, so you
+There is **no admin password and no special admin page**. You become the site
+owner by signing in with Google, once, using the e-mail you choose here. This
+step writes one line into `.env`: a hash of that e-mail (the address itself is
+stored nowhere). The command runs in a throw-away Docker container, so you
 don't need to install anything:
 
 ```bash
 docker run --rm -it -v "$PWD":/w -w /w python:3.11-slim sh -c "pip install -q --disable-pip-version-check --root-user-action=ignore 'cryptography>=45' && python backend_fastapi/scripts/make_admin_hash.py --write .env"
 ```
 
-It asks three questions:
+It asks one question, **Admin e-mail:** the Google e-mail you will use as the
+site owner. It ends with `Done: the line is now in .env`.
 
-1. **Admin e-mail:** the e-mail you will use as the site owner.
-2. **One-time admin password:** at least 12 characters. **Nothing appears on
-   screen while you type; that is normal.** Press Enter. Or just press Enter
-   without typing anything and it makes a strong password for you and shows it
-   once. Write it down.
-3. **Type it again:** the same password.
-
-It ends with `Done: both lines are now in .env (old ones replaced).`
+You also need Google sign-in itself, because the owner uses it to get in.
+Follow [`GOOGLE_LOGIN_SETUP.md`](../GOOGLE_LOGIN_SETUP.md) (Steps 1 and 2) to
+get a client ID and secret and put `GOOGLE_OAUTH_CLIENT_ID` and
+`GOOGLE_OAUTH_CLIENT_SECRET` in `.env`. They start in `.env`; you can move them
+into **Admin → Secret Vault** later.
 
 Now **recreate** the containers so they read the new `.env`:
 
@@ -183,10 +183,9 @@ docker compose up -d --force-recreate
 
 > ⚠ `docker compose restart` is **not** enough. A restart keeps the old
 > settings; only `up -d --force-recreate` reads `.env` again. This is the most
-> common reason a correct password "doesn't work".
+> common reason a correct setup "doesn't work".
 
-Check the server sees the lines (wait about 30 seconds after the previous
-command):
+After about 30 seconds, check the server sees everything:
 
 ```bash
 docker compose exec backend python -m backend_fastapi.scripts.cli_bootstrap admin-status
@@ -196,61 +195,37 @@ You want:
 
 ```
 MAIN_ADMIN_EMAIL_HASH: set
-MAIN_ADMIN_PASSWORD_HASH: set
-/admin-login: OPEN -- the one-time password has not been used yet.
+Google sign-in: set up
+Owner: not claimed yet -- sign in with Google using the owner e-mail.
 ```
-
-**Why the old lines failed (if you made some before):** an older version
-printed hashes full of `$` signs. Docker Compose treats `$something` in `.env`
-as "insert a variable here" and silently deleted those parts unless the line
-was wrapped in single quotes exactly right. The new lines start with `a2:`
-and contain no `$`, so nothing can damage them, quoted or not. And the old
-page greyed out the **Continue** button whenever the server couldn't see the
-lines; the new page doesn't do that.
 
 ---
 
-## Step 7 — Sign in as the admin (once)
+## Step 7 — Sign in with Google and set up your authenticator
 
-1. Open <http://localhost:8080/admin-login> (the same address as your site,
-   plus `/admin-login`).
-2. Type your **e-mail** and the **one-time password** → **Continue**.
-3. The page shows a **setup key** (a long code of letters and numbers).
-   - On your phone, open the authenticator app → **+** → **Enter a setup
-     key** (not "scan QR code").
-   - Account name: anything (for example *Manga admin*). Key: the setup key.
-     Type: *Time based*.
-   - On a phone you can tap **Open in authenticator app** instead.
-4. Type the **6-digit code** the app shows → **Sign in**.
+1. Open the site (<http://localhost:8080>) → **Log in** → **Continue with
+   Google**, and pick the Google account whose e-mail you used in Step 6.
+2. The first time, the site asks you to **complete your profile** (display
+   name, username, birth date), like every new account. Fill it in and press
+   **Enter Manga World**. You are now the owner (`admin-status` says
+   `Owner: claimed`, and nobody else can ever claim the seat).
+3. Open **Admin**. It asks you to set up an authenticator app. The page shows a
+   **setup key**. In the authenticator app on your phone: **+** → **Enter a
+   setup key** (not "scan QR code") → any account name (for example *Manga
+   admin*), the key, type *Time based*. On a phone you can tap **Open in
+   authenticator app** instead.
+4. Type the **6-digit code** the app shows → **Continue**.
 
-The first time, the site asks you to **complete your profile** (display
-name, username, birth date), like every new account. Fill it in and press
-**Enter Manga World**. Then you land on the admin panel (`/admin`). You are now the main admin.
-
-**The sign-in page is now gone.** Check it:
-
-```bash
-docker compose exec backend python -m backend_fastapi.scripts.cli_bootstrap admin-status
-```
-
-says `/admin-login: CLOSED -- the one-time password was used`, and opening
-`/admin-login` in the browser shows *Page Not Found*.
-
-Optional tidy-up: the used password line is dead, so you may delete it:
-
-```bash
-sed -i '/^MAIN_ADMIN_PASSWORD_HASH=/d' .env
-docker compose up -d --force-recreate
-```
-
-Keep the `MAIN_ADMIN_EMAIL_HASH` line; it says who the owner is.
+Admin pages stay shut until the authenticator is set up, and from then on
+every admin page asks for a fresh code. There is nothing one-time to burn: if
+you sign out, just sign in with Google again.
 
 ---
 
 ## Step 8 — Set up normal sign-in
 
-After the one-time sign-in you sign in the same way as readers: a **magic
-link** by e-mail, **Google** or **Microsoft**. Set them up in **Admin → Secret
+You sign in the same way as readers: **Google**, **Microsoft** or a **magic
+link** by e-mail. Set them up in **Admin → Secret
 Vault** (the vault asks for your authenticator code):
 
 - **E-mail (magic links):** the SMTP settings of your mail provider
@@ -300,12 +275,12 @@ Lost the authenticator (new phone, reset phone):
 docker compose exec backend python -m backend_fastapi.scripts.cli_bootstrap reset-2fa --email you@example.com
 ```
 
-then do **Step 6** again (a new one-time password) and **Step 7** (the page
-is open again for that new password and sets up the new phone). The new
-password also works only once.
+then sign in with Google and open **Admin**: it asks you to set up the new phone
+(Step 7). Only signed out? Sign in with Google again, or use `login-link` from
+Step 8 if Google is not set up.
 
 Just signed out and e-mail/Google sign-in isn't set up yet? Use `login-link`
-from Step 8. You don't need a new password for that.
+from Step 8.
 
 ---
 
@@ -313,13 +288,11 @@ from Step 8. You don't need a new password for that.
 
 | What you see | What it means and what to do |
 | --- | --- |
-| `/admin-login` shows **Page Not Found** before you ever signed in | The server can't see the admin lines. Run `admin-status` (Step 6). *"not set"* → you used `restart`: run `docker compose up -d --force-recreate`. *"DAMAGED"* → old line with `$` signs: redo Step 6. |
-| `/admin-login` shows **Page Not Found** after you signed in | Correct. The page is gone after one use. Sign in with a magic link / Google / `login-link`. |
-| **"Email, password or code is not right."** | Test what is in `.env`: `docker run --rm -it -v "$PWD":/w -w /w python:3.11-slim sh -c "pip install -q --root-user-action=ignore 'cryptography>=45' && python backend_fastapi/scripts/make_admin_hash.py --check .env"`. It tells you whether the e-mail and the password match. If not, redo Step 6. Check Caps Lock and the keyboard language. |
-| **"Too many requests"** | Ten wrong tries from one address lock the page for 15 minutes. Wait, then try again. |
+| Signed in with Google but I'm not the owner | Run `admin-status` (Step 6). *"MAIN_ADMIN_EMAIL_HASH: not set"* → you used `restart`: run `docker compose up -d --force-recreate`. *"DAMAGED"* → redo Step 6. *"Owner: claimed"* → the seat is already taken; ownership never passes. Otherwise test `.env` with `make_admin_hash.py --check .env` (below) and use exactly that Google address. |
+| Google doesn't make me the owner, and I want to test `.env` | Run `docker run --rm -it -v "$PWD":/w -w /w python:3.11-slim sh -c "pip install -q --root-user-action=ignore 'cryptography>=45' && python backend_fastapi/scripts/make_admin_hash.py --check .env"`. It tells you whether the e-mail matches or the line is damaged. If not, redo Step 6. |
 | Authenticator code refused | The phone's clock is off. Turn on *automatic date & time* on the phone, then type a fresh code (each lasts 30 seconds). |
-| Closed the browser at the setup-key step | No harm: the password is used up only when the code is accepted. Start Step 7 again; it shows a new setup key. Delete the half-made entry in the app. |
-| Admin pages say **"Set up your authenticator app"** | Your account has no authenticator. Do Step 6 + Step 7 (the one-time sign-in sets it up). |
+| Closed the browser at the setup-key step | No harm. Open **Admin** again: it shows a new setup key. Delete the half-made entry in the app. |
+| Admin pages say **"Set up your authenticator app"** | Expected on the owner's first visit: open **Admin**, add the setup key to your authenticator app and type the code (Step 7). |
 | `permission denied … /var/run/docker.sock` | Log out and in again after `usermod` (Step 1), or prefix commands with `sudo`. |
 | `Set EMAIL_ENCRYPTION_KEY to a Fernet key` | There is no `.env`, or you're in the wrong folder. `cd ~/manga-website-v1.01`, then Step 3. |
 | `password authentication failed` (database) | The database was created with other passwords than the ones now in `.env` (e.g. `.env` was remade). If the site has no content yet: [Start again from zero](#start-again-from-zero). |
@@ -349,5 +322,5 @@ Then continue from [Step 3](#step-3--create-the-settings-file-env).
 For a public site: point your domain at the server, put HTTPS in front
 (Caddy or nginx + Let's Encrypt), and only open ports 80/443. Full steps:
 [`GUIDE.md` §8](../GUIDE.md#8-go-live-on-a-linux-server-with-a-domain-and-https).
-Do the one-time admin sign-in (Step 7) over HTTPS or through the SSH tunnel
+Do the owner's first Google sign-in (Step 7) over HTTPS or through the SSH tunnel
 from Step 5, never over plain `http://` on a public address.

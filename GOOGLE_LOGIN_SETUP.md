@@ -38,14 +38,20 @@ FRONTEND_URL=http://localhost:8080
 FORCE_HTTPS_REDIRECTS=false   # local plain-HTTP only, otherwise cookies are not stored
 ```
 
-## Step 3 - Make your Gmail the admin
+## Step 3 - Make your Gmail the owner
 
-Your Gmail alone never makes an account admin, so a stolen inbox can't either.
-The owner becomes admin once, through the one-time Admin sign-in, using the
-same Gmail address: follow Steps 6-7 of your install guide in
-[`guide/`](guide/README.md). After that, **Continue with Google** with that
-Gmail signs you into the admin account, and admin pages ask for your
-authenticator code.
+There is no admin password and no admin page. The owner is the first person to
+sign in with Google using the e-mail whose hash is in `.env`:
+
+```bash
+python backend_fastapi/scripts/make_admin_hash.py --write .env
+```
+
+(Docker: the `docker run ...` line in [`GUIDE.md` Section 6](GUIDE.md#6-become-the-owner-sign-in-with-google).)
+Type the Gmail you will sign in with. After Step 4, **Continue with Google**
+with that Gmail makes your account the owner (Google must say the address is
+verified, and the site must not have an owner yet). Open **Admin** next: it asks
+you to set up an authenticator app, and every admin page then asks for its code.
 
 ## Step 4 - Restart and sign in
 
@@ -58,5 +64,5 @@ authenticator code.
 - `redirect_uri_mismatch`: the URI in Google Console differs from `GOOGLE_OAUTH_REDIRECT_URI`.
 - `access_denied` / "app not verified": add your Gmail under *Test users*.
 - Back on `/login?magic=oauth_error`: wrong client secret, or cookies blocked (check `FORCE_HTTPS_REDIRECTS=false` on HTTP).
-- Logged in but not admin: do the one-time Admin sign-in first (Step 3), with the same Gmail you use for Google.
+- Logged in but not owner: `cli_bootstrap admin-status` says why. The `.env` line (Step 3) must be made from exactly the Gmail you sign in with, and the site must not already have an owner.
 - Magic link (optional later): set `EMAIL_BACKEND=smtp` plus `SMTP_HOST/PORT/USERNAME/PASSWORD` (e.g. Gmail app password) and run the Celery worker.

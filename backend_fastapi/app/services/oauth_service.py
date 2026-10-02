@@ -91,7 +91,14 @@ def ensure_google_user(db: Session, profile: dict[str, Any]) -> User:
     # flag-for-review default. It is flagged for review below instead.
     if user is None and is_disposable_domain(email):
         raise OAuthUserError("disposable_email")
-    if user is None:
+    # The owner's first sign-in: Google vouches for the address, it matches
+    # MAIN_ADMIN_EMAIL_HASH and the site has no owner yet. Closed registration
+    # must not lock the owner out of their own site.
+    from ..core.admin_identity import claim_owner_seat, wants_owner_seat
+
+    owner_candidate = email_is_verified and wants_owner_seat(db, email)
+
+    if user is None and not owner_candidate:
         from .site_content_service import registration_open
 
         if not registration_open(db):
@@ -153,6 +160,10 @@ def ensure_google_user(db: Session, profile: dict[str, Any]) -> User:
         db.commit()
 
     db.refresh(user)
+
+    if owner_candidate and claim_owner_seat(db, user):
+        db.commit()
+        db.refresh(user)
     return user
 
 

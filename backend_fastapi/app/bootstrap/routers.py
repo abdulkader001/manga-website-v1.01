@@ -15,7 +15,6 @@ from ..api.routers import (
     ads_router,
     admin_router,
     admin_2fa_router,
-    admin_login_router,
     support_router,
     auth_router,
     backup_router,
@@ -64,7 +63,6 @@ def build_api_router() -> APIRouter:
     api_router.include_router(account_router)
     api_router.include_router(admin_router)
     api_router.include_router(admin_2fa_router)
-    api_router.include_router(admin_login_router)
     api_router.include_router(support_router)
     api_router.include_router(ad_slots_router)
     api_router.include_router(ads_router)

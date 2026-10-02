@@ -52,7 +52,7 @@ def cli() -> None:
 
 @cli.command("admin-hashes")
 def admin_hashes() -> None:
-    """Print the two .env lines for the one-time Admin sign-in (/admin-login).
+    """Print the .env line that names the site owner (MAIN_ADMIN_EMAIL_HASH).
 
     Same as `python backend_fastapi/scripts/make_admin_hash.py`.
     """
@@ -64,35 +64,32 @@ def admin_hashes() -> None:
 
 @cli.command("admin-status")
 def admin_status() -> None:
-    """Is the one-time Admin sign-in page open, used up, or broken?"""
+    """Can the server see the owner e-mail, is Google set up, is there an owner?"""
 
     from backend_fastapi.app.core.admin_identity import (
         get_main_admin_email_hash,
-        get_main_admin_password_hash,
+        owner_exists,
     )
-    from backend_fastapi.app.api.routers.admin_login import setup_page_open, password_used
+    from backend_fastapi.app.services.oauth_service import google_oauth_configured
 
-    email_hash = get_main_admin_email_hash()
-    password_hash = get_main_admin_password_hash()
-    for name, value in (
-        ("MAIN_ADMIN_EMAIL_HASH", email_hash),
-        ("MAIN_ADMIN_PASSWORD_HASH", password_hash),
-    ):
-        if not value:
-            click.echo(f"{name}: not set (the server does not see it -- restart after editing .env)")
-        elif not value.startswith("$argon2id$"):
-            click.echo(f"{name}: DAMAGED -- make new lines with admin-hashes")
-        else:
-            click.echo(f"{name}: set")
-    with session_scope() as session:
-        used = password_used(session)
-        open_ = setup_page_open(session)
-    if open_:
-        click.echo("/admin-login: OPEN -- the one-time password has not been used yet.")
-    elif used:
-        click.echo("/admin-login: CLOSED -- the one-time password was used (page shows 'not found').")
+    value = get_main_admin_email_hash()
+    if not value:
+        click.echo("MAIN_ADMIN_EMAIL_HASH: not set (the server does not see it -- restart after editing .env)")
+    elif not value.startswith("$argon2id$"):
+        click.echo("MAIN_ADMIN_EMAIL_HASH: DAMAGED -- make a new line with admin-hashes")
     else:
-        click.echo("/admin-login: CLOSED -- not set up (page shows 'not found').")
+        click.echo("MAIN_ADMIN_EMAIL_HASH: set")
+    click.echo(
+        "Google sign-in: set up"
+        if google_oauth_configured()
+        else "Google sign-in: NOT set up (GOOGLE_OAUTH_CLIENT_ID / GOOGLE_OAUTH_CLIENT_SECRET in .env)"
+    )
+    with session_scope() as session:
+        has_owner = owner_exists(session)
+    if has_owner:
+        click.echo("Owner: claimed. Nobody else can claim the seat.")
+    else:
+        click.echo("Owner: not claimed yet -- sign in with Google using the owner e-mail.")
 
 
 @cli.command("login-link")
@@ -136,8 +133,8 @@ def reset_2fa(email: str) -> None:
         user = _resolve_user(session, email)
         admin_second_factor.disable(session, user)
     click.echo(
-        "Authenticator removed. Make a new one-time password (admin-hashes), put it in "
-        ".env, restart, and sign in at /admin-login to set up the new phone."
+        "Authenticator removed. Sign in with Google and open the admin area: it asks you "
+        "to set up the new phone."
     )
 
 

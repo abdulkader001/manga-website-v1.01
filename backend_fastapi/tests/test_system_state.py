@@ -26,9 +26,10 @@ def test_no_admin_hash_hardcoded_in_source():
 
 
 def test_signing_in_with_the_owner_email_never_promotes(fastapi_app, monkeypatch):
-    # The owner's e-mail alone (Google, Microsoft, magic link) is never enough:
-    # only the one-time Admin sign-in makes the main admin. Old .env files may
-    # still carry MAIN_ADMIN_AUTO_PROMOTE_ENABLED=true; it is ignored.
+    # A magic link with the owner's e-mail never makes the owner: only a
+    # verified Google sign-in does (tests/test_owner_google_sign_in.py). Old
+    # .env files may still carry MAIN_ADMIN_AUTO_PROMOTE_ENABLED=true; it is
+    # ignored.
     monkeypatch.setattr(settings, "main_admin_email_hash", _phc("root@example.com"), raising=False)
     monkeypatch.setenv("MAIN_ADMIN_AUTO_PROMOTE_ENABLED", "true")
     with SessionLocal() as session:

@@ -236,9 +236,8 @@ class SystemSettings(Base):
     login_required = Column(
         Boolean, nullable=False, default=False, server_default="false"
     )
-    # Admin sign-in password is single-use: SHA-256 of the MAIN_ADMIN_PASSWORD_HASH
-    # value that was last used. A new hash from ``cli_bootstrap admin-hashes``
-    # has a different fingerprint, so it works once again.
+    # Retired: the one-time admin password is gone (the owner now claims the
+    # seat with Google). Nothing reads or writes this column any more.
     admin_setup_password_used = Column(String(64), nullable=True)
     # Automatic succession (owner only): an Admin idle this many days becomes
     # a user and the first eligible sub-admin in their succession line takes

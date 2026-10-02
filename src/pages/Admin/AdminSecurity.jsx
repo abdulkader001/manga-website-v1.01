@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router";
 import api from "../../services/api";
-import { AdminSignInHint, CodeForm, Enrolment } from "../../components/AdminSecondFactor";
+import { CodeForm, Enrolment } from "../../components/AdminSecondFactor";
 
 // Roadmap item 15: turn the admin second factor on or off.
 export default function AdminSecurity() {
@@ -44,8 +44,7 @@ export default function AdminSecurity() {
       </div>
       {!status && !error && <p className="text-xs text-[#8b93a3]">Loading…</p>}
       {error && !status && <p className="text-xs text-red-400">{error}</p>}
-      {status && !status.enabled && status.managed_by_admin_sign_in && <AdminSignInHint />}
-      {status && !status.enabled && !status.managed_by_admin_sign_in && <Enrolment onDone={load} />}
+      {status && !status.enabled && <Enrolment onDone={load} />}
       {status && status.enabled && (
         <div className="space-y-3">
           <p className="text-xs text-emerald-400">
@@ -53,9 +52,9 @@ export default function AdminSecurity() {
           </p>
           {status.required ? (
             <p className="text-xs text-[#8b93a3]">
-              This site requires it for main admins, so it cannot be turned off here.
-              {status.managed_by_admin_sign_in &&
-                " Lost your phone? Reset it on the server (guide: \"Lost your phone\")."}
+              This site requires it for the owner, so it cannot be turned off here. Lost your
+              phone? Reset it on the server (guide: &quot;Lost your phone&quot;), then sign in with
+              Google and set it up again.
             </p>
           ) : (
             <CodeForm

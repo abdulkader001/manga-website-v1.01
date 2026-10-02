@@ -201,8 +201,7 @@ def enforce_admin_second_factor(request: Request, user: User) -> None:
 
     Applies to admin-tier accounts only. With a second factor enrolled, admin
     routes need the short-lived step-up cookie (see ``POST /admin/2fa/verify``).
-    Once the one-time Admin sign-in is in use, a main admin who has no
-    authenticator is held back until that sign-in has set one up.
+    A main admin who has no authenticator is held back until they enrol one.
     """
 
     if not is_secondary_or_higher(user):
@@ -220,15 +219,12 @@ def enforce_admin_second_factor(request: Request, user: User) -> None:
             )
         return
 
-    # With the one-time Admin sign-in in use (set up now, or used before -- even
-    # if the hash has since been deleted from .env) the main admin always needs
-    # the authenticator. It is set up only through that sign-in, never from a
-    # session that a stolen inbox or Google account could have produced.
-    from sqlalchemy.orm import object_session
+    # The owner always needs the authenticator once the owner e-mail is set up.
+    # Their first Google sign-in is enough to enrol it, and until they have,
+    # every admin feature stays shut.
+    from ..core.admin_identity import owner_sign_in_in_use
 
-    from ..core.admin_identity import admin_sign_in_in_use
-
-    if is_main_admin(user) and admin_sign_in_in_use(object_session(user)):
+    if is_main_admin(user) and owner_sign_in_in_use():
         raise ApiError(
             ErrorCode.REVERIFICATION_REQUIRED,
             "Set up your authenticator app before using admin features.",

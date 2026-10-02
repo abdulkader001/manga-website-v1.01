@@ -1,5 +1,4 @@
 import React, { useState } from "react";
-import { useNavigate } from "react-router";
 import api from "../services/api";
 import useAuth from "../hooks/useAuth";
 
@@ -9,7 +8,6 @@ export default function Login() {
   const [sent, setSent] = useState(false);
   const [error, setError] = useState("");
   const { login } = useAuth();
-  const navigate = useNavigate();
 
   const handleMagicLink = async (e) => {
     e.preventDefault();
@@ -20,12 +18,7 @@ export default function Login() {
     setLoading(true);
     setError("");
     try {
-      const res = await api.auth.requestMagicLink(email.trim());
-      // The owner's one-time Admin sign-in is open: carry on there.
-      if (res?.message === "admin_setup") {
-        navigate("/admin-login");
-        return;
-      }
+      await api.auth.requestMagicLink(email.trim());
       setSent(true);
     } catch (err) {
       setError(err.message || "Failed to request sign-in link.");

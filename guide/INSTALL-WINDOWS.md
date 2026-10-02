@@ -15,8 +15,9 @@ Authenticator, Microsoft Authenticator, Aegis…).
 > until the prompt `PS C:\…>` comes back before the next one. Lines starting
 > with `#` are explanations; PowerShell ignores them.
 
-**Already installed, and the admin password "doesn't work"?** Go to
-[Step 6](#step-6--make-your-one-time-admin-password).
+**Already installed, and the admin sign-in "doesn't work"?** Go to
+[Step 6](#step-6--tell-the-site-who-the-owner-is). The old admin password and
+`/admin-login` page are gone: you now become the owner by signing in with Google.
 
 ---
 
@@ -155,28 +156,26 @@ page.
 
 ---
 
-## Step 6 — Make your one-time admin password
+## Step 6 — Tell the site who the owner is
 
-This writes two lines into `.env`: a hash of your e-mail and a hash of a
-one-time password. Copy the whole line; it is long:
+There is **no admin password and no special admin page**. You become the site
+owner by signing in with Google, once, using the e-mail you choose here. This
+step writes one line into `.env`: a hash of that e-mail (the address itself is
+stored nowhere). The command runs in a throw-away Docker container, so you
+don't need to install anything:
 
 ```powershell
 docker run --rm -it -v "${PWD}:/w" -w /w python:3.11-slim sh -c "pip install -q --disable-pip-version-check --root-user-action=ignore 'cryptography>=45' && python backend_fastapi/scripts/make_admin_hash.py --write .env"
 ```
 
-It asks:
+It asks one question, **Admin e-mail:** the Google e-mail you will use as the
+site owner. It ends with `Done: the line is now in .env`.
 
-1. **Admin e-mail:** your site-owner e-mail.
-2. **One-time admin password:** at least 12 characters. **Nothing appears
-   while you type; that is normal.** Press Enter. (Pasting works with a
-   right-click, also invisibly.) Or press Enter without typing and it makes a
-   strong password and shows it once. Write it down.
-3. **Type it again.**
-
-It ends with `Done: both lines are now in .env (old ones replaced).`
-
-> Type the password **only** at this prompt, never inside a command. Then
-> characters like `#`, `$` or `&` in it can't be misread by PowerShell.
+You also need Google sign-in itself, because the owner uses it to get in.
+Follow [`GOOGLE_LOGIN_SETUP.md`](../GOOGLE_LOGIN_SETUP.md) (Steps 1 and 2) to
+get a client ID and secret and put `GOOGLE_OAUTH_CLIENT_ID` and
+`GOOGLE_OAUTH_CLIENT_SECRET` in `.env`. They start in `.env`; you can move them
+into **Admin → Secret Vault** later.
 
 Now **recreate** the containers so they read the new `.env`:
 
@@ -184,58 +183,51 @@ Now **recreate** the containers so they read the new `.env`:
 docker compose up -d --force-recreate
 ```
 
-> ⚠ `docker compose restart` (or the restart button in Docker Desktop) is
-> **not** enough. It keeps the old settings; only `up -d --force-recreate`
-> reads `.env` again. This is the most common reason a correct password
-> "doesn't work".
+> ⚠ `docker compose restart` is **not** enough. A restart keeps the old
+> settings; only `up -d --force-recreate` reads `.env` again. This is the most
+> common reason a correct setup "doesn't work".
 
-After about 30 seconds, check the server sees the lines:
+After about 30 seconds, check the server sees everything:
 
 ```powershell
 docker compose exec backend python -m backend_fastapi.scripts.cli_bootstrap admin-status
 ```
 
-You want `MAIN_ADMIN_EMAIL_HASH: set`, `MAIN_ADMIN_PASSWORD_HASH: set` and
-`/admin-login: OPEN`.
+You want:
 
-**Why the old lines failed (if you made some before):** they were full of `$`
-signs, and Docker Compose deletes `$something` from `.env` unless the line is
-quoted exactly right. The new lines start with `a2:` and contain no `$`, so
-nothing can damage them. And the old page greyed out **Continue** whenever
-the server couldn't see the lines; the new one doesn't.
+```
+MAIN_ADMIN_EMAIL_HASH: set
+Google sign-in: set up
+Owner: not claimed yet -- sign in with Google using the owner e-mail.
+```
 
 ---
 
-## Step 7 — Sign in as the admin (once)
+## Step 7 — Sign in with Google and set up your authenticator
 
-1. Open <http://localhost:8080/admin-login>.
-2. Type your **e-mail** and the **one-time password** → **Continue**.
-3. The page shows a **setup key**. In the authenticator app on your phone:
-   **+** → **Enter a setup key** → any account name (e.g. *Manga admin*), the
-   key, *Time based*.
-4. Type the **6-digit code** from the app → **Sign in**.
+1. Open the site (<http://localhost:8080>) → **Log in** → **Continue with
+   Google**, and pick the Google account whose e-mail you used in Step 6.
+2. The first time, the site asks you to **complete your profile** (display
+   name, username, birth date), like every new account. Fill it in and press
+   **Enter Manga World**. You are now the owner (`admin-status` says
+   `Owner: claimed`, and nobody else can ever claim the seat).
+3. Open **Admin**. It asks you to set up an authenticator app. The page shows a
+   **setup key**. In the authenticator app on your phone: **+** → **Enter a
+   setup key** (not "scan QR code") → any account name (for example *Manga
+   admin*), the key, type *Time based*. On a phone you can tap **Open in
+   authenticator app** instead.
+4. Type the **6-digit code** the app shows → **Continue**.
 
-The first time, the site asks you to **complete your profile** (display
-name, username, birth date), like every new account. Fill it in and press
-**Enter Manga World**. Then you land on the admin panel (`/admin`). You are the main admin now, and
-**the sign-in page is gone**: `/admin-login` shows *Page Not Found*, and
-
-```powershell
-docker compose exec backend python -m backend_fastapi.scripts.cli_bootstrap admin-status
-```
-
-says `CLOSED -- the one-time password was used`.
-
-Optional tidy-up: `notepad .env`, delete the line starting
-`MAIN_ADMIN_PASSWORD_HASH=`, save, then `docker compose up -d --force-recreate`.
-Keep the `MAIN_ADMIN_EMAIL_HASH` line.
+Admin pages stay shut until the authenticator is set up, and from then on
+every admin page asks for a fresh code. There is nothing one-time to burn: if
+you sign out, just sign in with Google again.
 
 ---
 
 ## Step 8 — Set up normal sign-in
 
-From now on you sign in like readers: **magic link** by e-mail, **Google** or
-**Microsoft**. Set them up in **Admin → Secret Vault** (it asks for your
+You sign in like readers: **Google**, **Microsoft** or a **magic link** by
+e-mail. Set them up in **Admin → Secret Vault** (it asks for your
 authenticator code). E-mail needs your mail provider's SMTP settings; Google
 and Microsoft: [`GOOGLE_LOGIN_SETUP.md`](../GOOGLE_LOGIN_SETUP.md) and
 [`GUIDE.md` §3.5](../GUIDE.md#35-optional-features-leave-blank-to-disable).
@@ -273,8 +265,9 @@ General → **Start Docker Desktop when you sign in**.
 docker compose exec backend python -m backend_fastapi.scripts.cli_bootstrap reset-2fa --email you@example.com
 ```
 
-then **Step 6** again (new one-time password) and **Step 7** (sets up the new
-phone). Only signed out? Use `login-link` from Step 8 instead.
+then sign in with Google and open **Admin**: it asks you to set up the new phone
+(Step 7). Only signed out? Sign in with Google again, or use `login-link` from
+Step 8 if Google is not set up.
 
 ---
 
@@ -282,13 +275,11 @@ phone). Only signed out? Use `login-link` from Step 8 instead.
 
 | What you see | What to do |
 | --- | --- |
-| `/admin-login` shows **Page Not Found** before you ever signed in | Run `admin-status` (Step 6). *"not set"* → run `docker compose up -d --force-recreate` (not restart). *"DAMAGED"* → redo Step 6. |
-| `/admin-login` shows **Page Not Found** after you signed in | Correct: it is gone after one use. Sign in with magic link / Google / `login-link`. |
-| **"Email, password or code is not right."** | Test `.env`: `docker run --rm -it -v "${PWD}:/w" -w /w python:3.11-slim sh -c "pip install -q --root-user-action=ignore 'cryptography>=45' && python backend_fastapi/scripts/make_admin_hash.py --check .env"`. It says whether the e-mail and password match. If not, redo Step 6. Check Caps Lock and the keyboard language (Alt + Shift switches it). |
-| **"Too many requests"** | Ten wrong tries lock the page for 15 minutes. Wait. |
+| Signed in with Google but I'm not the owner | Run `admin-status` (Step 6). *"MAIN_ADMIN_EMAIL_HASH: not set"* → you used `restart`: run `docker compose up -d --force-recreate`. *"DAMAGED"* → redo Step 6. *"Owner: claimed"* → the seat is already taken; ownership never passes. Otherwise test `.env` with `make_admin_hash.py --check .env` (below) and use exactly that Google address. |
+| Google doesn't make me the owner, and I want to test `.env` | Run `docker run --rm -it -v "${PWD}:/w" -w /w python:3.11-slim sh -c "pip install -q --root-user-action=ignore 'cryptography>=45' && python backend_fastapi/scripts/make_admin_hash.py --check .env"`. It tells you whether the e-mail matches or the line is damaged. If not, redo Step 6. |
 | Authenticator code refused | Phone clock is off: turn on automatic date & time, then use a fresh code. |
-| Closed the browser at the setup-key step | No harm; the password is used up only when the code is accepted. Start Step 7 again. |
-| Admin pages say **"Set up your authenticator app"** | Do Step 6 + Step 7. |
+| Closed the browser at the setup-key step | No harm. Open **Admin** again: it shows a new setup key. Delete the half-made entry in the app. |
+| Admin pages say **"Set up your authenticator app"** | Expected on the owner's first visit: open **Admin**, add the setup key to your authenticator app and type the code (Step 7). |
 | `exec … no such file or directory` or `\r: not found` in a container log | The files were downloaded with Windows line endings. Delete the folder, run the `git config` line from Step 2, and clone again. |
 | `error during connect` / `cannot find the file specified` | Docker Desktop isn't running. Start it, wait for **Engine running**. |
 | `invalid reference format` or `/w` errors in `docker run` | Run it from PowerShell (not *cmd*), inside the project folder, and copy the line exactly, including the double quotes around `${PWD}:/w`. |

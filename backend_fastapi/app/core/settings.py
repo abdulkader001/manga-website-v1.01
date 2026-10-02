@@ -88,11 +88,10 @@ class Settings(BaseSettings):
     algorithm: str = "HS256"
     email_encryption_key: str | None = None
 
-    # One-time Admin sign-in (/admin-login, see core/admin_identity.py): hashes
-    # of the site owner's e-mail and one-time password, made with
-    # scripts/make_admin_hash.py. Never committed to source.
+    # Hash of the site owner's e-mail (see core/admin_identity.py), made with
+    # scripts/make_admin_hash.py. The first verified Google sign-in with that
+    # address claims the owner seat. Never committed to source.
     main_admin_email_hash: str | None = None
-    main_admin_password_hash: str | None = None
 
     # Email
     email_backend: str | None = None

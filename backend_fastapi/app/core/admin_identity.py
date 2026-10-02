@@ -1,11 +1,16 @@
-"""Main-administrator identity for the one-time Admin sign-in (/admin-login).
+"""The site owner's identity: one e-mail hash in ``.env``, claimed by Google.
 
-Two values in ``.env`` (never in source control) identify the site owner:
+``MAIN_ADMIN_EMAIL_HASH`` is the only owner value kept on the server. It is an
+Argon2id hash of the owner's e-mail, so the address itself is not written
+anywhere. There is no admin password and no special sign-in page.
 
-* ``MAIN_ADMIN_EMAIL_HASH``    -- Argon2id hash of the owner's e-mail,
-* ``MAIN_ADMIN_PASSWORD_HASH`` -- Argon2id hash of the ONE-TIME admin password.
+The owner signs in with Google like any reader. If Google says the address is
+verified, it matches the hash, and the site has no owner yet, that account
+becomes the owner on the spot (``claim_owner_seat``). Ownership never passes:
+once an owner exists, nobody else can claim the seat, even if the hash in
+``.env`` is later changed to another address.
 
-``scripts/make_admin_hash.py`` prints them. Both are accepted in two forms:
+``scripts/make_admin_hash.py`` prints the line. It is accepted in two forms:
 
 * ``a2:<base64url>`` (what the tool prints): the Argon2id PHC string wrapped in
   base64url, so it has no ``$`` in it. Docker Compose, ``source .env`` and
@@ -26,6 +31,7 @@ import binascii
 import structlog
 from cryptography.exceptions import InvalidKey
 from cryptography.hazmat.primitives.kdf.argon2 import Argon2id
+from sqlalchemy import or_
 
 from .settings import settings
 from ..utils.email_crypto import normalize_email
@@ -56,10 +62,6 @@ def get_main_admin_email_hash() -> str | None:
     return decode_admin_hash(getattr(settings, "main_admin_email_hash", None))
 
 
-def get_main_admin_password_hash() -> str | None:
-    return decode_admin_hash(getattr(settings, "main_admin_password_hash", None))
-
-
 def _verify(secret: bytes, hash_value: str, name: str) -> bool:
     try:
         Argon2id.verify_phc_encoded(secret, hash_value)
@@ -86,56 +88,66 @@ def is_configured_main_admin_email(email: str | None) -> bool:
     return _verify(normalized.encode("utf-8"), hash_value, "MAIN_ADMIN_EMAIL_HASH")
 
 
-def admin_password_configured() -> bool:
-    """Admin sign-in is set up: both the email hash and the password hash."""
+def owner_sign_in_in_use() -> bool:
+    """The site has an owner e-mail set up, so the owner needs an authenticator."""
 
-    return bool(get_main_admin_email_hash() and get_main_admin_password_hash())
+    return bool(get_main_admin_email_hash())
 
 
-def verify_main_admin_password(password: str | None) -> bool:
-    """True when ``password`` matches ``MAIN_ADMIN_PASSWORD_HASH``.
+def owner_exists(db) -> bool:
+    from ..models import User, UserRole
 
-    Spaces or a line break at either end (a copy-paste accident) are ignored;
-    the hash tool strips them the same way.
-    """
-
-    hash_value = get_main_admin_password_hash()
-    if not hash_value or not password:
-        return False
-    candidates = [password.strip()]
-    if password != candidates[0]:
-        candidates.append(password)  # hashes made before trimming existed
-    return any(
-        c and _verify(c.encode("utf-8"), hash_value, "MAIN_ADMIN_PASSWORD_HASH")
-        for c in candidates
+    return (
+        db.query(User.id)
+        .filter(
+            or_(
+                User.permanent.is_(True),
+                User.is_main_admin.is_(True),
+                User.role == UserRole.PERMANENT,
+            )
+        )
+        .first()
+        is not None
     )
 
 
-def admin_sign_in_in_use(session=None) -> bool:
-    """This site's owner is protected by the one-time Admin sign-in.
+def wants_owner_seat(db, email: str | None) -> bool:
+    """True when ``email`` is the configured owner's and nobody holds the seat.
 
-    True while a one-time password is set in .env, and for ever once one has
-    been used -- so deleting the used hash from .env afterwards does NOT switch
-    off the authenticator requirement for the main admin.
+    The cheap "is there an owner" query runs first, so the slow hash check is
+    only paid on a site that has no owner yet, never on every later sign-in.
     """
 
-    if admin_password_configured():
-        return True
-    from ..models import SystemSettings
-
-    def _used(db) -> bool:
-        row = db.query(SystemSettings.admin_setup_password_used).first()
-        return bool(row and row[0])
-
-    try:
-        if session is not None:
-            used = _used(session)
-        else:
-            from .db import SessionLocal
-
-            with SessionLocal() as db:
-                used = _used(db)
-    except Exception:  # pragma: no cover - defensive
-        logger.exception("admin_sign_in_marker_unreadable")
+    if not get_main_admin_email_hash() or owner_exists(db):
         return False
-    return used
+    return is_configured_main_admin_email(email)
+
+
+def claim_owner_seat(db, user) -> bool:
+    """Make ``user`` the owner. Caller has checked ``wants_owner_seat``.
+
+    Returns ``True`` when a change was made (the caller commits).
+    """
+
+    from ..models import AdminAuditLog, UserRole
+
+    changed = False
+    for field, value in (
+        ("role", UserRole.PERMANENT),
+        ("permanent", True),
+        ("is_main_admin", True),
+        ("is_secondary_admin", True),
+    ):
+        if getattr(user, field, None) != value:
+            setattr(user, field, value)
+            changed = True
+    if changed:
+        db.add(
+            AdminAuditLog(
+                user_id=getattr(user, "id", None),
+                operator="owner_sign_in",
+                action="OWNER_SEAT_CLAIMED",
+                metadata_json={"via": "google"},
+            )
+        )
+    return changed

@@ -35,13 +35,13 @@ Contents
 
 | Layer | Holds | Who changes it | Undo |
 | --- | --- | --- | --- |
-| `.env` on the server | Foundation only: database/Redis, signing and encryption keys, `INTEGRATIONS_SECRET`, admin identity (`MAIN_ADMIN_EMAIL_HASH`, `MAIN_ADMIN_PASSWORD_HASH`), starting site address | Whoever has the server | Edit the file and recreate the containers |
+| `.env` on the server | Foundation only: database/Redis, signing and encryption keys, `INTEGRATIONS_SECRET`, admin identity (`MAIN_ADMIN_EMAIL_HASH` only), the Google sign-in client (`GOOGLE_OAUTH_CLIENT_ID` / `_SECRET`, needed before the owner can open the vault; may be moved into it afterwards), starting site address | Whoever has the server | Edit the file and recreate the containers |
 | **Secret Vault** (Admin → Secret Vault) | Everything else: Google/Microsoft sign-in, SMTP/magic links, OCR/translation, API keys, limits, Sentry, **website domain**, the **backup** schedule, password and storage keys (`BACKUP_*`, set from Storage & Backups) and **Geolock** (`GEOLOCK_*`, set from Geolock) | Main admin only, with an authenticator code and a 10-minute unlock | Remove the value and it falls back to `.env`. `VAULT_PRELOAD_DISABLED=true` skips the vault if a bad value stops start-up |
 | **Admin Settings** (database) | Site name/logo/footer, sign-in required switch, donations, maintenance, session policy | Main admin (sub-admins get only the toggles granted to them) | Change it back in the page |
 
 ### People and roles
 
-- **Main admin**: one owner. Proves it **once** at `/admin-login` with e-mail, a **one-time** password from `.env` and an authenticator code. After that the page is gone (404, no link anywhere), the owner signs in like readers, and every admin page asks for the authenticator code. A new password hash in `.env` (server access) re-opens the page once, for recovery. Signing in with the owner's e-mail alone never grants admin.
+- **Main admin**: one owner. Claims the seat by signing in with **Google** once, using the e-mail whose Argon2id hash is `MAIN_ADMIN_EMAIL_HASH` in `.env` (Google must report the address verified, and the site must have no owner yet). No admin password, no admin page, nothing one-time to burn. Ownership never passes: once an owner exists, a changed hash promotes nobody. Then they set up an authenticator in **Admin**; admin features stay shut until they have, and every admin page asks for a fresh code. A magic link or Microsoft sign-in with the owner's e-mail never promotes (it reaches the already-claimed account). Lost phone: `cli_bootstrap reset-2fa`, sign in with Google, enrol again.
 - **Sub-admin**: a user with per-person permission toggles (Role Management). Sees only **their own** rows in the admin audit log unless granted *See the full audit log* (`view_full_audit`). Previews, imports and re-scrapes use the Scraper AI only for a sub-admin who holds it.
 - **Admin** (`UserRole.CO_ADMIN`; at most **two**, `MAX_ADMINS`): the owner's right hand. Holds every power except Admin Settings, the cache and "delete all manga" (`ADMIN_OFF_BY_DEFAULT`) until the owner switches them on; only the owner changes an Admin's toggles (switching a site-owner power on needs the owner's authenticator code). Has power over sub-admins and users only (`permissions_service.assert_may_act_on`, `authorize_change`): never over another Admin, themselves or the owner. Sees sub-admins' and users' e-mail, never an Admin's or the owner's. Needs an authenticator and a fresh code to use site-owner powers (`dependencies/powers.py`). Appoints sub-admins from a shared pool of **50** seats (`SUB_ADMIN_POOL`; an equal share unless the owner sets it). Keeps a **succession line** of up to two sub-admins (`admin_successors`); only the owner makes, removes or hands over an Admin seat (`services/admin_roles.py`, `api/routers/roles_admins.py`). `UserRole.ADMIN` is only the old name of the owner tier.
 - **Sub-admin**: per-person toggles set by an Admin or the owner, never above the owner's **ceiling** (`system_settings.sub_admin_blocked_permissions`) and never a site-owner power. Power over users only. Custom roles (presets) are created by the owner only.
@@ -56,10 +56,10 @@ Contents
 
 | Command | Does |
 | --- | --- |
-| `make_admin_hash.py [--write .env \| --check .env]` | Makes the two `.env` lines for the one-time Admin sign-in (`$`-free `a2:` form), writes them into `.env`, or checks an e-mail/password against `.env`. Needs only Python + `cryptography`; runs without the site (`guide/` shows the `docker run` form) |
+| `make_admin_hash.py [--write .env \| --check .env]` | Makes the `MAIN_ADMIN_EMAIL_HASH` line (`$`-free `a2:` form), writes it into `.env`, or checks an e-mail against `.env`. Needs only Python + `cryptography`; runs without the site (`guide/` shows the `docker run` form) |
 | `make_env.py [--local]` | Creates a new `.env` with random secrets and matching DB/Redis passwords. Never overwrites an existing `.env`. Standard-library Python only |
-| `cli_bootstrap admin-status` | Is `/admin-login` open, used up or not set up, and can the server see both lines |
-| `cli_bootstrap admin-hashes` | Same as `make_admin_hash.py` (prints the lines) |
+| `cli_bootstrap admin-status` | Can the server see the owner line, is Google sign-in set up, and is the owner seat claimed |
+| `cli_bootstrap admin-hashes` | Same as `make_admin_hash.py` (prints the line) |
 | `cli_bootstrap reset-2fa --email …` | Removes a lost authenticator |
 | `cli_bootstrap geolock-off` | Switches Geolock off (you blocked the country you are in) |
 | `cli_bootstrap login-link --email …` | Prints a one-time sign-in link (no e-mail sent) |
@@ -82,7 +82,7 @@ back what the upgrade removed, so restore a backup instead.
 | `20261008_chapter_title_translations` | #25 | `chapters.title_translations` cache | Drops the cache (it rebuilds itself) |
 | `20261009_login_required` | #27 | `system_settings.login_required` (default off) | Drops it, so the site is open to guests |
 | `20261010_email_identity` | #27 | Unique `users.email_identity_hash` (one inbox, one account), backfilled | Drops it. Gmail-alias duplicates become possible again |
-| `20261011_admin_password_single_use` | #27 | `system_settings.admin_setup_password_used` | Drops it, so the **current admin password works again** |
+| `20261011_admin_password_single_use` | #27 | `system_settings.admin_setup_password_used` | Drops it. The column is unused now (the one-time password is gone), so this changes nothing |
 | `20261012_overlay_text_scale` | #33 | `user_processing_settings.overlay_font_size` becomes the 1-100 slider (pixels converted: 20 px → 28.5); new `overlay_outline_color`, `overlay_match_bubble` | **Lossy**: sizes go back to pixels rounded and capped at 10-40 px (a reader on 100 = 70 px gets 40 px); outline colour and bubble switch are dropped |
 | `20261013_admin_succession` | #34 | `admin_activity_days` table (one row per admin per active day) and `system_settings.succession_enabled` / `succession_inactive_days` / `succession_enabled_at` | Drops them. **Lossy**: the activity history and the succession switch are gone (succession is off again) |
 | `20261014_four_roles` | this PR | Adds role `CO_ADMIN` (Postgres enum value if native), `users.appointed_by` / `sub_admin_quota` / `admin_since`, `admin_successors`, `system_settings.sub_admin_blocked_permissions`; deletes site-owner overrides held by sub-admins (they can no longer hold them) | **Lossy**: Admins go back to sub-admins, and the new columns, succession lines and ceiling are dropped. The deleted overrides do not come back (re-promote in Role Management) |
@@ -126,6 +126,28 @@ exceptions; for those, restore the database backup taken before the update.
 ---
 
 ## Change entries
+
+### 2026-10-02 — Owner signs in with Google: one-time admin password and `/admin-login` removed
+
+Merge SHA: fill in when known. Branch `claude/nifty-fermat-53hmly`.
+
+The owner asked for a simpler first login: put the Google client in `.env`, keep only a hash of the owner's e-mail there, and become the owner by signing in with Google using that e-mail. The one-time password and its page caused lock-out friction (a used password, a browser closed mid-way, a magic-link request that diverted to the page).
+
+| Change | Why | Main files |
+| --- | --- | --- |
+| **The first verified Google sign-in with the e-mail matching `MAIN_ADMIN_EMAIL_HASH` makes the owner**, only while the site has no owner. Google must report the address verified. Closed registration does not block it. Ownership never passes: a changed hash later promotes nobody. Audited as `OWNER_SEAT_CLAIMED` | Google plus the e-mail match is the verification; nothing one-time to burn, so no lock-out | `core/admin_identity.py`, `services/oauth_service.py` |
+| **Removed** `/admin-login` (page and `/api/v1/auth/admin/*`), `MAIN_ADMIN_PASSWORD_HASH`, the "used password" marker logic, and the magic-link diversion (`message: "admin_setup"`). A magic link or Microsoft sign-in with the owner's e-mail is now an ordinary sign-in and never promotes | Owner: no extra pages, nothing that can divert a normal login | `api/routers/admin_login.py` (deleted), `api/routers/auth.py`, `src/pages/AdminLogin.jsx` (deleted), `src/app.js`, `src/components/Login.js` |
+| **The owner enrols the authenticator from Admin**, right after the first Google sign-in (it used to be possible only on the one-time page). Until enrolled, every admin feature answers `enrolment_required`; it applies whenever `MAIN_ADMIN_EMAIL_HASH` is set. The owner can't turn it off in the page, and `reset-2fa` on the server removes a lost one | The one-time page was the only place to enrol, so it had to go somewhere | `api/routers/admin_2fa.py`, `dependencies/auth.py`, `src/components/AdminSecondFactor.jsx`, `src/pages/Admin/AdminSecurity.jsx` |
+| `make_admin_hash.py` and `cli_bootstrap admin-hashes` print/check only the e-mail line; `admin-status` reports the hash, Google sign-in and whether the owner seat is claimed; `reset-2fa` tells you to sign in with Google | Match the new flow | `scripts/make_admin_hash.py`, `scripts/cli_bootstrap.py` |
+| Google client ID/secret start in `.env` (the vault can only be opened by the owner); the owner may move them into the vault afterwards. §1 and the guides say so | Chicken-and-egg: the owner needs Google to reach the vault | `.env.example`, `GUIDE.md`, `GOOGLE_LOGIN_SETUP.md`, `guide/*` |
+
+- **Database:** none. `system_settings.admin_setup_password_used` (from `20261011_admin_password_single_use`) is now unused and left in place; a later migration can drop it.
+- **Settings:** `.env`: `MAIN_ADMIN_PASSWORD_HASH` removed (ignored if still present); `MAIN_ADMIN_EMAIL_HASH` and `GOOGLE_OAUTH_CLIENT_ID` / `GOOGLE_OAUTH_CLIENT_SECRET` are what the owner needs. Already-claimed sites need no change: the owner keeps the seat and their authenticator.
+- **Known limit:** the owner needs an authenticator only while `MAIN_ADMIN_EMAIL_HASH` is set (before, a marker in the database kept it required even after the hash was deleted). An owner who already enrolled is always asked for the code. Keep the hash line in `.env`.
+- **Check:** `cli_bootstrap admin-status` says `Owner: not claimed yet` → sign in with Google using the owner e-mail → it says `Owner: claimed`; **Admin** asks for the authenticator; `/admin-login` shows "Page not found". `pytest backend_fastapi/tests/test_owner_google_sign_in.py backend_fastapi/tests/test_admin_second_factor.py backend_fastapi/tests/test_cli_bootstrap_script.py`.
+- **Undo:** `git revert -m 1 <merge>`, then `docker compose up -d --build --force-recreate`. No migration to undo. After a revert the one-time page needs a new password hash (`make_admin_hash.py`).
+
+---
 
 ### 2026-10-02 — GUIDE.md: commands that match the machine
 
