@@ -483,6 +483,11 @@ the server.
 `--write .env`) tests an e-mail and password against `.env` and tells you
 which one doesn't match, or whether a line is damaged.
 
+**Entering the owner e-mail on the normal login page** (and pressing *Send magic
+link*) while the one-time page is still open takes you straight to `/admin-login`;
+no link is e-mailed. After the password has been used, the same e-mail is an
+ordinary reader sign-in and `/admin-login` is gone for good.
+
 **Lost your phone?** `docker compose exec backend python -m backend_fastapi.scripts.cli_bootstrap reset-2fa --email you@example.com`,
 then a new one-time password (step 1), `up -d --force-recreate`, and
 `/admin-login` sets up the new phone. A new password opens the page once more.

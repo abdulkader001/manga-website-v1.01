@@ -236,3 +236,25 @@ def test_unenrolled_main_admin_is_held_back_once_admin_sign_in_is_set_up(
     resp = fastapi_client.get("/api/v1/admin/config/access", headers=headers)
     assert resp.status_code == 403
     assert resp.json()["error"]["details"]["reason"] == "enrolment_required"
+
+
+def test_owner_email_is_sent_to_the_admin_page_only_while_it_is_open(fastapi_client, admin_email, monkeypatch):
+    request = lambda email: fastapi_client.post("/api/v1/auth/request-magic-link", json={"email": email})  # noqa: E731
+
+    # Open: the owner's e-mail goes to /admin-login, no link, no account.
+    assert request(admin_email).json()["message"] == "admin_setup"
+    assert _user(admin_email) is None
+    # Anyone else gets the normal confirmation (and a link).
+    other = request(f"reader-{uuid.uuid4().hex[:8]}@example.com").json()
+    assert other["message"] == "magic_link_sent"
+
+    # Used: the same e-mail is an ordinary reader sign-in and the page is gone.
+    fastapi_client.post(URL, json={"email": admin_email, "password": PASSWORD})
+    with SessionLocal() as session:
+        row = session.query(SystemSettings).first()
+        from backend_fastapi.app.api.routers.admin_login import _fingerprint
+
+        row.admin_setup_password_used = _fingerprint()
+        session.commit()
+    assert fastapi_client.get("/api/v1/auth/admin/status").status_code == 404
+    assert request(admin_email).json()["message"] == "magic_link_sent"
