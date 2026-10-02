@@ -132,7 +132,8 @@ logger = structlog.get_logger("backend_fastapi.admin")
 
 @router.get(
     "/settings",
-    dependencies=[Depends(require_admin_user)],
+    # Admin Settings is main-admin only (house rule), reads included.
+    dependencies=[Depends(require_main_admin_user)],
 )
 def get_admin_settings(db: Session = Depends(get_db)) -> Dict[str, Any]:
     """Runtime feature toggles plus the editable site settings and branding."""
@@ -166,7 +167,7 @@ def _refresh_provider_registry(request: Request) -> ProviderRegistryState:
 _rescrape_limiter = resolve_rescrape_limit()
 
 
-@router.post("/database/alembic-status", dependencies=[Depends(require_admin_user)])
+@router.post("/database/alembic-status", dependencies=[Depends(require_main_admin_user)])
 def trigger_alembic_status(
     request: Request,
 ) -> dict[str, object | None]:
@@ -190,7 +191,8 @@ def trigger_alembic_status(
     return status.to_dict()
 
 
-@router.get("/validate-ocr-providers", dependencies=[Depends(require_admin_user)])
+# API management (OCR / translation / AI providers) is main-admin only.
+@router.get("/validate-ocr-providers", dependencies=[Depends(require_main_admin_user)])
 def validate_ocr_providers(
     request: Request,
 ) -> Dict[str, Any]:
@@ -1571,7 +1573,9 @@ def _session_policy_payload(row: SystemSettings) -> Dict[str, Any]:
     }
 
 
-@router.get("/config/session", dependencies=[Depends(require_admin_user)])
+@router.get(
+    "/config/session", dependencies=[Depends(require_permission("set_session_policy"))]
+)
 def get_session_policy(db: Session = Depends(get_db)) -> Dict[str, Any]:
     """Return the current session-expiry policy."""
     return _session_policy_payload(get_or_create_system_settings(db))

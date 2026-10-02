@@ -151,11 +151,11 @@ def test_revoke_takes_effect_and_reset_restores(fastapi_client):
     finally:
         session.close()
 
-    # Secondary holds configure_ocr by default.
+    # Secondary holds handle_reports by default.
     session = SessionLocal()
     try:
         sec = session.get(User, sec_id)
-        assert has_permission(session, sec, "configure_ocr") is True
+        assert has_permission(session, sec, "handle_reports") is True
     finally:
         session.close()
 
@@ -163,12 +163,12 @@ def test_revoke_takes_effect_and_reset_restores(fastapi_client):
     fastapi_client.put(
         f"/api/admin/users/{sec_id}/permissions",
         headers=_headers(admin_id),
-        json={"overrides": [{"permission": "configure_ocr", "state": "revoked"}]},
+        json={"overrides": [{"permission": "handle_reports", "state": "revoked"}]},
     )
     session = SessionLocal()
     try:
         sec = session.get(User, sec_id)
-        assert has_permission(session, sec, "configure_ocr") is False
+        assert has_permission(session, sec, "handle_reports") is False
     finally:
         session.close()
 
@@ -180,7 +180,7 @@ def test_revoke_takes_effect_and_reset_restores(fastapi_client):
     session = SessionLocal()
     try:
         sec = session.get(User, sec_id)
-        assert has_permission(session, sec, "configure_ocr") is True
+        assert has_permission(session, sec, "handle_reports") is True
     finally:
         session.close()
 

@@ -93,12 +93,23 @@ _CATALOGUE: dict[str, tuple[Group, bool, bool]] = {
 }
 
 
-# Owner's rule: the Scraper AI (its API key, and creating parsers with it --
-# the Series Management "Scraper AI API" and "Custom Parser" sections) belongs
-# to the main admin alone. The main admin holds these like every catalogue
-# permission; a sub-admin can never hold them -- no toggle, preset or stored
-# override grants them (enforced in ``permissions_service``).
-MAIN_ADMIN_ONLY: frozenset[str] = frozenset({"trigger_scraper_ai", "configure_scraper_ai"})
+# Owner's rules: the Scraper AI (its API key, and creating parsers with it --
+# the Series Management "Scraper AI API" and "Custom Parser" sections) and API
+# Management (OCR / translation / AI providers) belong to the main admin
+# alone. The main admin holds these like every catalogue permission; a
+# sub-admin can never hold them -- no toggle, preset or stored override grants
+# them (enforced in ``permissions_service``).
+MAIN_ADMIN_ONLY: frozenset[str] = frozenset(
+    {
+        "trigger_scraper_ai",
+        "configure_scraper_ai",
+        "view_providers",
+        "configure_ocr",
+        "configure_translation",
+        "configure_ai",
+        "set_provider_priority",
+    }
+)
 
 # SRS 1F.8 — no toggle exists for these; absent from the catalogue entirely.
 NEVER_GRANTABLE: frozenset[str] = frozenset(
@@ -129,12 +140,12 @@ DESCRIPTIONS: dict[str, str] = {
     "approve_parser": "Approve a generated parser.",
     "activate_parser": "Switch a parser on.",
     "rollback_parser": "Go back to an earlier parser version.",
-    "view_providers": "See the OCR / translation / AI provider list (keys stay hidden).",
-    "configure_ocr": "Change OCR providers.",
-    "configure_translation": "Change translation providers.",
-    "configure_ai": "Change AI providers.",
+    "view_providers": "Main admin only: see API Management (OCR / translation / AI providers).",
+    "configure_ocr": "Main admin only: change OCR providers.",
+    "configure_translation": "Main admin only: change translation providers.",
+    "configure_ai": "Main admin only: change AI providers.",
     "configure_scraper_ai": "Main admin only: add or change the Scraper AI API key.",
-    "set_provider_priority": "Reorder providers.",
+    "set_provider_priority": "Main admin only: reorder providers.",
     "correct_translation": "Fix a wrong translation.",
     "force_regen_translation": "Throw away a cached translation and make it again.",
     "review_quality_flags": "Review translations flagged as poor.",
@@ -289,13 +300,8 @@ BUILTIN_PRESETS: dict[str, dict] = {
     },
     "operations_admin": {
         "label": "Sub-admin: Operations",
-        "description": "Providers, limits, users. No website approval.",
+        "description": "Users and accounts. No website approval (API Management is main-admin only).",
         "grant": [
-            "view_providers",
-            "configure_ocr",
-            "configure_translation",
-            "configure_ai",
-            "set_provider_priority",
             "view_user_list",
             "view_user_detail",
             "suspend_account",

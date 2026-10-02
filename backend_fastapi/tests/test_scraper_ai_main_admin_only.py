@@ -24,7 +24,7 @@ from backend_fastapi.app.scrapers.ai_fallback import AIFallbackService
 from backend_fastapi.app.services import permissions_service, scraper_ai_service
 from backend_fastapi.app.services.scraper_workflow_service import ScraperWorkflowService
 
-SCRAPER_AI = sorted(MAIN_ADMIN_ONLY)
+SCRAPER_AI = ["configure_scraper_ai", "trigger_scraper_ai"]
 
 
 @pytest.fixture(scope="module", autouse=True)
@@ -70,8 +70,8 @@ def _h(uid: int) -> dict:
 # ---------------------------------------------------------------------------
 
 
-def test_the_scraper_ai_powers_are_the_main_admin_only_set():
-    assert MAIN_ADMIN_ONLY == {"trigger_scraper_ai", "configure_scraper_ai"}
+def test_the_scraper_ai_powers_are_main_admin_only():
+    assert set(SCRAPER_AI) <= MAIN_ADMIN_ONLY
 
 
 def test_stored_grants_never_give_a_sub_admin_the_scraper_ai():
@@ -130,7 +130,7 @@ def test_presets_skip_the_scraper_ai():
         permissions_service.apply_preset(session, target, "titular", main)
         session.commit()
         stored = {r.permission for r in session.query(PermissionOverride).filter_by(user_id=sub)}
-        assert not stored & MAIN_ADMIN_ONLY
+        assert not stored & set(SCRAPER_AI)
         session.query(PermissionPreset).filter_by(key=key).delete()
         session.commit()
 
