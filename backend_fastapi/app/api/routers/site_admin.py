@@ -465,8 +465,13 @@ async def clear_site_cache(
     current_user: User = Depends(require_main_admin_user),
 ) -> Dict[str, Any]:
     await ainvalidate_manga_caches(getattr(request.app.state, "redis", None))
-    log_admin_action(db, request, current_user, "CACHE_CLEAR", "cache", "manga", "success")
-    return {"success": True, "message": "Catalogue caches cleared. Pages will refresh on next load."}
+    from ...utils.bounded_threadpool import run_in_db_threadpool
+
+    def _work():
+        log_admin_action(db, request, current_user, "CACHE_CLEAR", "cache", "manga", "success")
+        return {"success": True, "message": "Catalogue caches cleared. Pages will refresh on next load."}
+
+    return await run_in_db_threadpool(_work)
 
 
 class ConfirmPayload(BaseModel):
@@ -483,18 +488,28 @@ async def delete_all_manga(
 
     if not is_main_admin(current_user):
         raise ApiError(ErrorCode.FORBIDDEN, "Only the main administrator can do this.")
-    count = db.query(func.count(Manga.id)).scalar() or 0
-    for manga in db.query(Manga).all():
-        db.delete(manga)
-    db.commit()
-    from ...services import page_image_service
+    from ...utils.bounded_threadpool import run_in_db_threadpool
 
-    page_image_service.delete_all_files()
+    def _purge() -> int:
+        count = db.query(func.count(Manga.id)).scalar() or 0
+        for manga in db.query(Manga).all():
+            db.delete(manga)
+        db.commit()
+        from ...services import page_image_service
+
+        page_image_service.delete_all_files()
+        return count
+
+    count = await run_in_db_threadpool(_purge)
     await ainvalidate_manga_caches(getattr(request.app.state, "redis", None))
-    log_admin_action(
-        db, request, current_user, "CATALOG_PURGE", "manga", "*", "success", previous_value=str(count)
-    )
-    return {"success": True, "deleted": int(count), "message": f"Deleted {count} series and all their chapters."}
+
+    def _work():
+        log_admin_action(
+            db, request, current_user, "CATALOG_PURGE", "manga", "*", "success", previous_value=str(count)
+        )
+        return {"success": True, "deleted": int(count), "message": f"Deleted {count} series and all their chapters."}
+
+    return await run_in_db_threadpool(_work)
 
 
 @router.post("/admin/maintenance/purge-all-images")
@@ -507,16 +522,25 @@ async def purge_all_images(
     URLs are untouched, so chapters stay readable."""
 
     from ...models import OcrCache, TranslationCache
+    from ...utils.bounded_threadpool import run_in_db_threadpool
 
-    ocr = db.query(OcrCache).delete(synchronize_session=False)
-    translations = db.query(TranslationCache).delete(synchronize_session=False)
-    db.commit()
+    def _purge() -> tuple:
+        ocr = db.query(OcrCache).delete(synchronize_session=False)
+        translations = db.query(TranslationCache).delete(synchronize_session=False)
+        db.commit()
+        return ocr, translations
+
+    ocr, translations = await run_in_db_threadpool(_purge)
     await ainvalidate_manga_caches(getattr(request.app.state, "redis", None))
-    log_admin_action(db, request, current_user, "IMAGE_CACHE_PURGE", "cache", "images", "success")
-    return {
-        "success": True,
-        "message": f"Purged {ocr} cached OCR results and {translations} cached translations.",
-    }
+
+    def _work():
+        log_admin_action(db, request, current_user, "IMAGE_CACHE_PURGE", "cache", "images", "success")
+        return {
+            "success": True,
+            "message": f"Purged {ocr} cached OCR results and {translations} cached translations.",
+        }
+
+    return await run_in_db_threadpool(_work)
 
 
 # ---------------------------------------------------------------------------
@@ -1140,27 +1164,38 @@ async def update_series_schedule(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission("edit_series")),
 ) -> Dict[str, Any]:
-    manga = db.get(Manga, manga_id)
-    if manga is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Series not found")
-    job_id = apply_schedule(db, manga, payload, current_user)
-    db.commit()
-    db.refresh(manga)
-    if job_id is not None:
-        from ...tasks.scraper_tasks import process_manga_scrape
+    from ...utils.bounded_threadpool import run_in_db_threadpool
 
-        process_manga_scrape.delay(job_id)
+    def _apply():
+        manga = db.get(Manga, manga_id)
+        if manga is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Series not found")
+        job_id = apply_schedule(db, manga, payload, current_user)
+        db.commit()
+        db.refresh(manga)
+        if job_id is not None:
+            from ...tasks.scraper_tasks import process_manga_scrape
+
+            process_manga_scrape.delay(job_id)
+        return manga
+
+    manga = await run_in_db_threadpool(_apply)
     await ainvalidate_manga_caches(getattr(request.app.state, "redis", None), manga_id)
-    log_admin_action(db, request, current_user, "SERIES_SCHEDULE", "series", str(manga_id), "success")
-    data = manga.to_dict()
-    return {
-        "success": True,
-        "manga": data,
-        "message": (
-            f"Scrape timer updated: every {data.get('scrape_interval_value')} "
-            f"{data.get('scrape_interval_unit')}. Next check {data.get('next_scrape_at') or 'paused'}."
-        ),
-    }
+    from ...utils.bounded_threadpool import run_in_db_threadpool
+
+    def _work():
+        log_admin_action(db, request, current_user, "SERIES_SCHEDULE", "series", str(manga_id), "success")
+        data = manga.to_dict()
+        return {
+            "success": True,
+            "manga": data,
+            "message": (
+                f"Scrape timer updated: every {data.get('scrape_interval_value')} "
+                f"{data.get('scrape_interval_unit')}. Next check {data.get('next_scrape_at') or 'paused'}."
+            ),
+        }
+
+    return await run_in_db_threadpool(_work)
 
 
 class BatchSchedulePayload(SchedulePayload):
@@ -1174,15 +1209,26 @@ async def batch_series_schedule(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission("edit_series")),
 ) -> Dict[str, Any]:
-    updated = 0
-    per_series = SchedulePayload(**payload.model_dump(exclude={"manga_ids", "source_url"}))
-    for manga in db.query(Manga).filter(Manga.id.in_(payload.manga_ids or [0])):
-        apply_schedule(db, manga, per_series, current_user)
-        updated += 1
-    db.commit()
+    from ...utils.bounded_threadpool import run_in_db_threadpool
+
+    def _apply():
+        updated = 0
+        per_series = SchedulePayload(**payload.model_dump(exclude={"manga_ids", "source_url"}))
+        for manga in db.query(Manga).filter(Manga.id.in_(payload.manga_ids or [0])):
+            apply_schedule(db, manga, per_series, current_user)
+            updated += 1
+        db.commit()
+        return updated
+
+    updated = await run_in_db_threadpool(_apply)
     await ainvalidate_manga_caches(getattr(request.app.state, "redis", None))
-    log_admin_action(db, request, current_user, "SERIES_SCHEDULE_BATCH", "series", ",".join(map(str, payload.manga_ids[:50])), "success")
-    return {"success": True, "updated": updated}
+    from ...utils.bounded_threadpool import run_in_db_threadpool
+
+    def _work():
+        log_admin_action(db, request, current_user, "SERIES_SCHEDULE_BATCH", "series", ",".join(map(str, payload.manga_ids[:50])), "success")
+        return {"success": True, "updated": updated}
+
+    return await run_in_db_threadpool(_work)
 
 
 @router.delete("/admin/chapters/{chapter_id}/pages/{page_index}")
@@ -1193,27 +1239,38 @@ async def delete_chapter_page(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission("edit_series")),
 ) -> Dict[str, Any]:
-    chapter = db.get(Chapter, chapter_id)
-    if chapter is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Chapter not found")
-    pages = list(chapter.pages or [])
-    if page_index < 0 or page_index >= len(pages):
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Page not found")
-    removed = pages.pop(page_index)
-    chapter.pages = pages
-    # The stored list is now the truth; a later re-mirror must not bring the
-    # deleted page back from the source list.
-    chapter.source_pages = None
-    db.commit()
-    from ...services import page_image_service
+    from ...utils.bounded_threadpool import run_in_db_threadpool
 
-    page_image_service.delete_page_file(str(removed))
+    def _apply():
+        chapter = db.get(Chapter, chapter_id)
+        if chapter is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Chapter not found")
+        pages = list(chapter.pages or [])
+        if page_index < 0 or page_index >= len(pages):
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Page not found")
+        removed = pages.pop(page_index)
+        chapter.pages = pages
+        # The stored list is now the truth; a later re-mirror must not bring the
+        # deleted page back from the source list.
+        chapter.source_pages = None
+        db.commit()
+        from ...services import page_image_service
+
+        page_image_service.delete_page_file(str(removed))
+        return chapter, pages, removed
+
+    chapter, pages, removed = await run_in_db_threadpool(_apply)
     await ainvalidate_manga_caches(getattr(request.app.state, "redis", None), chapter.manga_id)
-    log_admin_action(
-        db, request, current_user, "CHAPTER_PAGE_DELETE", "chapter", str(chapter_id), "success",
-        previous_value=str(removed)[:500],
-    )
-    return {"success": True, "pages": len(pages)}
+    from ...utils.bounded_threadpool import run_in_db_threadpool
+
+    def _work():
+        log_admin_action(
+            db, request, current_user, "CHAPTER_PAGE_DELETE", "chapter", str(chapter_id), "success",
+            previous_value=str(removed)[:500],
+        )
+        return {"success": True, "pages": len(pages)}
+
+    return await run_in_db_threadpool(_work)
 
 
 class LayoutPayload(BaseModel):
@@ -1239,53 +1296,64 @@ async def update_series_layout(
     from ...services.chapter_grouping import normalize_layout
     from ...tasks.scraper_tasks import mirror_series_pages
 
-    manga = db.get(Manga, series_id)
-    if manga is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Series not found")
-    from ...services.series_import import normalize_text_language
+    from ...utils.bounded_threadpool import run_in_db_threadpool
 
-    if payload.text_language is not None:
-        manga.language = normalize_text_language(payload.text_language)
+    def _apply():
+        manga = db.get(Manga, series_id)
+        if manga is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Series not found")
+        from ...services.series_import import normalize_text_language
 
-    changes = {}
-    if payload.split_spreads is not None:
-        changes["split_spreads"] = payload.split_spreads
-    if payload.spread_mode:
-        changes["spread_mode"] = payload.spread_mode
-    if payload.reading_direction:
-        changes["reading_direction"] = payload.reading_direction
-    previous = normalize_layout(manga.scrape_layout)
-    merged = {**previous, **normalize_layout(changes)}
-    manga.scrape_layout = merged or None
-    rebuilt = 0
-    # Only re-split the pictures when the split itself changed; a text
-    # language change alone needs no image work.
-    if merged != previous:
-        for chapter in db.query(Chapter).filter(Chapter.manga_id == manga.id).all():
-            if chapter.source_pages:
-                chapter.pages = list(chapter.source_pages)
-                chapter.source_pages = None
-                chapter.pages_bytes = None
-                rebuilt += 1
-    db.commit()
-    if rebuilt:
-        mirror_series_pages.delay(manga.id)
+        if payload.text_language is not None:
+            manga.language = normalize_text_language(payload.text_language)
+
+        changes = {}
+        if payload.split_spreads is not None:
+            changes["split_spreads"] = payload.split_spreads
+        if payload.spread_mode:
+            changes["spread_mode"] = payload.spread_mode
+        if payload.reading_direction:
+            changes["reading_direction"] = payload.reading_direction
+        previous = normalize_layout(manga.scrape_layout)
+        merged = {**previous, **normalize_layout(changes)}
+        manga.scrape_layout = merged or None
+        rebuilt = 0
+        # Only re-split the pictures when the split itself changed; a text
+        # language change alone needs no image work.
+        if merged != previous:
+            for chapter in db.query(Chapter).filter(Chapter.manga_id == manga.id).all():
+                if chapter.source_pages:
+                    chapter.pages = list(chapter.source_pages)
+                    chapter.source_pages = None
+                    chapter.pages_bytes = None
+                    rebuilt += 1
+        db.commit()
+        if rebuilt:
+            mirror_series_pages.delay(manga.id)
+        return manga, merged, rebuilt
+
+    manga, merged, rebuilt = await run_in_db_threadpool(_apply)
     await ainvalidate_manga_caches(getattr(request.app.state, "redis", None), manga.id)
-    return {
-        "success": True,
-        "layout": merged,
-        "text_language": manga.language,
-        "chapters_rebuilding": rebuilt,
-        "message": (
-            f"Layout saved; re-compressing {rebuilt} chapters in the background."
-            if rebuilt
-            else "Saved."
-        ),
-    }
+    from ...utils.bounded_threadpool import run_in_db_threadpool
+
+    def _work():
+        return {
+            "success": True,
+            "layout": merged,
+            "text_language": manga.language,
+            "chapters_rebuilding": rebuilt,
+            "message": (
+                f"Layout saved; re-compressing {rebuilt} chapters in the background."
+                if rebuilt
+                else "Saved."
+            ),
+        }
+
+    return await run_in_db_threadpool(_work)
 
 
 @router.post("/admin/series/{series_id}/mirror-images")
-async def mirror_series_images(
+def mirror_series_images(
     series_id: int,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission("edit_series")),
@@ -1313,7 +1381,7 @@ async def mirror_series_images(
 
 
 @router.get("/admin/sources/health")
-async def source_health(
+def source_health(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission("edit_series")),
 ) -> Dict[str, Any]:
@@ -1325,7 +1393,7 @@ async def source_health(
 
 
 @router.get("/admin/storage")
-async def storage_usage(
+def storage_usage(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission("edit_series")),
 ) -> Dict[str, Any]:
@@ -1337,7 +1405,7 @@ async def storage_usage(
 
 
 @router.post("/admin/maintenance/mirror-all-images")
-async def mirror_all_images(
+def mirror_all_images(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_main_admin_user),
 ) -> Dict[str, Any]:

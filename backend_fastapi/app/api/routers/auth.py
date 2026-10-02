@@ -284,44 +284,49 @@ async def request_magic_link(
         request, f"magic_link_email:{email}", limit=3, window_seconds=3600
     )
 
-    from ...core.test_mode import test_mode_active
+    from ...utils.bounded_threadpool import run_in_db_threadpool
 
-    # Test-only convenience: return/consume the token without an email round
-    # trip. Gated on the deployment env, never on the raw flag — in production
-    # this is always False, so no token ever leaves in the response body.
-    testing = test_mode_active()
+    def _work():
+        from ...core.test_mode import test_mode_active
 
-    # Disposable-email rule (SRS 1D.2 / 1D.1A.5): the check runs BEFORE anything
-    # is sent, and never as a bypass. A blocked domain receives no link and the
-    # SAME non-enumerating confirmation screen — no account is created.
-    from ...services.disposable_email import is_disposable_domain
+        # Test-only convenience: return/consume the token without an email round
+        # trip. Gated on the deployment env, never on the raw flag — in production
+        # this is always False, so no token ever leaves in the response body.
+        testing = test_mode_active()
 
-    if is_disposable_domain(email):
-        logger.info("magic_link_blocked_disposable_domain")
-        return MagicLinkResponse(message="magic_link_sent", debug_token=None)
+        # Disposable-email rule (SRS 1D.2 / 1D.1A.5): the check runs BEFORE anything
+        # is sent, and never as a bypass. A blocked domain receives no link and the
+        # SAME non-enumerating confirmation screen — no account is created.
+        from ...services.disposable_email import is_disposable_domain
 
-    from ...services.auth_service import get_user_by_email
-    from ...services.site_content_service import registration_open
+        if is_disposable_domain(email):
+            logger.info("magic_link_blocked_disposable_domain")
+            return MagicLinkResponse(message="magic_link_sent", debug_token=None)
 
-    if not registration_open(db) and get_user_by_email(db, email) is None:
-        # Registration is closed: no account is created and no link is sent,
-        # behind the same non-enumerating confirmation.
-        logger.info("magic_link_blocked_registration_closed")
-        return MagicLinkResponse(message="magic_link_sent", debug_token=None)
+        from ...services.auth_service import get_user_by_email
+        from ...services.site_content_service import registration_open
 
-    user = ensure_magic_link_user(db, email)
-    _token_record, magic_token = create_magic_login_token(db, user)
+        if not registration_open(db) and get_user_by_email(db, email) is None:
+            # Registration is closed: no account is created and no link is sent,
+            # behind the same non-enumerating confirmation.
+            logger.info("magic_link_blocked_registration_closed")
+            return MagicLinkResponse(message="magic_link_sent", debug_token=None)
 
-    from ...tasks.email_tasks import send_magic_link_email
+        user = ensure_magic_link_user(db, email)
+        _token_record, magic_token = create_magic_login_token(db, user)
 
-    if not testing:
-        magic_link = f"{_frontend_base_url()}/magic-link/{magic_token}"
-        send_magic_link_email.delay(email=email, magic_link=magic_link)
+        from ...tasks.email_tasks import send_magic_link_email
 
-    return MagicLinkResponse(
-        message="magic_link_sent",
-        debug_token=magic_token if testing else None,
-    )
+        if not testing:
+            magic_link = f"{_frontend_base_url()}/magic-link/{magic_token}"
+            send_magic_link_email.delay(email=email, magic_link=magic_link)
+
+        return MagicLinkResponse(
+            message="magic_link_sent",
+            debug_token=magic_token if testing else None,
+        )
+
+    return await run_in_db_threadpool(_work)
 
 
 @router.post("/magic/request", response_model=MagicLinkResponse)
@@ -372,13 +377,18 @@ async def consume_magic_link(
         window_seconds=3600,
     )
 
-    try:
-        payload = ctrl_consume_magic_link(db, token)
-    except HTTPException as exc:
-        _raise_magic_link_error(exc)
-    response = JSONResponse(payload)
-    _set_auth_cookies(response, db, payload["access_token"], payload["refresh_token"])
-    return response
+    from ...utils.bounded_threadpool import run_in_db_threadpool
+
+    def _work():
+        try:
+            payload = ctrl_consume_magic_link(db, token)
+        except HTTPException as exc:
+            _raise_magic_link_error(exc)
+        response = JSONResponse(payload)
+        _set_auth_cookies(response, db, payload["access_token"], payload["refresh_token"])
+        return response
+
+    return await run_in_db_threadpool(_work)
 
 
 @router.get("/magic/verify")
@@ -394,10 +404,15 @@ async def verify_magic_link(
         window_seconds=3600,
     )
 
-    try:
-        return ctrl_consume_magic_link(db, token)
-    except HTTPException as exc:
-        _raise_magic_link_error(exc)
+    from ...utils.bounded_threadpool import run_in_db_threadpool
+
+    def _work():
+        try:
+            return ctrl_consume_magic_link(db, token)
+        except HTTPException as exc:
+            _raise_magic_link_error(exc)
+
+    return await run_in_db_threadpool(_work)
 
 
 @router.post("/logout")

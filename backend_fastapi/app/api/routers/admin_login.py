@@ -131,7 +131,9 @@ async def admin_login(
     payload: AdminLoginPayload,
     db: Session = Depends(get_db),
 ) -> Dict[str, Any]:
-    if not setup_page_open(db):
+    from ...utils.bounded_threadpool import run_in_db_threadpool, run_in_heavy_threadpool
+
+    if not await run_in_db_threadpool(setup_page_open, db):
         raise _gone()
     client = resolve_client_ip(request)
     await async_endpoint_limiter.check_limit(
@@ -143,12 +145,13 @@ async def admin_login(
 
     # Both checks always run, so a wrong e-mail and a wrong password take the
     # same time and get the same answer.
-    email_ok = is_configured_main_admin_email(payload.email)
-    password_ok = verify_main_admin_password(payload.password)
+    # The password hash check is deliberately slow CPU work: off the event loop.
+    email_ok = await run_in_heavy_threadpool(is_configured_main_admin_email, payload.email)
+    password_ok = await run_in_heavy_threadpool(verify_main_admin_password, payload.password)
     if not (email_ok and password_ok):
         raise ApiError(ErrorCode.UNAUTHENTICATED, _WRONG)
 
-    user = ensure_magic_link_user(db, normalize_email(payload.email))
+    user = await run_in_db_threadpool(ensure_magic_link_user, db, normalize_email(payload.email))
     if not getattr(user, "is_active", True):
         raise ApiError(ErrorCode.FORBIDDEN, "This account is not active.")
 
@@ -160,12 +163,14 @@ async def admin_login(
         await async_endpoint_limiter.check_limit(
             request, f"admin_2fa_user:{user.id}", limit=10, window_seconds=600
         )
-        if not second_factor.verify_user_code(db, user, code, enabled_only=True):
+        if not await run_in_db_threadpool(
+            second_factor.verify_user_code, db, user, code, enabled_only=True
+        ):
             raise ApiError(ErrorCode.UNAUTHENTICATED, _WRONG, field="code")
     else:
         if not code:
             # First sign-in: enrol the authenticator before any session exists.
-            secret = second_factor.start_enrolment(db, user)
+            secret = await run_in_db_threadpool(second_factor.start_enrolment, db, user)
             return {
                 "step": "enrol",
                 "secret": secret,
@@ -174,21 +179,24 @@ async def admin_login(
         await async_endpoint_limiter.check_limit(
             request, f"admin_2fa_user:{user.id}", limit=10, window_seconds=600
         )
-        if not second_factor.enable(db, user, code):
+        if not await run_in_db_threadpool(second_factor.enable, db, user, code):
             raise ApiError(ErrorCode.UNAUTHENTICATED, _WRONG, field="code")
 
     # Single use: from here on the page is gone (404) for this password.
-    if not _burn_password(db):  # lost a race with another sign-in
-        raise _gone()
-    if _promote(user):
-        db.commit()
-    db.refresh(user)
-    log_admin_action(db, request, user, "ADMIN_SIGN_IN", "user", str(user.id), "success")
+    def _work():
+        if not _burn_password(db):  # lost a race with another sign-in
+            raise _gone()
+        if _promote(user):
+            db.commit()
+        db.refresh(user)
+        log_admin_action(db, request, user, "ADMIN_SIGN_IN", "user", str(user.id), "success")
 
-    pair = issue_tokens_for_user(user, db)
-    _set_auth_cookies(response, db, pair.access_token, pair.refresh_token)
-    _set_step_up_cookie(response, user)
-    return {"step": "done"}
+        pair = issue_tokens_for_user(user, db)
+        _set_auth_cookies(response, db, pair.access_token, pair.refresh_token)
+        _set_step_up_cookie(response, user)
+        return {"step": "done"}
+
+    return await run_in_db_threadpool(_work)
 
 
 __all__ = ["router"]

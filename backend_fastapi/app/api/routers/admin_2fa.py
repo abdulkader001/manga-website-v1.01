@@ -136,12 +136,17 @@ async def two_factor_enable(
 ) -> Dict[str, Any]:
     _managed_by_admin_sign_in(user)
     await _limit_codes(request, user)
-    if not second_factor.enable(db, user, payload.code):
-        raise ApiError(ErrorCode.VALIDATION_FAILED, "That code is not valid.", field="code")
-    log_admin_action(db, request, user, "ADMIN_2FA_ENABLE", "user", str(user.id), "success")
-    # The admin just proved possession of the device, so start unlocked.
-    _set_step_up_cookie(response, user)
-    return {"enabled": True, "unlocked": True}
+    from ...utils.bounded_threadpool import run_in_db_threadpool
+
+    def _work():
+        if not second_factor.enable(db, user, payload.code):
+            raise ApiError(ErrorCode.VALIDATION_FAILED, "That code is not valid.", field="code")
+        log_admin_action(db, request, user, "ADMIN_2FA_ENABLE", "user", str(user.id), "success")
+        # The admin just proved possession of the device, so start unlocked.
+        _set_step_up_cookie(response, user)
+        return {"enabled": True, "unlocked": True}
+
+    return await run_in_db_threadpool(_work)
 
 
 @router.post("/verify")
@@ -153,13 +158,18 @@ async def two_factor_verify(
     db: Session = Depends(get_db),
 ) -> Dict[str, Any]:
     await _limit_codes(request, user)
-    if not second_factor.verify_user_code(db, user, payload.code, enabled_only=True):
-        log_admin_action(
-            db, request, user, "ADMIN_2FA_VERIFY", "user", str(user.id), "invalid_code"
-        )
-        raise ApiError(ErrorCode.VALIDATION_FAILED, "That code is not valid.", field="code")
-    _set_step_up_cookie(response, user)
-    return {"enabled": True, "unlocked": True}
+    from ...utils.bounded_threadpool import run_in_db_threadpool
+
+    def _work():
+        if not second_factor.verify_user_code(db, user, payload.code, enabled_only=True):
+            log_admin_action(
+                db, request, user, "ADMIN_2FA_VERIFY", "user", str(user.id), "invalid_code"
+            )
+            raise ApiError(ErrorCode.VALIDATION_FAILED, "That code is not valid.", field="code")
+        _set_step_up_cookie(response, user)
+        return {"enabled": True, "unlocked": True}
+
+    return await run_in_db_threadpool(_work)
 
 
 @router.post("/disable")
@@ -172,9 +182,14 @@ async def two_factor_disable(
 ) -> Dict[str, Any]:
     _managed_by_admin_sign_in(user)
     await _limit_codes(request, user)
-    if not second_factor.verify_user_code(db, user, payload.code, enabled_only=True):
-        raise ApiError(ErrorCode.VALIDATION_FAILED, "That code is not valid.", field="code")
-    second_factor.disable(db, user)
-    log_admin_action(db, request, user, "ADMIN_2FA_DISABLE", "user", str(user.id), "success")
-    response.delete_cookie(second_factor.STEP_UP_COOKIE)
-    return {"enabled": False, "unlocked": False}
+    from ...utils.bounded_threadpool import run_in_db_threadpool
+
+    def _work():
+        if not second_factor.verify_user_code(db, user, payload.code, enabled_only=True):
+            raise ApiError(ErrorCode.VALIDATION_FAILED, "That code is not valid.", field="code")
+        second_factor.disable(db, user)
+        log_admin_action(db, request, user, "ADMIN_2FA_DISABLE", "user", str(user.id), "success")
+        response.delete_cookie(second_factor.STEP_UP_COOKIE)
+        return {"enabled": False, "unlocked": False}
+
+    return await run_in_db_threadpool(_work)

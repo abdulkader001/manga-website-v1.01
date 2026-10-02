@@ -248,7 +248,11 @@ async def test_integration(
     if service not in SUPPORTED_SERVICES:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="invalid_service")
 
-    config = user_provider_config(db, current_user, service, vault=_vault(request))
+    from ...utils.bounded_threadpool import run_in_db_threadpool
+
+    config = await run_in_db_threadpool(
+        user_provider_config, db, current_user, service, vault=_vault(request)
+    )
     if not config:
         return {"success": False, "message": "Save this provider first, then test it."}
 
@@ -270,8 +274,13 @@ async def test_integration(
         else:
             message = f"Connection failed: {str(exc)[:200]}"
         return {"success": False, "message": message}
-    return {
-        "success": True,
-        "message": detail,
-        "latencyMs": int((time.monotonic() - started) * 1000),
-    }
+    from ...utils.bounded_threadpool import run_in_db_threadpool
+
+    def _work():
+        return {
+            "success": True,
+            "message": detail,
+            "latencyMs": int((time.monotonic() - started) * 1000),
+        }
+
+    return await run_in_db_threadpool(_work)

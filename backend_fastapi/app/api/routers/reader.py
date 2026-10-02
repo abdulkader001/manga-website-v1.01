@@ -83,35 +83,43 @@ async def rate_manga(
     await async_endpoint_limiter.check_limit(
         request, f"rate_manga:{current_user.id}", limit=60, window_seconds=3600
     )
-    if db.get(Manga, manga_id) is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Manga not found")
+    from ...utils.bounded_threadpool import run_in_db_threadpool
 
-    row = (
-        db.query(MangaRating)
-        .filter(MangaRating.manga_id == manga_id, MangaRating.user_id == current_user.id)
-        .first()
-    )
-    if row is None:
-        db.add(MangaRating(manga_id=manga_id, user_id=current_user.id, score=payload.rating))
-    else:
-        row.score = payload.rating
-    try:
-        db.commit()
-    except IntegrityError:
-        db.rollback()
-        db.query(MangaRating).filter(
-            MangaRating.manga_id == manga_id, MangaRating.user_id == current_user.id
-        ).update({MangaRating.score: payload.rating})
-        db.commit()
+    def _save() -> None:
+        if db.get(Manga, manga_id) is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Manga not found")
+
+        row = (
+            db.query(MangaRating)
+            .filter(MangaRating.manga_id == manga_id, MangaRating.user_id == current_user.id)
+            .first()
+        )
+        if row is None:
+            db.add(MangaRating(manga_id=manga_id, user_id=current_user.id, score=payload.rating))
+        else:
+            row.score = payload.rating
+        try:
+            db.commit()
+        except IntegrityError:
+            db.rollback()
+            db.query(MangaRating).filter(
+                MangaRating.manga_id == manga_id, MangaRating.user_id == current_user.id
+            ).update({MangaRating.score: payload.rating})
+            db.commit()
+
+    await run_in_db_threadpool(_save)
     await ainvalidate_manga_caches(getattr(request.app.state, "redis", None), manga_id)
 
-    summary = _rating_summary(db, manga_id)
-    return {
-        "success": True,
-        "user_rating": payload.rating,
-        **summary,
-        "message": f"You rated {payload.rating} / 10!",
-    }
+    def _work():
+        summary = _rating_summary(db, manga_id)
+        return {
+            "success": True,
+            "user_rating": payload.rating,
+            **summary,
+            "message": f"You rated {payload.rating} / 10!",
+        }
+
+    return await run_in_db_threadpool(_work)
 
 
 @router.post("/chapters/{chapter_id}/like")
@@ -124,32 +132,37 @@ async def toggle_chapter_like(
     await async_endpoint_limiter.check_limit(
         request, f"like_chapter:{current_user.id}", limit=300, window_seconds=3600
     )
-    if db.get(Chapter, chapter_id) is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Chapter not found")
+    from ...utils.bounded_threadpool import run_in_db_threadpool
 
-    existing = (
-        db.query(ChapterLike)
-        .filter(ChapterLike.chapter_id == chapter_id, ChapterLike.user_id == current_user.id)
-        .first()
-    )
-    if existing is not None:
-        db.delete(existing)
-        liked = False
-    else:
-        db.add(ChapterLike(chapter_id=chapter_id, user_id=current_user.id))
-        liked = True
-    try:
-        db.commit()
-    except IntegrityError:
-        db.rollback()
-        liked = True
-    likes = (
-        db.query(func.count(ChapterLike.id))
-        .filter(ChapterLike.chapter_id == chapter_id)
-        .scalar()
-        or 0
-    )
-    return {"success": True, "liked": liked, "likes": int(likes)}
+    def _work():
+        if db.get(Chapter, chapter_id) is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Chapter not found")
+
+        existing = (
+            db.query(ChapterLike)
+            .filter(ChapterLike.chapter_id == chapter_id, ChapterLike.user_id == current_user.id)
+            .first()
+        )
+        if existing is not None:
+            db.delete(existing)
+            liked = False
+        else:
+            db.add(ChapterLike(chapter_id=chapter_id, user_id=current_user.id))
+            liked = True
+        try:
+            db.commit()
+        except IntegrityError:
+            db.rollback()
+            liked = True
+        likes = (
+            db.query(func.count(ChapterLike.id))
+            .filter(ChapterLike.chapter_id == chapter_id)
+            .scalar()
+            or 0
+        )
+        return {"success": True, "liked": liked, "likes": int(likes)}
+
+    return await run_in_db_threadpool(_work)
 
 
 # ---------------------------------------------------------------------------
@@ -195,54 +208,59 @@ async def report_chapter(
     await async_endpoint_limiter.check_limit(
         request, f"report_chapter:{current_user.id}", limit=20, window_seconds=3600
     )
-    chapter = db.get(Chapter, chapter_id)
-    if chapter is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Chapter not found")
+    from ...utils.bounded_threadpool import run_in_db_threadpool
 
-    report_type = payload.report_type if payload.report_type in REPORT_TYPES else "Other"
-    details = (payload.details or "").strip() or None
+    def _work():
+        chapter = db.get(Chapter, chapter_id)
+        if chapter is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Chapter not found")
 
-    duplicate = (
-        db.query(ChapterReport)
-        .filter(
-            ChapterReport.chapter_id == chapter_id,
-            ChapterReport.user_id == current_user.id,
-            ChapterReport.status == "open",
+        report_type = payload.report_type if payload.report_type in REPORT_TYPES else "Other"
+        details = (payload.details or "").strip() or None
+
+        duplicate = (
+            db.query(ChapterReport)
+            .filter(
+                ChapterReport.chapter_id == chapter_id,
+                ChapterReport.user_id == current_user.id,
+                ChapterReport.status == "open",
+            )
+            .first()
         )
-        .first()
-    )
-    if duplicate is not None:
-        duplicate.report_type = report_type
-        duplicate.details = details
-        report = duplicate
-    else:
-        report = ChapterReport(
-            chapter_id=chapter_id,
-            manga_id=chapter.manga_id,
-            user_id=current_user.id,
-            report_type=report_type,
-            details=details,
+        if duplicate is not None:
+            duplicate.report_type = report_type
+            duplicate.details = details
+            report = duplicate
+        else:
+            report = ChapterReport(
+                chapter_id=chapter_id,
+                manga_id=chapter.manga_id,
+                user_id=current_user.id,
+                report_type=report_type,
+                details=details,
+            )
+            db.add(report)
+        db.commit()
+        db.refresh(report)
+
+        from ...services.notification_service import notify_async
+
+        notify_async(
+            type="chapter.reported",
+            title=f"Chapter report: {report_type}",
+            body=(
+                f"{chapter.manga.title if chapter.manga else 'A series'} — "
+                f"chapter {report_to_dict(report, db)['chapter_number']}: "
+                f"{details or report_type}"
+            ),
+            target_type="chapter",
+            target_id=chapter_id,
+            data={"report_id": report.id, "manga_id": chapter.manga_id},
+            dedup_key=f"chapter_report:{chapter_id}",
         )
-        db.add(report)
-    db.commit()
-    db.refresh(report)
+        return {"success": True, "report": report_to_dict(report, db)}
 
-    from ...services.notification_service import notify_async
-
-    notify_async(
-        type="chapter.reported",
-        title=f"Chapter report: {report_type}",
-        body=(
-            f"{chapter.manga.title if chapter.manga else 'A series'} — "
-            f"chapter {report_to_dict(report, db)['chapter_number']}: "
-            f"{details or report_type}"
-        ),
-        target_type="chapter",
-        target_id=chapter_id,
-        data={"report_id": report.id, "manga_id": chapter.manga_id},
-        dedup_key=f"chapter_report:{chapter_id}",
-    )
-    return {"success": True, "report": report_to_dict(report, db)}
+    return await run_in_db_threadpool(_work)
 
 
 @router.get("/chapters/{chapter_id}/reports")
@@ -346,48 +364,53 @@ async def import_bookmarks(
     await async_endpoint_limiter.check_limit(
         request, f"bookmark_import:{current_user.id}", limit=10, window_seconds=3600
     )
-    wanted: set[tuple[int, Optional[int]]] = set()
-    for entry in payload.bookmarks:
-        manga_id = entry.get("manga_id", entry.get("mangaId"))
-        chapter_id = entry.get("chapter_id", entry.get("chapterId"))
-        try:
-            manga_id = int(manga_id)
-            chapter_id = int(chapter_id) if chapter_id not in (None, "") else None
-        except (TypeError, ValueError):
-            continue
-        wanted.add((manga_id, chapter_id))
+    from ...utils.bounded_threadpool import run_in_db_threadpool
 
-    if not wanted:
-        return {"success": True, "imported": 0, "skipped": 0}
+    def _work():
+        wanted: set[tuple[int, Optional[int]]] = set()
+        for entry in payload.bookmarks:
+            manga_id = entry.get("manga_id", entry.get("mangaId"))
+            chapter_id = entry.get("chapter_id", entry.get("chapterId"))
+            try:
+                manga_id = int(manga_id)
+                chapter_id = int(chapter_id) if chapter_id not in (None, "") else None
+            except (TypeError, ValueError):
+                continue
+            wanted.add((manga_id, chapter_id))
 
-    manga_ids = {m for m, _ in wanted}
-    existing_manga = {
-        row[0] for row in db.query(Manga.id).filter(Manga.id.in_(manga_ids))
-    }
-    chapter_ids = {c for _, c in wanted if c is not None}
-    valid_chapters = {
-        (row.id, row.manga_id)
-        for row in db.query(Chapter.id, Chapter.manga_id).filter(Chapter.id.in_(chapter_ids or {0}))
-    }
-    already = {
-        (row.manga_id, row.chapter_id)
-        for row in db.query(Bookmark.manga_id, Bookmark.chapter_id).filter(
-            Bookmark.user_id == current_user.id
-        )
-    }
+        if not wanted:
+            return {"success": True, "imported": 0, "skipped": 0}
 
-    imported = 0
-    for manga_id, chapter_id in wanted:
-        if manga_id not in existing_manga:
-            continue
-        if chapter_id is not None and (chapter_id, manga_id) not in valid_chapters:
-            continue
-        if (manga_id, chapter_id) in already:
-            continue
-        db.add(Bookmark(user_id=current_user.id, manga_id=manga_id, chapter_id=chapter_id))
-        imported += 1
-    db.commit()
-    return {"success": True, "imported": imported, "skipped": len(wanted) - imported}
+        manga_ids = {m for m, _ in wanted}
+        existing_manga = {
+            row[0] for row in db.query(Manga.id).filter(Manga.id.in_(manga_ids))
+        }
+        chapter_ids = {c for _, c in wanted if c is not None}
+        valid_chapters = {
+            (row.id, row.manga_id)
+            for row in db.query(Chapter.id, Chapter.manga_id).filter(Chapter.id.in_(chapter_ids or {0}))
+        }
+        already = {
+            (row.manga_id, row.chapter_id)
+            for row in db.query(Bookmark.manga_id, Bookmark.chapter_id).filter(
+                Bookmark.user_id == current_user.id
+            )
+        }
+
+        imported = 0
+        for manga_id, chapter_id in wanted:
+            if manga_id not in existing_manga:
+                continue
+            if chapter_id is not None and (chapter_id, manga_id) not in valid_chapters:
+                continue
+            if (manga_id, chapter_id) in already:
+                continue
+            db.add(Bookmark(user_id=current_user.id, manga_id=manga_id, chapter_id=chapter_id))
+            imported += 1
+        db.commit()
+        return {"success": True, "imported": imported, "skipped": len(wanted) - imported}
+
+    return await run_in_db_threadpool(_work)
 
 
 # ---------------------------------------------------------------------------

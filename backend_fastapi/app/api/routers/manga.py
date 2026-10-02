@@ -121,7 +121,9 @@ async def _list_manga_impl(
         payload["cache_hit"] = True
     # The cached payload is shared between viewers: work on a copy.
     payload = {**payload, "items": [dict(i) for i in payload.get("items") or []]}
-    catalogue_service.apply_viewer_fields(db, payload["items"], user)
+    from backend_fastapi.app.utils.bounded_threadpool import run_in_db_threadpool
+
+    await run_in_db_threadpool(catalogue_service.apply_viewer_fields, db, payload["items"], user)
     return payload
 
 
@@ -283,7 +285,9 @@ async def get_manga_detail(
         celery_task_kwargs={"cache_key": cache_key, "ttl": 60, "manga_id": manga_id},
     )
     payload = dict(payload)
-    catalogue_service.apply_viewer_fields(db, [payload], user)
+    from backend_fastapi.app.utils.bounded_threadpool import run_in_db_threadpool
+
+    await run_in_db_threadpool(catalogue_service.apply_viewer_fields, db, [payload], user)
     return payload
 
 

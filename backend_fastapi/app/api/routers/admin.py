@@ -1956,7 +1956,9 @@ async def create_series_by_url(
     from ...utils.bounded_threadpool import run_in_db_threadpool
 
     submitter_id = current_user.id
-    can_approve = has_permission(db, current_user, "approve_website")
+    can_approve = await run_in_db_threadpool(
+        has_permission, db, current_user, "approve_website"
+    )
 
     def _sync_schedule():
         from backend_fastapi.app.core.db import SessionLocal
@@ -1981,14 +1983,19 @@ async def create_series_by_url(
             detail="Series scrape failed",
         ) from exc
 
-    response: Dict[str, Any] = {
-        "message": job.pop("message", "series_scrape_scheduled"),
-        "job": job,
-        "source_url": url,
-    }
-    if provider:
-        response["provider"] = provider
-    return response
+    from ...utils.bounded_threadpool import run_in_db_threadpool
+
+    def _work():
+        response: Dict[str, Any] = {
+            "message": job.pop("message", "series_scrape_scheduled"),
+            "job": job,
+            "source_url": url,
+        }
+        if provider:
+            response["provider"] = provider
+        return response
+
+    return await run_in_db_threadpool(_work)
 
 
 @router.get(

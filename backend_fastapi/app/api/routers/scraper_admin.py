@@ -69,27 +69,32 @@ async def start_preview(
     await async_endpoint_limiter.check_limit(
         request, f"scraper_preview:{current_user.id}", limit=30, window_seconds=600
     )
-    series_url = (payload.url or payload.base_url or "").strip()
-    mu = (payload.mangaupdates_url or "").strip()
-    if not series_url and not mu:
-        raise ApiError(
-            ErrorCode.VALIDATION_FAILED,
-            "Enter a MangaUpdates link and a source series URL to preview.",
-            field="url",
-        )
-    body: Dict[str, Any] = {"base_url": (payload.base_url or "").strip() or None}
-    if series_url:
-        body["url"] = _http_url(series_url, field="url")
-    if mu:
-        from ...services import metadata_sources
+    from ...utils.bounded_threadpool import run_in_db_threadpool
 
-        try:
-            metadata_sources.identity(mu)
-        except metadata_sources.MetadataLinkError as exc:
-            raise ApiError(ErrorCode.VALIDATION_FAILED, str(exc), field="mangaupdates_url")
-        body["mangaupdates_url"] = mu
-    row = _enqueue(db, "preview", current_user.id, body)
-    return {"task_id": row.id, "status": row.status}
+    def _work():
+        series_url = (payload.url or payload.base_url or "").strip()
+        mu = (payload.mangaupdates_url or "").strip()
+        if not series_url and not mu:
+            raise ApiError(
+                ErrorCode.VALIDATION_FAILED,
+                "Enter a MangaUpdates link and a source series URL to preview.",
+                field="url",
+            )
+        body: Dict[str, Any] = {"base_url": (payload.base_url or "").strip() or None}
+        if series_url:
+            body["url"] = _http_url(series_url, field="url")
+        if mu:
+            from ...services import metadata_sources
+
+            try:
+                metadata_sources.identity(mu)
+            except metadata_sources.MetadataLinkError as exc:
+                raise ApiError(ErrorCode.VALIDATION_FAILED, str(exc), field="mangaupdates_url")
+            body["mangaupdates_url"] = mu
+        row = _enqueue(db, "preview", current_user.id, body)
+        return {"task_id": row.id, "status": row.status}
+
+    return await run_in_db_threadpool(_work)
 
 
 class GenerateParserPayload(BaseModel):
@@ -106,8 +111,13 @@ async def start_parser_generation(
     await async_endpoint_limiter.check_limit(
         request, f"scraper_parser_generate:{current_user.id}", limit=15, window_seconds=3600
     )
-    row = _enqueue(db, "parser", current_user.id, {"url": _http_url(payload.url, field="url")})
-    return {"task_id": row.id, "status": row.status}
+    from ...utils.bounded_threadpool import run_in_db_threadpool
+
+    def _work():
+        row = _enqueue(db, "parser", current_user.id, {"url": _http_url(payload.url, field="url")})
+        return {"task_id": row.id, "status": row.status}
+
+    return await run_in_db_threadpool(_work)
 
 
 @router.get("/tasks/{task_id}")
