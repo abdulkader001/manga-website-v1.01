@@ -20,7 +20,7 @@ from fastapi import (
 from fastapi.responses import JSONResponse
 from starlette.concurrency import run_in_threadpool
 from pydantic import BaseModel
-from ...utils.bounded_threadpool import run_in_heavy_threadpool
+from ...utils.bounded_threadpool import run_in_db_threadpool, run_in_heavy_threadpool
 from sqlalchemy.orm import Session
 
 from ...core.db import get_db
@@ -149,7 +149,7 @@ async def extract_text(
         )
 
     ocr_lang = (lang_alt or lang or "").strip() or None
-    provider_config = _resolved_provider_config(request, db, current_user, "ocr")
+    provider_config = await run_in_db_threadpool(_resolved_provider_config, request, db, current_user, "ocr")
     provider_type = "ocr"
     provider_name = (
         provider_config.get("name", "default") if provider_config else "default"
@@ -309,7 +309,7 @@ async def overlay_boxes(
 
     image_bytes = await _fetch_remote_image(image_url, request)
 
-    provider_config = _resolved_provider_config(request, db, current_user, "ocr")
+    provider_config = await run_in_db_threadpool(_resolved_provider_config, request, db, current_user, "ocr")
     ocr_lang = (lang or "").strip() or None
 
     try:
@@ -422,7 +422,7 @@ async def translate_overlay(
 
     image_bytes = await _fetch_remote_image(image_url, request)
 
-    ocr_config = _resolved_provider_config(request, db, current_user, "ocr")
+    ocr_config = await run_in_db_threadpool(_resolved_provider_config, request, db, current_user, "ocr")
     ocr_lang = defaults["ocr_lang"]
     provider_name = ocr_config.get("name", "default") if ocr_config else "default"
 
@@ -445,11 +445,11 @@ async def translate_overlay(
     if not isinstance(metadata, dict):
         metadata = {}
 
-    translation_config = user_provider_config(
-        db, current_user, "translation", vault=integration_vault(request)
+    translation_config = await run_in_db_threadpool(
+        user_provider_config, db, current_user, "translation", vault=integration_vault(request)
     )
-    ai_config = user_provider_config(
-        db, current_user, "ai", vault=integration_vault(request)
+    ai_config = await run_in_db_threadpool(
+        user_provider_config, db, current_user, "ai", vault=integration_vault(request)
     )
     translation_service, provider_config, used_ai = resolve_translation_service(
         request,
@@ -503,7 +503,7 @@ async def translate_upload(
     ocr_lang = (lang_alt or lang or "").strip() or None
     source_override = (source_alt or source or "").strip() or None
 
-    provider_config = _resolved_provider_config(request, db, current_user, "ocr")
+    provider_config = await run_in_db_threadpool(_resolved_provider_config, request, db, current_user, "ocr")
     provider_name = (
         provider_config.get("name", "default") if provider_config else "default"
     )
@@ -531,10 +531,12 @@ async def translate_upload(
     source_lang = source_override or detected_code or "auto"
 
     vault = integration_vault(request)
-    translation_config = user_provider_config(
-        db, current_user, "translation", vault=vault
+    translation_config = await run_in_db_threadpool(
+        user_provider_config, db, current_user, "translation", vault=vault
     )
-    ai_config = user_provider_config(db, current_user, "ai", vault=vault)
+    ai_config = await run_in_db_threadpool(
+        user_provider_config, db, current_user, "ai", vault=vault
+    )
     translation_service, provider_config, used_ai = resolve_translation_service(
         request,
         translation_config,

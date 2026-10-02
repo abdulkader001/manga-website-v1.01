@@ -163,38 +163,52 @@ async def process_chapter_page(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_processing_user),
 ) -> Dict[str, Any]:
-    chapter = db.get(Chapter, chapter_id)
-    if chapter is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="chapter_not_found"
+    from ...utils.bounded_threadpool import run_in_db_threadpool, run_in_page_pool
+
+    # Everything blocking runs off the event loop (F-93): lookups in the DB
+    # pool, the page work (download, OCR, translation) in the small page pool.
+    def _prepare():
+        chapter = db.get(Chapter, chapter_id)
+        if chapter is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="chapter_not_found"
+            )
+
+        pages = chapter.pages or []
+        if page_index < 0 or page_index >= len(pages):
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="page_not_found"
+            )
+
+        if chapter.manga is not None:
+            assert_series_translatable(db, chapter.manga)  # SRS 1J rights gate
+
+        vault = integration_vault(request)
+        ocr_cfg = user_provider_config(db, current_user, "ocr", vault=vault)
+        translation_cfg = user_provider_config(db, current_user, "translation", vault=vault)
+        ai_cfg = user_provider_config(db, current_user, "ai", vault=vault)
+
+        plan = resolve_plan(
+            has_user_ocr=bool(ocr_cfg),
+            has_user_translation=bool(translation_cfg),
+            has_user_ai=bool(ai_cfg),
         )
 
-    pages = chapter.pages or []
-    if page_index < 0 or page_index >= len(pages):
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="page_not_found"
+        platform_ocr_cfg = _platform_default(request, db, "ocr")
+        platform_translation_cfg = _platform_default(request, db, "translation")
+        platform_ai_cfg = _platform_default(request, db, "ai")
+
+        ocr_provider_config = ocr_cfg if plan.ocr_source == "user" else platform_ocr_cfg
+        ai_provider_config = ai_cfg if plan.ai_source == "user" else platform_ai_cfg
+        return (
+            chapter, pages, plan, translation_cfg, ai_cfg, platform_translation_cfg,
+            platform_ai_cfg, ocr_provider_config, ai_provider_config,
         )
 
-    if chapter.manga is not None:
-        assert_series_translatable(db, chapter.manga)  # SRS 1J rights gate
-
-    vault = integration_vault(request)
-    ocr_cfg = user_provider_config(db, current_user, "ocr", vault=vault)
-    translation_cfg = user_provider_config(db, current_user, "translation", vault=vault)
-    ai_cfg = user_provider_config(db, current_user, "ai", vault=vault)
-
-    plan = resolve_plan(
-        has_user_ocr=bool(ocr_cfg),
-        has_user_translation=bool(translation_cfg),
-        has_user_ai=bool(ai_cfg),
-    )
-
-    platform_ocr_cfg = _platform_default(request, db, "ocr")
-    platform_translation_cfg = _platform_default(request, db, "translation")
-    platform_ai_cfg = _platform_default(request, db, "ai")
-
-    ocr_provider_config = ocr_cfg if plan.ocr_source == "user" else platform_ocr_cfg
-    ai_provider_config = ai_cfg if plan.ai_source == "user" else platform_ai_cfg
+    (
+        chapter, pages, plan, translation_cfg, ai_cfg, platform_translation_cfg,
+        platform_ai_cfg, ocr_provider_config, ai_provider_config,
+    ) = await run_in_db_threadpool(_prepare)
 
     # 2E.3: a global ceiling on the platform's OWN default providers,
     # independent of each account's own limit (2E.1). Only applies when
@@ -204,94 +218,94 @@ async def process_chapter_page(
     if plan.translation_source == "platform_default":
         await platform_ceiling_service.check_and_increment(request, db, "translation")
 
-    # 2A.2's per-case translation fallback, reusing TranslationService's
-    # existing primary->default fallback mechanism (also gives us the
-    # 1H.8.2 used_fallback/notice disclosure for free).
-    if plan.case == CASE_USER_OCR_TRANSLATION:
-        primary_translation = translation_cfg
-        fallback_translation = ai_provider_config  # "AI as fallback only"
-    elif plan.case == CASE_USER_AI_ONLY:
-        primary_translation = ai_cfg
-        fallback_translation = platform_translation_cfg
-    else:  # CASE_PLATFORM_DEFAULT
-        primary_translation = platform_translation_cfg
-        fallback_translation = platform_ai_cfg
+    def _run():
+        # 2A.2's per-case translation fallback, reusing TranslationService's
+        # existing primary->default fallback mechanism (also gives us the
+        # 1H.8.2 used_fallback/notice disclosure for free).
+        if plan.case == CASE_USER_OCR_TRANSLATION:
+            primary_translation = translation_cfg
+            fallback_translation = ai_provider_config  # "AI as fallback only"
+        elif plan.case == CASE_USER_AI_ONLY:
+            primary_translation = ai_cfg
+            fallback_translation = platform_translation_cfg
+        else:  # CASE_PLATFORM_DEFAULT
+            primary_translation = platform_translation_cfg
+            fallback_translation = platform_ai_cfg
 
-    translation_service = _build_translation_service(
-        plan, primary=primary_translation, fallback=fallback_translation
-    )
+        translation_service = _build_translation_service(
+            plan, primary=primary_translation, fallback=fallback_translation
+        )
 
-    from ...services import page_image_service
+        from ...services import page_image_service
 
-    if page_image_service.is_local_url(pages[page_index]):
-        if page_image_service.path_from_url(pages[page_index]) is None:
-            raise HTTPException(
-                status_code=status.HTTP_502_BAD_GATEWAY, detail="missing_page_image"
-            )
-    else:
-        image_url = build_cdn_url(pages[page_index])
-        if not image_url:
-            raise HTTPException(
-                status_code=status.HTTP_502_BAD_GATEWAY, detail="missing_page_image"
-            )
-        guard_error = validate_remote_image_url(image_url)
-        if guard_error:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=guard_error)
+        if page_image_service.is_local_url(pages[page_index]):
+            if page_image_service.path_from_url(pages[page_index]) is None:
+                raise HTTPException(
+                    status_code=status.HTTP_502_BAD_GATEWAY, detail="missing_page_image"
+                )
+        else:
+            image_url = build_cdn_url(pages[page_index])
+            if not image_url:
+                raise HTTPException(
+                    status_code=status.HTTP_502_BAD_GATEWAY, detail="missing_page_image"
+                )
+            guard_error = validate_remote_image_url(image_url)
+            if guard_error:
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=guard_error)
 
-    def ocr_runner(image_bytes: bytes, language_hint: Optional[str]) -> Dict[str, Any]:
-        from .ocr import ocr_service as shared_ocr_service
+        def ocr_runner(image_bytes: bytes, language_hint: Optional[str]) -> Dict[str, Any]:
+            from .ocr import ocr_service as shared_ocr_service
 
-        provider_pk = (ocr_provider_config or {}).get("_provider_pk")
-        try:
-            normalized = shared_ocr_service.extract_normalized(
-                image_bytes,
-                provider_config=ocr_provider_config,
-                language_hint=language_hint,
-            )
-        except Exception as exc:
-            # 2D.3/2D.4: feed the multi-provider priority system's failure
-            # tracking so a genuinely broken provider is actually removed
-            # from rotation, not just theoretically capable of being.
+            provider_pk = (ocr_provider_config or {}).get("_provider_pk")
+            try:
+                normalized = shared_ocr_service.extract_normalized(
+                    image_bytes,
+                    provider_config=ocr_provider_config,
+                    language_hint=language_hint,
+                )
+            except Exception as exc:
+                # 2D.3/2D.4: feed the multi-provider priority system's failure
+                # tracking so a genuinely broken provider is actually removed
+                # from rotation, not just theoretically capable of being.
+                if provider_pk:
+                    pms.record_failure(db, provider_pk, str(exc)[:300])
+                raise
             if provider_pk:
-                pms.record_failure(db, provider_pk, str(exc)[:300])
-            raise
-        if provider_pk:
-            pms.record_success(db, provider_pk)
-        return normalized
+                pms.record_success(db, provider_pk)
+            return normalized
 
-    settings = processing_settings_service.get_or_create(db, current_user.id)
-    series_title = chapter.manga.title if chapter.manga else None
-    genres = chapter.manga.genres if chapter.manga else None
+        settings = processing_settings_service.get_or_create(db, current_user.id)
+        series_title = chapter.manga.title if chapter.manga else None
+        genres = chapter.manga.genres if chapter.manga else None
 
-    # 1H.8.2: disclose a fallback rather than substituting silently. A thin
-    # adapter (not a monkeypatch of the shared service) captures the
-    # outcome dict without changing TranslationService's own contract.
-    outcome: Dict[str, Any] = {}
+        # 1H.8.2: disclose a fallback rather than substituting silently. A thin
+        # adapter (not a monkeypatch of the shared service) captures the
+        # outcome dict without changing TranslationService's own contract.
+        outcome: Dict[str, Any] = {}
 
-    class _OutcomeCapturingTranslator:
-        def translate(self, text, source_lang, target_lang, provider_config=None, **kw):
-            return translation_service.translate(
-                text,
-                source_lang,
-                target_lang,
-                provider_config=provider_config,
-                outcome=outcome,
-                **kw,
-            )
+        class _OutcomeCapturingTranslator:
+            def translate(self, text, source_lang, target_lang, provider_config=None, **kw):
+                return translation_service.translate(
+                    text,
+                    source_lang,
+                    target_lang,
+                    provider_config=provider_config,
+                    outcome=outcome,
+                    **kw,
+                )
 
-        def coherence_pass(self, regions, **kw):
-            # 2C.1 Stage B. Passed through rather than reimplemented so the
-            # adapter never becomes the reason context is dropped.
-            delegate = getattr(translation_service, "coherence_pass", None)
-            if not callable(delegate):
-                pass_outcome = kw.get("outcome")
-                if pass_outcome is not None:
-                    pass_outcome["applied"] = False
-                    pass_outcome["reason"] = "service_has_no_coherence_pass"
-                return None
-            return delegate(regions, **kw)
+            def coherence_pass(self, regions, **kw):
+                # 2C.1 Stage B. Passed through rather than reimplemented so the
+                # adapter never becomes the reason context is dropped.
+                delegate = getattr(translation_service, "coherence_pass", None)
+                if not callable(delegate):
+                    pass_outcome = kw.get("outcome")
+                    if pass_outcome is not None:
+                        pass_outcome["applied"] = False
+                        pass_outcome["reason"] = "service_has_no_coherence_pass"
+                    return None
+                return delegate(regions, **kw)
 
-    try:
         result = cps.process_page(
             db,
             chapter=chapter,
@@ -311,6 +325,10 @@ async def process_chapter_page(
             genres=genres,
             source_lang_hint=_series_source_language(chapter.manga),
         )
+        return result, primary_translation, fallback_translation, outcome
+
+    try:
+        result, primary_translation, fallback_translation, outcome = await run_in_page_pool(_run)
     except requests.exceptions.InvalidURL as exc:
         # The page image failed re-validation at fetch time (e.g. its host now
         # resolves to a private address). Surface it as a request error, not a
@@ -345,23 +363,26 @@ async def process_chapter_page(
         "ai_assisted_regions": result.ai_assisted_regions,
         "coherence_applied": result.coherence_applied,
     }
-    if outcome.get("used_fallback"):
-        # 1H.8.2: silent substitution is not acceptable.
-        payload["used_fallback"] = True
-        payload["notice"] = (
-            "Your configured provider didn't respond, so the next option in "
-            "line was used."
-        )
-        primary_pk = (primary_translation or {}).get("_provider_pk")
-        fallback_pk = (fallback_translation or {}).get("_provider_pk")
-        if primary_pk:
-            pms.record_failure(db, primary_pk, "translation_fallback_used")
-        if fallback_pk:
-            pms.record_success(db, fallback_pk)
-    else:
-        primary_pk = (primary_translation or {}).get("_provider_pk")
-        if primary_pk:
-            pms.record_success(db, primary_pk)
+    def _record() -> None:
+        if outcome.get("used_fallback"):
+            # 1H.8.2: silent substitution is not acceptable.
+            payload["used_fallback"] = True
+            payload["notice"] = (
+                "Your configured provider didn't respond, so the next option in "
+                "line was used."
+            )
+            primary_pk = (primary_translation or {}).get("_provider_pk")
+            fallback_pk = (fallback_translation or {}).get("_provider_pk")
+            if primary_pk:
+                pms.record_failure(db, primary_pk, "translation_fallback_used")
+            if fallback_pk:
+                pms.record_success(db, fallback_pk)
+        else:
+            primary_pk = (primary_translation or {}).get("_provider_pk")
+            if primary_pk:
+                pms.record_success(db, primary_pk)
+
+    await run_in_db_threadpool(_record)
     return payload
 
 
