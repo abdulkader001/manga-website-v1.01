@@ -42,10 +42,14 @@ DEFAULT_OVERLAY_STYLE = "white_box"
 # services.overlay_fonts (admin-extensible without a code change).
 DEFAULT_OVERLAY_FONT = "standard_sans"
 
-# 2F.2B: "Default value: 20 (matching the platform's baseline overlay scale)".
-DEFAULT_OVERLAY_SCALE = 20
-MIN_OVERLAY_SCALE = 10
-MAX_OVERLAY_SCALE = 40
+# Translated-text size: the reader's slider runs 1-100 in half steps and the
+# overlay draws value * OVERLAY_PX_PER_STEP pixels (100 -> 70 px). The default
+# 28.5 is the old 20 px baseline (2F.2B).
+DEFAULT_OVERLAY_SCALE = 28.5
+MIN_OVERLAY_SCALE = 1
+MAX_OVERLAY_SCALE = 100
+OVERLAY_SCALE_STEP = 0.5
+OVERLAY_PX_PER_STEP = 0.7
 
 # Language the overlay translates into unless the reader picks another.
 DEFAULT_TARGET_LANGUAGE = "en"
@@ -121,7 +125,7 @@ class UserProcessingSettings(Base):
     # session may override this locally and optionally save it back here
     # (2F.2B).
     overlay_font_size = Column(
-        Integer,
+        Float,
         nullable=False,
         default=DEFAULT_OVERLAY_SCALE,
         server_default=str(DEFAULT_OVERLAY_SCALE),
@@ -149,6 +153,11 @@ class UserProcessingSettings(Base):
     overlay_text_color = Column(String(7), nullable=True)
     overlay_box_color = Column(String(7), nullable=True)
     overlay_box_opacity = Column(Integer, nullable=False, default=100, server_default="100")
+    # Outline drawn around the translated letters; None = automatic.
+    overlay_outline_color = Column(String(7), nullable=True)
+    # Draw the translation inside the bubble's own shape (ellipse, rectangle,
+    # freeform) when one was recognised; off = always the plain box.
+    overlay_match_bubble = Column(Boolean, nullable=False, default=True, server_default="true")
     # Context-aware AI pass over the whole page (reads the conversation,
     # keeps names/pronouns consistent). Off = literal line-by-line only.
     context_translation = Column(Boolean, nullable=False, default=True, server_default="true")
@@ -173,5 +182,7 @@ __all__ = [
     "DEFAULT_OVERLAY_SCALE",
     "MIN_OVERLAY_SCALE",
     "MAX_OVERLAY_SCALE",
+    "OVERLAY_SCALE_STEP",
+    "OVERLAY_PX_PER_STEP",
     "DEFAULT_AI_CONFIDENCE_THRESHOLD",
 ]

@@ -19,6 +19,7 @@ from ..models.processing_settings import (
     TARGET_LANGUAGES,
     MAX_OVERLAY_SCALE,
     MIN_OVERLAY_SCALE,
+    OVERLAY_SCALE_STEP,
     OVERLAY_STYLES,
     USAGE_LIMIT_UNITS,
     USAGE_LIMIT_WINDOWS,
@@ -65,16 +66,18 @@ def _validate_threshold(value: Any) -> float:
     return threshold
 
 
-def _validate_scale(value: Any) -> int:
+def _validate_scale(value: Any) -> float:
+    """The 1-100 text-size slider, in half steps."""
+
     try:
-        scale = int(value)
+        scale = float(value)
     except (TypeError, ValueError):
-        raise ProcessingSettingsError("overlay_font_size must be an integer")
-    if not (MIN_OVERLAY_SCALE <= scale <= MAX_OVERLAY_SCALE):
+        raise ProcessingSettingsError("overlay_font_size must be a number")
+    if scale != scale or not (MIN_OVERLAY_SCALE <= scale <= MAX_OVERLAY_SCALE):
         raise ProcessingSettingsError(
             f"overlay_font_size must be between {MIN_OVERLAY_SCALE} and {MAX_OVERLAY_SCALE}"
         )
-    return scale
+    return round(scale / OVERLAY_SCALE_STEP) * OVERLAY_SCALE_STEP
 
 
 def update(
@@ -172,7 +175,7 @@ def update(
             raise ProcessingSettingsError(f"target_language must be one of {TARGET_LANGUAGES}")
         record.target_language = lang
 
-    for field in ("overlay_text_color", "overlay_box_color"):
+    for field in ("overlay_text_color", "overlay_box_color", "overlay_outline_color"):
         if field in updates:
             setattr(record, field, _validate_color(field, updates[field]))
 
@@ -187,6 +190,9 @@ def update(
 
     if "context_translation" in updates and updates["context_translation"] is not None:
         record.context_translation = bool(updates["context_translation"])
+
+    if "overlay_match_bubble" in updates and updates["overlay_match_bubble"] is not None:
+        record.overlay_match_bubble = bool(updates["overlay_match_bubble"])
 
     db.commit()
     db.refresh(record)
@@ -212,7 +218,7 @@ def to_dict(record: UserProcessingSettings) -> Dict[str, Any]:
         "share_translations": bool(record.share_translations),
         "overlay_style": record.overlay_style,
         "overlay_font": record.overlay_font,
-        "overlay_font_size": record.overlay_font_size,
+        "overlay_font_size": float(record.overlay_font_size),
         "translate_sound_effects": bool(record.translate_sound_effects),
         "auto_translate_comments": bool(record.auto_translate_comments),
         "overlay_enabled": bool(record.overlay_enabled),
@@ -220,6 +226,10 @@ def to_dict(record: UserProcessingSettings) -> Dict[str, Any]:
         "overlay_text_color": record.overlay_text_color,
         "overlay_box_color": record.overlay_box_color,
         "overlay_box_opacity": record.overlay_box_opacity,
+        "overlay_outline_color": record.overlay_outline_color,
+        "overlay_match_bubble": bool(
+            True if record.overlay_match_bubble is None else record.overlay_match_bubble
+        ),
         "context_translation": bool(record.context_translation),
     }
 
