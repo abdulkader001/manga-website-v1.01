@@ -127,6 +127,25 @@ exceptions; for those, restore the database backup taken before the update.
 
 ## Change entries
 
+### 2026-10-02 — GUIDE.md rewritten for Ubuntu, commands checked
+
+Documentation only. Not pushed yet. Merge SHA: fill in when known.
+
+| Change | Why | Main files |
+| --- | --- | --- |
+| Install steps are Ubuntu 22.04/24.04 commands end to end: Docker group and Compose version check, optional Docker log cap, swap file for small servers, `ufw`, Caddy, reboot test, `ss`/`journalctl`/`getent` for diagnosis | The old guide mixed in Windows/macOS and had gaps on a stock Ubuntu server | `GUIDE.md` |
+| `.env`: `make_env.py` is the main way (then `chmod 600 .env`); one `sed` block sets the domain lines and production mode | The generated `.env` is world-readable; the old hand-edit table was easy to get wrong | `GUIDE.md` §3 |
+| **Non-Docker setup no longer uses `set -a; source .env`.** It uses `dotenv -f .env run -- <command>`. Python and Node install steps now match each Ubuntu release (`python3.11` is not in 24.04; `pip` refuses system installs there) | `source .env` ran a line as a command (`magic: command not found`) and turned `CORS_ALLOWED_ORIGINS=["…"]` into `[http://…]`, which breaks CORS; and the API's settings loader looks for `backend_fastapi/.env`, not the repo's `.env`, so without the wrapper it stops with *Field required* | `GUIDE.md` §5 |
+| **Server file `docker-compose.override.yml`** (created by the admin, not tracked): sets `APP_ENV=production` for all services and binds ports 8000/8080 to `127.0.0.1`. Replaces "edit `APP_ENV` in `docker-compose.yml`" | Docker publishes ports on every interface and bypasses `ufw`, so the API was open to the internet; editing the tracked file made `git pull` conflict | `GUIDE.md` §4, §8, §10 |
+| Small profile made permanent with `COMPOSE_FILE=…` in `.env`; restart/stop commands ask Compose for the service list, so they work for both profiles | The old restart command named services the small profile switches off | `GUIDE.md` §4.1, §4.2, §12.3 |
+| Backups section matches the Docker setup: `pg_dump` through the `db` container, `tar` through `backend`, a cron script, restore of the pictures with `--entrypoint tar` | `backup_postgres.sh` / `backup_storage.sh` expect a host-reachable database and `/app/storage`, neither true in Docker | `GUIDE.md` §9, §12 |
+| Troubleshooting rows for the Ubuntu cases above, a warning about `setup-server.sh` (turns off SSH password and root login), stray checklist line fixed | Found while checking the commands | `GUIDE.md` §8, §10, §11 |
+
+- **Database:** none.
+- **Settings:** none required. Optional, per server: a `COMPOSE_FILE` line in `.env` and an untracked `docker-compose.override.yml`. Section 3.3's `sed` writes `APP_ENV=production` into `.env`.
+- **Check:** each command block in the guide was extracted and run on Ubuntu 24.04 where possible: `make_env.py`, the domain `sed` (then the real settings loaded under `APP_ENV=production`), both Compose files and the override with `docker compose config` (Compose v5), all migrations to `20261014_four_roles` on PostgreSQL 16, API `/healthz`, one worker on all nine queues, beat, `npm ci` + `npm run dev` (gateway proxies `/api/v1/version`), the admin hash tool (`--write`, `--check`, then `admin-status` flips to OPEN), `apt` package names, `caddy validate` on both Caddyfile forms, the Python 3.12 install and API start. Every internal link and every `GUIDE.md#…` anchor used by `guide/` still resolves; every shell block passes `bash -n`.
+- **Undo:** `git revert -m 1 <merge>`. Nothing else changed. A server that already made `docker-compose.override.yml` keeps working (Compose still reads it).
+
 ### 2026-10-02 — Four-role audit: pages and "delete all" follow the owner's switches
 
 Branch `claude/eager-noether-0jg9xq`. Merge SHA: fill in when known.
@@ -370,6 +389,8 @@ PRs #1–#22 predate this log. Their summaries are in the merge commits
 
 ## 5. Open items and known limits
 
+- **Not run when `GUIDE.md` was rewritten for Ubuntu:** the Docker image builds and `docker compose up` (no Docker daemon in the sandbox), Docker's installer, NodeSource, the deadsnakes PPA, Caddy's own apt repository (Ubuntu 22.04) and Let's Encrypt (those hosts are blocked there). Their commands are the vendors' documented ones. Check them on the first real install.
+- **Repo behaviours the guide works around (code unchanged):** `docker-compose.yml` publishes 8000 and 8080 on all interfaces and hard-codes `APP_ENV: development`; `make_env.py` leaves `.env` world-readable (644); `backup_postgres.sh` / `backup_storage.sh` assume a host-reachable database and `/app/storage`; `setup-server.sh` turns off SSH password and root login and installs `docker-compose-plugin`, which stock Ubuntu does not have. Fixing them in the code would remove the need for the workarounds.
 - **Storage & Backups** was tested against an in-memory S3 server (and the signer against AWS's published example), not against a live R2/B2 bucket: press *Test connection* with your own keys once. **Geolock** does not cover picture files nginx serves directly, and VPNs get around any country lock.
 - **Scraper AI in scrapes a deputy starts**: a deputy holding *trigger_scraper_ai* gets AI help in previews and re-scrapes without entering a fresh code (the Custom Parser page itself asks for one). It only spends AI quota.
 - **Bubble shapes** are found with a light heuristic (Pillow, no AI): tested on synthetic pages with round, square, freeform, dark and open bubbles. A bubble whose outline has a gap, touches the page edge, or holds two separately-read text lines falls back to the plain box. Report pages where the shape looks wrong.
