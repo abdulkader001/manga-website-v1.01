@@ -509,8 +509,8 @@ Other server-side tools:
 
 ### 6.2 Make sign-in mandatory (or not)
 
-**Admin → Admin Settings → "Sign-in required"** (the owner, or a deputy given
-*Admin Settings*, Section 6.3).
+**Admin → Admin Settings → "Sign-in required"** (the owner, or an Admin you switched
+*Admin Settings* on for, Section 6.3).
 
 - **On:** visitors must sign in before they can browse or read. The server
   refuses catalogue, reader and community requests from guests too, not just
@@ -524,33 +524,52 @@ it on can't lock you out. It starts **off**.
 
 ---
 
-### 6.3 Sub-admins, deputies and automatic succession
+### 6.3 Admins, sub-admins and automatic succession
 
-**Admin → Role Management.** Appoint sub-admins by e-mail and switch their
-everyday powers on and off. The **🔒 Site owner powers** group (Secret Vault,
-Admin Settings, cache, delete-all, API Management, Scraper AI, Role
-Management, branding, donations, Storage & Backups, Geolock, e-mail reveal)
-lets you hand your own powers to someone you trust, so the site keeps running
-if you are away. The rules can't be switched off:
+There are four roles. **You (the owner)** hold everything; nobody can change,
+demote or touch you. **Admins** (at most two) are your right hand. **Sub-admins**
+(as many as the seats allow) are staff. **Users** are readers.
 
-- Only you give or take them. Giving asks for the code from your authenticator
-  app. Taking back needs no code and works at any time.
-- At most **two** sub-admins hold any of them (they show as **Deputy**).
-- A deputy must have an authenticator (Admin → Security). Without it their
-  powers show as *paused*. They enter a code before using them.
-- A sub-admin can never give site-owner powers to anyone, change their own
-  powers, or change, reset or remove a deputy. Removing a sub-admin takes their
-  site-owner powers away for good (promoting them again doesn't bring them back).
+**Admin → Role Management** is where all of it happens.
 
-**Automatic succession** (bottom of Role Management, only you, off by
-default): choose the idle period (30-365 days, default 60) and confirm with your
-code. Every day the site checks each deputy. One who hasn't used the admin
-panel for longer than that becomes a user, and the most active eligible
-sub-admin gets exactly their site-owner powers. Eligible means: an admin for
-30+ days, active on 20 of the last 30 days, did admin work on 10 of them, and
-has an authenticator. The panel shows each deputy's last activity and who is
-next in line. Switching it on never demotes anyone straight away; the idle clock
-starts then. Every change goes to your notifications and the audit log.
+- **Admins.** Pick a sub-admin who has an authenticator (Admin → Security) and
+  press *Make Admin* (needs your code). An Admin starts with almost every power
+  except **Admin Settings, the cache and "delete all manga"**, which stay off
+  until you switch them on (switching a site-owner power on needs your code;
+  switching off never does). Open an Admin in the list to switch any of their
+  powers off or on. Only you can: an Admin can't change another Admin, themselves
+  or you. An Admin's site-owner powers need their authenticator, and they enter a
+  code to use them. You can demote an Admin to a user or a sub-admin at any time.
+- **What an Admin can do to people.** An Admin has power over sub-admins and
+  users only: appoint and remove sub-admins, change a sub-admin's powers (only
+  powers they hold themselves), sign people out, and see **sub-admins' and
+  users'** e-mail addresses, never another Admin's or yours. A sub-admin has
+  power over users only.
+- **Seats.** The two Admins share **50** sub-admin seats (25 each by default).
+  Change an Admin's seats on their card; the total can't pass 50. An Admin can
+  appoint only while they have seats left; removing a sub-admin frees the seat.
+  Your own appointments cost no seat.
+- **The ceiling.** *What sub-admins may hold* lists every everyday power. Tick one
+  and no sub-admin can hold it: an Admin who tries to give it is refused, and a
+  sub-admin who had it loses it until you untick it. Site-owner powers are always
+  out of a sub-admin's reach.
+- **Roles (presets).** Only you create new roles (named sets of powers, e.g. a
+  comment moderator). Admins apply them to sub-admins; anything above the ceiling
+  or above what the Admin holds is skipped.
+- **Succession line.** Each Admin names up to two sub-admins, in order, on their
+  card (you can set any line). If the Admin falls idle, the first one who is still
+  a sub-admin, active and has an authenticator takes the seat **exactly as it is**
+  (your restrictions, the seats and the sub-admins appointed), and the old Admin
+  becomes a user. Or press *Hand seat over now* (needs your code) to do it
+  without waiting; you can also demote an Admin and make anyone else an Admin.
+- **Automatic succession** (bottom of the page, only you, off by default): choose
+  the idle period (30-365 days, default 60) and confirm with your code. Every day
+  the site checks each Admin. Switching it on never demotes anyone straight away;
+  the idle clock starts then. If nobody in the line can serve, the idle Admin
+  still becomes a user and the seat stays open for you to fill. Every change goes
+  to your notifications and the audit log.
+- Your own e-mail is never written in the code: it is the admin identity in
+  `.env` (Section 6). Ownership never passes to anyone.
 
 ## 7. Start using the site's functions
 
@@ -580,7 +599,7 @@ content you have the rights to host.
 
 ### Add a new source website (Custom Parser)
 
-**The owner, or a deputy given the Scraper AI (Section 6.3).** Other
+**The owner, or an Admin the Scraper AI is switched on for (Section 6.3).** Other
 sub-admins don't see *Scraper AI API* or *Custom Parser*, and their previews
 and imports never use the Scraper AI (only built-in and detected parsers). If a
 sub-admin's preview says "ask the main admin", add the site as below.
@@ -782,10 +801,12 @@ visitors). Put `BACKUP_DIR` on another disk in `.env` if the main one is small.
 | Custom Parser: "naver.com is Naver's portal" | Use the series page on `comic.naver.com` (`.../webtoon/list?titleId=...`). |
 | Custom Parser: "Scraper AI judged this site cannot be scraped" | The AI found a login, paywall or scrambled images. Use another source. |
 | Sub-admin: no *Scraper AI API* / *Custom Parser* buttons, or preview says "ask the main admin" | The Scraper AI is a site-owner power. Give it in Role Management (Section 6.3), or add the site yourself with Custom Parser (Section 7). |
-| Sub-admin gets "forbidden" on Admin Settings / API Management / Role Management / Vault / Backups / Geolock | These are site-owner powers: only a deputy you gave them to can open them (Section 6.3). |
-| "Only 2 sub-admins can hold site-owner powers" | Take the powers from one deputy first. |
-| A deputy's powers show *paused* or they are asked for a code | They need an authenticator (Admin → Security) and must enter a code to use site-owner powers. Intended. |
-| A deputy became a user on their own | Automatic succession: they were idle longer than the chosen days. Your notifications say who took over; undo it in Role Management. |
+| Sub-admin gets "forbidden" on Admin Settings / API Management / Role Management / Vault / Backups / Geolock | These are site-owner powers: only you, and Admins you left them on for, can open them (Section 6.3). A sub-admin never can. |
+| "There can be only 2 Admins" | Demote one (Role Management) or hand a seat over first. |
+| "You have no sub-admin seats left" | Remove a sub-admin, or the owner adds seats on your card. |
+| "The site owner doesn't allow sub-admins to hold …" | The owner's ceiling blocks that power; only the owner can lift it. |
+| An Admin's powers show *paused* or they are asked for a code | They need an authenticator (Admin → Security) and must enter a code to use site-owner powers. Intended. |
+| An Admin became a user on their own | Automatic succession: they were idle longer than the chosen days. Your notifications say who took over from their line; undo it in Role Management. |
 | `$argon2id...` value turns into garbage | Wrap values containing `$` in single quotes in `.env`. Admin hash lines made by `make_admin_hash.py` start with `a2:` and have no `$`. |
 | Translation/OCR overlay does nothing | Reader: *Settings → Reading & Translation* must be on. Server: vault *Server OCR enabled* = true and restarted (4.1). |
 | Translation is a plain box instead of the bubble's shape | Expected for text drawn on the art, bubbles with a gap in the outline, bubbles cut by the page edge, or two separately-read lines in one bubble. Also check the reader's *Match the bubble's shape* switch. Pages translated before the update keep boxes until their cached result is cleared (Admin Settings → cache) |
@@ -833,7 +854,7 @@ visitors). Put `BACKUP_DIR` on another disk in `.env` if the main one is small.
 - [ ] Domain + HTTPS in front (production)
 - [ ] `.env` and backups stored safely off the server: in **Admin → Storage & Backups** set a backup password (kept off the server), check the weekly schedule, and connect R2/B2 storage
 - [ ] Geolock set if needed (Admin → Geolock; install the country database first)
-- [ ] Deputies (optional): at most two trusted sub-admins with an authenticator, given site-owner powers in Role Management; automatic succession on if you want idle deputies replaced (Section 6.3)
+- [ ] Admins (optional): at most two trusted sub-admins with an authenticator, made Admins in Role Management; set their seats, the sub-admin ceiling and each Admin's succession line; automatic succession on if you want idle Admins replaced (Section 6.3)
 
 More detail: `README.md`, `backend_fastapi/README.md`, `deployment/README.md`,
 `deployment/runbook.md`, `deployment/key-rotation.md`.

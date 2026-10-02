@@ -240,12 +240,16 @@ class SystemSettings(Base):
     # value that was last used. A new hash from ``cli_bootstrap admin-hashes``
     # has a different fingerprint, so it works once again.
     admin_setup_password_used = Column(String(64), nullable=True)
-    # Automatic succession (owner only): a deputy idle this many days is
-    # demoted and the most active eligible sub-admin inherits their powers.
+    # Automatic succession (owner only): an Admin idle this many days becomes
+    # a user and the first eligible sub-admin in their succession line takes
+    # the seat.
     succession_enabled = Column(Boolean, nullable=False, default=False, server_default="false")
     succession_inactive_days = Column(Integer, nullable=False, default=60, server_default="60")
     # The idle clock never starts before the owner switched it on.
     succession_enabled_at = Column(DateTime, nullable=True)
+    # Owner's ceiling: permissions no sub-admin can hold, however an Admin
+    # tries to give them (list of catalogue keys; NULL/empty = no limit).
+    sub_admin_blocked_permissions = Column(JSON, nullable=True)
     created_at = Column(DateTime, nullable=False, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
 

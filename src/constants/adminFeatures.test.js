@@ -10,7 +10,7 @@ describe("admin hub tiles (F-97)", () => {
     );
   });
 
-  it("shows a deputy the owner tiles they were given, never the owner-only ones", () => {
+  it("shows an Admin the owner tiles their toggles allow, never the owner-only ones", () => {
     const shown = keys(visibleAdminLinks(ADMIN_FEATURE_LINKS, { isSecondaryAdmin: true, can: () => true }));
     expect(shown).not.toContain("users");
     for (const tile of ["roles", "settings", "api-management", "vault", "backups", "geolock", "audit-report", "ads"]) {

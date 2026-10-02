@@ -13,6 +13,7 @@ from .backups_admin import router as backups_admin_router
 from .geolock_admin import public_router as geo_public_router
 from .geolock_admin import router as geolock_admin_router
 from .roles_succession import router as roles_succession_router
+from .roles_admins import router as roles_admins_router
 from .bookmarks import router as bookmarks_router
 from .branding import router as branding_router
 from .cache_admin import router as cache_admin_router
@@ -59,6 +60,7 @@ __all__ = [
     "geo_public_router",
     "geolock_admin_router",
     "roles_succession_router",
+    "roles_admins_router",
     "bookmarks_router",
     "branding_router",
     "cache_admin_router",

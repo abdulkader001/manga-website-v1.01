@@ -14,6 +14,7 @@ from .user import (
     Comment as Comment,
     PermissionOverride as PermissionOverride,
     AdminActivityDay as AdminActivityDay,
+    AdminSuccessor as AdminSuccessor,
     PermissionPreset as PermissionPreset,
     RevokedToken as RevokedToken,
 )

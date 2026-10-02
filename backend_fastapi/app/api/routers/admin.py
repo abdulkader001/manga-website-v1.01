@@ -57,7 +57,7 @@ from ...models import (
     User,
 )
 from ...services import ads_config_service
-from ...services.permissions_service import has_permission
+from ...services.permissions_service import assert_may_act_on, has_permission
 from ...services.ocr_service import OCRServiceEngineError
 from ...services.provider_config import (
     ProviderConfigError,
@@ -1304,6 +1304,8 @@ def review_flagged_user(
             status_code=status.HTTP_403_FORBIDDEN,
             detail={"error": "permanent_admin_immutable"},
         )
+    if payload.decision == "ban":
+        assert_may_act_on(current_user, target, "ban")
 
     target.flagged_for_review = False
     if payload.decision == "ban":
@@ -1370,6 +1372,7 @@ def revoke_user_sessions(
             status_code=status.HTTP_403_FORBIDDEN,
             detail={"error": "permanent_admin_immutable"},
         )
+    assert_may_act_on(current_user, target, "sign out", allow_self=True)
 
     from ...services import token_revocation
 
@@ -1677,11 +1680,10 @@ def my_permissions(
     current_user: User = Depends(require_admin_user),
     db: Session = Depends(get_db),
 ) -> Dict[str, Any]:
-    """What the signed-in admin / sub-admin may do, so the UI only offers it."""
+    """What the signed-in owner / Admin / sub-admin may do, so the UI only offers it."""
 
-    from ...core.permissions import ALL_PERMISSIONS, OWNER_POWERS
+    from ...core.permissions import ALL_PERMISSIONS, OWNER_POWERS, role_label
     from ...services.admin_succession import record_activity
-    from ...services.permissions_service import has_permission, is_deputy
 
     # Every admin page asks this: it is the "was active today" signal that
     # automatic succession reads (recorded server-side, once a day).
@@ -1689,17 +1691,18 @@ def my_permissions(
     held = [key for key in ALL_PERMISSIONS if has_permission(db, current_user, key)]
     return {
         "user_id": current_user.id,
+        "role": role_label(current_user),
         "is_main_admin": is_main_admin(current_user),
-        "is_deputy": not is_main_admin(current_user) and is_deputy(db, current_user),
+        "is_admin": role_label(current_user) == "admin",
         "authenticator": bool(getattr(current_user, "totp_enabled", False)),
         "permissions": held,
         "owner_powers": [key for key in held if key in OWNER_POWERS],
     }
 
 
-# Role management: the owner, or a sub-admin holding manage_roles (a
-# site-owner power the owner gives). Site-owner powers themselves are only
-# ever changed by the owner (permissions_service.authorize_change).
+# Role management: the owner, or an Admin holding manage_roles. An Admin
+# changes sub-admins only; an Admin's own toggles are only ever changed by the
+# owner (permissions_service.authorize_change).
 @router.get("/permissions/catalogue", dependencies=[Depends(require_power("manage_roles"))])
 def get_permission_catalogue() -> Dict[str, Any]:
     """Full permission catalogue, grouped (SRS 1F.7/1F.9.2)."""
@@ -1708,13 +1711,11 @@ def get_permission_catalogue() -> Dict[str, Any]:
     return {"permissions": full_catalogue()}
 
 
-@router.get(
-    "/users/{user_id}/permissions",
-    dependencies=[Depends(require_power("manage_roles"))],
-)
+@router.get("/users/{user_id}/permissions")
 def get_user_permissions(
     user_id: int,
     db: Session = Depends(get_db),
+    current_user: User = Depends(require_power("manage_roles")),
 ) -> Dict[str, Any]:
     """A person's effective permission set with inherited/granted/revoked state."""
     from ...services.permissions_service import modified_count, resolve_effective
@@ -1724,6 +1725,9 @@ def get_user_permissions(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail={"error": "not_found"}
         )
+    # An Admin reads sub-admins' toggles (and, for reference, their own).
+    if not is_main_admin(current_user):
+        assert_may_act_on(current_user, user, "see the permissions of", allow_self=True)
     return {
         "user_id": user.id,
         "role": user.role.value if user.role else None,
@@ -1812,8 +1816,8 @@ def reset_user_permissions(
     db: Session = Depends(get_db),
 ) -> Dict[str, Any]:
     """Reset a person to their role defaults (SRS 1F.9.2). Only the owner's
-    reset also removes site-owner powers; nobody resets themselves or a deputy
-    but the owner."""
+    reset also clears an Admin's site-owner switches; an Admin resets
+    sub-admins only."""
     from ...services.permissions_service import reset_to_default, resolve_effective
 
     target = db.get(User, user_id)
@@ -1861,8 +1865,15 @@ def create_permission_preset(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> Dict[str, Any]:
-    """Create/update a custom preset (Permanent Administrator only)."""
+    """Create/update a custom role (a named preset): the owner only."""
     from ...services.permissions_service import create_custom_preset
+
+    if not is_main_admin(current_user):
+        raise ApiError(
+            ErrorCode.FORBIDDEN,
+            "Only the site owner creates roles.",
+            details={"reason": "owner_only"},
+        )
 
     preset = create_custom_preset(
         db,
@@ -1895,15 +1906,14 @@ def apply_permission_preset(
         resolve_effective,
     )
 
-    from ...services.permissions_service import _resolve_preset
+    from ...services.permissions_service import preset_grants
 
     target = db.get(User, user_id)
     if target is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail={"error": "not_found"}
         )
-    preset = _resolve_preset(db, payload.preset) or {}
-    _guard_role_change(db, current_user, target, list(preset.get("grant", [])))
+    _guard_role_change(db, current_user, target, preset_grants(db, payload.preset))
     apply_preset(db, target, payload.preset, current_user.id)
     db.add(
         AdminAuditLog(
@@ -1921,22 +1931,24 @@ def apply_permission_preset(
     }
 
 
-@router.get(
-    "/permissions/managed",
-    dependencies=[Depends(require_power("manage_roles"))],
-)
+@router.get("/permissions/managed")
 def list_managed_permissions(
     modified_only: bool = Query(default=False),
     db: Session = Depends(get_db),
+    current_user: User = Depends(require_power("manage_roles")),
 ) -> Dict[str, Any]:
-    """Secondary Admins + Moderators with modified counts (SRS 1F.9.1).
+    """Sub-admins (and, for the owner, Admins) with modified counts (SRS 1F.9.1).
 
     ``modified_only=true`` returns only people who deviate from their role
     default — the "Modified only" filter.
     """
     from ...services.permissions_service import list_managed_people
 
-    return {"people": list_managed_people(db, modified_only=modified_only)}
+    return {
+        "people": list_managed_people(
+            db, modified_only=modified_only, include_admins=is_main_admin(current_user)
+        )
+    }
 
 
 @router.post("/series/scrape", dependencies=[Depends(require_admin_user)])
@@ -2057,10 +2069,11 @@ class EmailRolePayload(BaseModel):
     role: str | None = None
 
 
-@router.get("/users/{user_id}/email", dependencies=[Depends(require_power("reveal_user_email"))])
+@router.get("/users/{user_id}/email")
 def reveal_user_email(
     user_id: int,
     db: Session = Depends(get_db),
+    current_user: User = Depends(require_power("reveal_user_email")),
 ) -> Dict[str, Any]:
     """Decrypt and return a standard user's email for authorized admin roles."""
     user = db.get(User, user_id)
@@ -2068,6 +2081,10 @@ def reveal_user_email(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="user_not_found"
         )
+    # An Admin sees sub-admins' and users' e-mail, never another Admin's or the
+    # owner's. The owner sees everyone's.
+    if not is_main_admin(current_user):
+        assert_may_act_on(current_user, user, "see the e-mail of", allow_self=True)
 
     with allow_email_decryption():
         email = user.email

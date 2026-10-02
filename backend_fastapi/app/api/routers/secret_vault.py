@@ -2,9 +2,9 @@
 
 Access is deliberately narrower than every other admin page:
 
-* The owner, or a deputy the owner gave ``manage_secret_vault``
-  (``require_power``; a site-owner power: only the owner can grant it, it is
-  never part of a preset, and at most two sub-admins hold such powers).
+* The owner, or an Admin who holds ``manage_secret_vault``
+  (``require_power``; a site-owner power: the owner switches it per Admin, it
+  is never part of a preset, and a sub-admin can never hold it).
 * An authenticator app must be enrolled.
 * Reading the listing needs the usual admin step-up; changing, removing or
   revealing a value additionally needs a vault unlock -- a fresh TOTP code

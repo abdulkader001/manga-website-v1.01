@@ -1,8 +1,8 @@
 """The Scraper AI is main-admin only (owner's rule).
 
 Its API key (Series Management -> Scraper AI API) and creating parsers with
-it (Custom Parser) belong to the main admin alone: no toggle, preset or stored
-override gives them to a sub-admin, every endpoint refuses a sub-admin, and
+it (Custom Parser) belong to the owner and the Admins the owner allows: no
+toggle, preset or stored override gives them to a sub-admin, every endpoint refuses a sub-admin, and
 scrapes a sub-admin starts (preview, import, re-scrape) never call the AI.
 """
 
@@ -88,9 +88,9 @@ def test_stored_grants_without_an_authenticator_give_nothing():
         assert permissions_service.has_permission(session, sub_user, "approve_parser") is True
         effective = {p["key"]: p for p in permissions_service.resolve_effective(session, sub_user)}
         for key in SCRAPER_AI:
-            # Shown as granted, but paused: no authenticator on this account.
+            # A sub-admin can't hold a site-owner power, so the stale row is inert.
             assert effective[key]["effective"] is False
-            assert effective[key]["state"] == "granted"
+            assert effective[key]["state"] == "inherited"
 
 
 def test_granting_is_refused_and_revoking_stores_nothing():

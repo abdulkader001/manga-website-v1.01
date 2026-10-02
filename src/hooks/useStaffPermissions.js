@@ -17,6 +17,8 @@ export default function useStaffPermissions() {
   const granted = new Set(data?.permissions || []);
   return {
     isMainAdmin: Boolean(isAdmin),
+    /** the Admin tier (not the owner): changes sub-admins, keeps a succession line */
+    isAdminTier: !isAdmin && data?.role === "admin",
     isLoading: staff && !isAdmin && isLoading,
     /** true for the main admin, or when the sub-admin has this toggle on */
     can: (key) => Boolean(isAdmin) || (staff && granted.has(key)),

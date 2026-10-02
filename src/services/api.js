@@ -477,6 +477,20 @@ const api = {
         api.post(`/admin/users/${userId}/permissions/apply-preset`, { preset }),
     },
 
+    // Admins, their seats and succession lines, and the sub-admin ceiling.
+    roles: {
+      admins: () => api.get("/admin/roles/admins"),
+      makeAdmin: (userId, code) => api.post("/admin/roles/admins", { user_id: userId, code }),
+      removeAdmin: (userId, to) => api.post(`/admin/roles/admins/${userId}/demote`, { to }),
+      setQuota: (userId, quota) => api.put(`/admin/roles/admins/${userId}/quota`, { quota }),
+      setSuccessors: (userId, ids) =>
+        api.put(`/admin/roles/admins/${userId}/successors`, { successor_ids: ids }),
+      handOver: (userId, successorId, code) =>
+        api.post(`/admin/roles/admins/${userId}/hand-over`, { successor_id: successorId || null, code }),
+      limits: () => api.get("/admin/roles/sub-admin-limits"),
+      saveLimits: (blocked, code) => api.put("/admin/roles/sub-admin-limits", { blocked, code }),
+    },
+
     footer: (payload) => api.footer.update(payload),
     settings: {
       get: () => api.get("/admin/settings"),

@@ -23,6 +23,7 @@ from ..api.routers import (
     geo_public_router,
     geolock_admin_router,
     roles_succession_router,
+    roles_admins_router,
     bookmarks_router,
     branding_router,
     cache_admin_router,
@@ -99,6 +100,7 @@ def build_api_router() -> APIRouter:
     api_router.include_router(geolock_admin_router)
     api_router.include_router(geo_public_router)
     api_router.include_router(roles_succession_router)
+    api_router.include_router(roles_admins_router)
     return api_router
 
 

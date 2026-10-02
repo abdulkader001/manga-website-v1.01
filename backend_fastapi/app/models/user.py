@@ -41,8 +41,13 @@ from ..utils.email_crypto import (
 # Enum for user roles
 # ----------------
 class UserRole(enum.Enum):
-    """Three roles: main admin (ADMIN / PERMANENT, one merged owner tier),
-    sub-admin (SECONDARY) and user (USER)."""
+    """Four roles, strongest first: the owner (``PERMANENT``, or the legacy
+    ``ADMIN`` alias -- one merged owner tier), Admin (``CO_ADMIN``, at most
+    two), sub-admin (``SECONDARY``) and user (``USER``).
+
+    ``ADMIN`` is **not** the Admin tier: it is the old name for the owner and
+    is kept so existing rows keep resolving to the owner. Admin is
+    ``CO_ADMIN``."""
 
     USER = "user"
     # Retired: kept only because the Postgres enum type still has the value.
@@ -50,6 +55,8 @@ class UserRole(enum.Enum):
     # and effective_role() resolves any leftover row to USER.
     MODERATOR = "moderator"
     SECONDARY = "secondary_admin"
+    # The Admin tier (the owner's right hand; see core.permissions).
+    CO_ADMIN = "co_admin"
     ADMIN = "admin"
     PERMANENT = "permanent_admin"
 
@@ -83,6 +90,14 @@ class User(Base):
     is_secondary_admin = Column(
         Boolean, nullable=False, default=False, server_default="false"
     )
+    # Who appointed this sub-admin (an Admin, whose quota it counts against),
+    # NULL when the owner did. Cleared when the person stops being a sub-admin.
+    appointed_by = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    # Admins only: how many sub-admins they may have appointed at once. NULL
+    # means "an equal share of the pool" (core.permissions.SUB_ADMIN_POOL).
+    sub_admin_quota = Column(Integer, nullable=True)
+    # When the person became an Admin: the idle clock never starts earlier.
+    admin_since = Column(DateTime, nullable=True)
     provider = Column(String(50), nullable=True)
     # Verified-email state (SRS 1D.2.4). The sole purpose of verification on this
     # platform is to confirm a genuine, reachable email — set True once the user
@@ -592,6 +607,19 @@ class AdminActivityDay(Base):
 
     user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
     day = Column(Date, primary_key=True)
+
+
+class AdminSuccessor(Base):
+    """An Admin's succession line: up to two sub-admins, in order, who take the
+    Admin seat when it falls idle (or when the owner hands it over)."""
+
+    __tablename__ = "admin_successors"
+
+    admin_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    position = Column(Integer, primary_key=True)
+    successor_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+
+    __table_args__ = (UniqueConstraint("admin_id", "successor_id", name="uq_admin_successor_person"),)
 
 
 class PermissionPreset(Base):

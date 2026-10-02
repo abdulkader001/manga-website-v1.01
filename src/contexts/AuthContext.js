@@ -52,7 +52,11 @@ export function AuthProvider({ children }) {
       user.is_main_admin ||
       user.permanent)
   );
-  const isSecondaryAdmin = !!(user && (user.role === "secondary_admin" || user.is_secondary_admin));
+  // Sub-admins and Admins (role "co_admin") are both staff; the owner is isAdmin.
+  const isSecondaryAdmin = !!(
+    user &&
+    (user.role === "secondary_admin" || user.role === "co_admin" || user.is_secondary_admin)
+  );
   const username = user?.username || user?.name || (user?.email ? user.email.split("@")[0] : "Reader");
   const name = user?.name || username;
 

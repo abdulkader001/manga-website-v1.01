@@ -21,7 +21,7 @@ router = APIRouter(prefix="/admin/roles/succession", tags=["roles"])
 def _overview(db: Session) -> Dict[str, Any]:
     return {
         **admin_succession.config(db),
-        "deputies": admin_succession.deputies_overview(db),
+        "admins": admin_succession.admins_overview(db),
         "candidates": admin_succession.candidates(db)[:10],
     }
 
@@ -55,7 +55,7 @@ def save_succession(
         db, request, user, "roles.succession_settings", "roles", "succession", "success",
         new_value=f"enabled={payload.enabled} inactive_days={payload.inactive_days}",
     )
-    return {**result, "deputies": admin_succession.deputies_overview(db), "candidates": admin_succession.candidates(db)[:10]}
+    return {**result, "admins": admin_succession.admins_overview(db), "candidates": admin_succession.candidates(db)[:10]}
 
 
 __all__ = ["router"]

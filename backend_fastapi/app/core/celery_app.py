@@ -435,7 +435,7 @@ celery_app.conf.beat_schedule = {
         "task": "backend_fastapi.app.tasks.audit_tasks.purge_expired_revoked_tokens",
         "schedule": 60.0 * 60.0 * 24.0,
     },
-    # Deputies: demote idle ones / hand their powers on (owner's switch).
+    # Admins: replace idle ones from their succession line (owner's switch).
     "roles-succession-daily": {
         "task": "backend_fastapi.app.tasks.roles_tasks.succession_check",
         "schedule": 60.0 * 60.0 * 24.0,
