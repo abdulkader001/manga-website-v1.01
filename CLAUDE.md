@@ -24,6 +24,10 @@
   Secret Vault.
 - The Secret Vault, Admin Settings, branding, donations and role management
   are main-admin only and can never be granted to sub-admins.
+- The Scraper AI is main-admin only: its API key (Series Management →
+  Scraper AI API) and creating parsers with it (Custom Parser). Sub-admins
+  don't see those sections, can't be granted them, and scrapes they start
+  never call the AI.
 - Roles: admin (main), sub-admin (per-person permission toggles), user.
 - Readers sign in with a magic link, Google or Microsoft only. No reader
   passwords. One inbox gives one account, for life.

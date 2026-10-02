@@ -58,6 +58,8 @@ export default function RoleManagement() {
     const byKey = new Map((effectiveData?.permissions || []).map((p) => [p.key, p]));
     const map = new Map();
     for (const entry of catalogueData?.permissions || []) {
+      // Main-admin-only powers (the Scraper AI) have no sub-admin toggle.
+      if (entry.main_admin_only) continue;
       const group = entry.group || "General";
       if (!map.has(group)) map.set(group, []);
       map.get(group).push({ ...entry, ...(byKey.get(entry.key) || {}) });

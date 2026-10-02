@@ -42,7 +42,7 @@ Contents
 ### People and roles
 
 - **Main admin**: one owner. Proves it **once** at `/admin-login` with e-mail, a **one-time** password from `.env` and an authenticator code. After that the page is gone (404, no link anywhere), the owner signs in like readers, and every admin page asks for the authenticator code. A new password hash in `.env` (server access) re-opens the page once, for recovery. Signing in with the owner's e-mail alone never grants admin.
-- **Sub-admin**: a user with per-person permission toggles (Role Management). Can never get the Secret Vault, Admin Settings, branding or role management.
+- **Sub-admin**: a user with per-person permission toggles (Role Management). Can never get the Secret Vault, Admin Settings, branding, role management, or the **Scraper AI** (its API key and Custom Parser; `core/permissions.py` `MAIN_ADMIN_ONLY`). Previews, imports and re-scrapes a sub-admin starts use built-in and detected parsers only, never the AI.
 - **User (reader)**: signs in with a magic link, Google or Microsoft. **No passwords.** One inbox gives one account for life.
 
 ### Data that is deliberately *not* on the server
@@ -120,9 +120,25 @@ exceptions; for those, restore the database backup taken before the update.
 
 ## Change entries
 
+### 2026-10-02 — Scraper AI is main-admin only
+
+Branch `claude/great-faraday-nh2dwx` (commit on top of `a41aff1`, which `main` merged as `93acd4d` with no other change). PR number and merge SHA: fill in when known.
+
+| Change | Why | Main files |
+| --- | --- | --- |
+| **Scraper AI API and Custom Parser are hidden from sub-admins** (buttons and panels on Series Management; the key is not even loaded) | Owner's rule: only the main admin enters Scraper AI keys or creates parsers with the AI | `src/pages/Admin/SeriesManagement.jsx` |
+| **`trigger_scraper_ai` and `configure_scraper_ai` can never be held by a sub-admin**: `has_permission` ignores stored grants, granting is refused (403 "main-admin only"), presets skip them, Role Management shows no toggle for them (catalogue flag `main_admin_only`) | A toggle or an old override could hand the AI to a sub-admin | `app/core/permissions.py` (`MAIN_ADMIN_ONLY`), `app/services/permissions_service.py`, `src/pages/Admin/RoleManagement.jsx` |
+| **Scrapes a sub-admin starts never call the AI**: import preview, import jobs (`ensure_parser` and the in-scrape fallback), staged re-scrapes. They use existing, built-in and detected parsers; otherwise the message says to ask the main admin to add the site with Custom Parser. System jobs with no requester (schedules, health redetect) keep using it and only create candidates | The preview and import used to run the AI for whoever started them | `app/scrapers/source_pipeline.py` (`may_use_scraper_ai`, `allow_ai`), `app/scrapers/ai_fallback.py`, `app/scrapers/base_scraper.py`, `app/services/scraper_workflow_service.py`, `app/services/rescrape_service.py` |
+| **A website a sub-admin approves gets no automatic AI parser.** The background job queued on save checks the website's `approved_by`; for a sub-admin it skips the AI and tells the main admin to use Custom Parser. The default `trigger` of `attempt_generation` / `generate_parser_task` is now `"requested"`, so only the website-save call (which passes `"website_saved"`) is checked | Approving a website started AI generation for whoever approved it | `app/services/parser_generation_service.py` (`_saved_by_scraper_ai_user`), `app/tasks/scraper_tasks.py` |
+
+- **Database:** none. Existing `permission_overrides` rows granting these two keys to a sub-admin are ignored (and removed the next time that toggle is touched).
+- **Settings:** none. API: `PUT /admin/users/{id}/permissions` granting either key → 403 `main_admin_only`; the catalogue entries carry `main_admin_only`.
+- **Check:** sign in as a sub-admin → Series Management shows no *Scraper AI API* / *Custom Parser* buttons; Role Management (as main admin) has no Scraper AI toggles. `pytest backend_fastapi/tests/test_scraper_ai_main_admin_only.py`.
+- **Undo:** `git revert` this PR's merge commit. No migration.
+
 ### 2026-10-01 — PR #30: scraper engine upgrades, Scraper AI playbook and guard
 
-Commit `d1f7415`. Merge SHA: filled in by the next PR.
+Merge `93acd4d`. Commits `d1f7415`, `a41aff1`.
 
 | Change | Why | Main files |
 | --- | --- | --- |

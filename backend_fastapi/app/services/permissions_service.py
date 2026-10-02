@@ -17,6 +17,7 @@ from ..core.api_errors import ApiError, ErrorCode
 from ..core.permissions import (
     ALL_PERMISSIONS,
     BUILTIN_PRESETS,
+    MAIN_ADMIN_ONLY,
     NEVER_GRANTABLE,
     builtin_presets,
     catalogue,
@@ -57,6 +58,10 @@ def has_permission(db: Session, user: User, permission: str) -> bool:
         return False
     if role in (UserRole.ADMIN, UserRole.PERMANENT):
         return True
+    if permission in MAIN_ADMIN_ONLY:
+        # Main admin only: an override stored before this rule (or written
+        # straight into the table) never gives it to a sub-admin.
+        return False
 
     if override is not None:
         return override.state == "granted"
@@ -78,6 +83,9 @@ def resolve_effective(db: Session, user: User) -> list[dict]:
     for key in ALL_PERMISSIONS:
         default = role_default(key, role)
         state = overrides.get(key)
+        if key in MAIN_ADMIN_ONLY:
+            # Never held by a sub-admin, whatever is stored (has_permission).
+            state = None
         if state == "granted":
             effective, label = True, "granted"
         elif state == "revoked":
@@ -137,6 +145,17 @@ def set_override(
             "state must be granted, revoked, or inherited",
             field="state",
         )
+    if permission in MAIN_ADMIN_ONLY:
+        if state == "granted":
+            raise ApiError(
+                ErrorCode.FORBIDDEN,
+                "The Scraper AI (its API key and Custom Parser) is main-admin only "
+                "and cannot be given to a sub-admin.",
+                field="permission",
+                details={"permission": permission, "reason": "main_admin_only"},
+            )
+        # Revoking is already the only possible state: drop any stored row.
+        state = "inherited"
 
     existing = (
         db.query(PermissionOverride)
@@ -233,11 +252,19 @@ def apply_preset(db: Session, target: User, preset_key: str, actor_id: int) -> N
         )
     reset_to_default(db, target)
     for key in preset.get("revoke", []):
-        if is_valid_permission(key) and key not in NEVER_GRANTABLE:
+        if _presettable(key):
             set_override(db, target, key, "revoked", actor_id)
     for key in preset.get("grant", []):
-        if is_valid_permission(key) and key not in NEVER_GRANTABLE:
+        if _presettable(key):
             set_override(db, target, key, "granted", actor_id)
+
+
+def _presettable(key: str) -> bool:
+    """A key a preset may set on a sub-admin: a real catalogue permission that
+    is neither never-grantable nor main-admin only (those are skipped, so an
+    older custom preset that lists them still applies)."""
+
+    return is_valid_permission(key) and key not in NEVER_GRANTABLE and key not in MAIN_ADMIN_ONLY
 
 
 def create_custom_preset(
@@ -250,19 +277,16 @@ def create_custom_preset(
     revoke: list[str],
     actor_id: int,
 ) -> PermissionPreset:
-    """Persist a custom preset (PA only). Rejects invalid/never-grantable keys."""
+    """Persist a custom preset (PA only). Drops invalid, never-grantable and
+    main-admin-only keys."""
 
     key = (key or "").strip().lower()
     if not key or key in BUILTIN_PRESETS:
         raise ApiError(
             ErrorCode.VALIDATION_FAILED, "Invalid or reserved preset key.", field="key"
         )
-    clean_grant = [
-        k for k in grant if is_valid_permission(k) and k not in NEVER_GRANTABLE
-    ]
-    clean_revoke = [
-        k for k in revoke if is_valid_permission(k) and k not in NEVER_GRANTABLE
-    ]
+    clean_grant = [k for k in grant if _presettable(k)]
+    clean_revoke = [k for k in revoke if _presettable(k)]
     existing = db.query(PermissionPreset).filter(PermissionPreset.key == key).first()
     definition = {"grant": clean_grant, "revoke": clean_revoke}
     if existing is not None:

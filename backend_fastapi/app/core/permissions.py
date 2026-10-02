@@ -93,6 +93,13 @@ _CATALOGUE: dict[str, tuple[Group, bool, bool]] = {
 }
 
 
+# Owner's rule: the Scraper AI (its API key, and creating parsers with it --
+# the Series Management "Scraper AI API" and "Custom Parser" sections) belongs
+# to the main admin alone. The main admin holds these like every catalogue
+# permission; a sub-admin can never hold them -- no toggle, preset or stored
+# override grants them (enforced in ``permissions_service``).
+MAIN_ADMIN_ONLY: frozenset[str] = frozenset({"trigger_scraper_ai", "configure_scraper_ai"})
+
 # SRS 1F.8 — no toggle exists for these; absent from the catalogue entirely.
 NEVER_GRANTABLE: frozenset[str] = frozenset(
     {
@@ -118,7 +125,7 @@ DESCRIPTIONS: dict[str, str] = {
     "approve_website": "Approve a new source website for scraping.",
     "modify_website": "Change an approved website's settings.",
     "remove_website": "Remove an approved website.",
-    "trigger_scraper_ai": "Ask the scraper AI to write a parser for a new site.",
+    "trigger_scraper_ai": "Main admin only: create a parser for a website with the Scraper AI (Custom Parser).",
     "approve_parser": "Approve a generated parser.",
     "activate_parser": "Switch a parser on.",
     "rollback_parser": "Go back to an earlier parser version.",
@@ -126,7 +133,7 @@ DESCRIPTIONS: dict[str, str] = {
     "configure_ocr": "Change OCR providers.",
     "configure_translation": "Change translation providers.",
     "configure_ai": "Change AI providers.",
-    "configure_scraper_ai": "Change the scraper AI.",
+    "configure_scraper_ai": "Main admin only: add or change the Scraper AI API key.",
     "set_provider_priority": "Reorder providers.",
     "correct_translation": "Fix a wrong translation.",
     "force_regen_translation": "Throw away a cached translation and make it again.",
@@ -213,6 +220,8 @@ def role_default(key: str, role: UserRole) -> bool:
     if role in (UserRole.PERMANENT, UserRole.ADMIN):
         # Main/permanent-admin accounts hold every catalogue permission.
         return True
+    if key in MAIN_ADMIN_ONLY:
+        return False
     if role == UserRole.SECONDARY:
         return secondary_d
     # Registered users / guests hold no catalogue (admin) permissions.
@@ -325,15 +334,18 @@ def catalogue() -> list[dict]:
 
     out: list[dict] = []
     for key, (group, admin_d, secondary_d) in _CATALOGUE.items():
+        main_only = key in MAIN_ADMIN_ONLY
         out.append(
             {
                 "key": key,
                 "group": group.value,
                 "description": DESCRIPTIONS.get(key, ""),
+                # The Role Management page shows no toggle for these.
+                "main_admin_only": main_only,
                 "defaults": {
                     "permanent_admin": True,
                     "admin": admin_d,
-                    "secondary_admin": secondary_d,
+                    "secondary_admin": False if main_only else secondary_d,
                 },
             }
         )

@@ -4,6 +4,7 @@ import { Link } from "react-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import api, { apiFetch } from "../../services/api";
 import { auditUrlSecurity } from "../../utils/urlValidator";
+import useAuth from "../../hooks/useAuth";
 
 const FREQUENCY_PRESETS = [
   { key: "hourly_6", label: "Every 6 Hours (Fast Hot Release)", freq: "hourly", val: 6, unit: "hours" },
@@ -45,6 +46,9 @@ async function waitForTask(taskId, { intervalMs = 1500, timeoutMs = 240000 } = {
 
 export default function SeriesManagement() {
   const queryClient = useQueryClient();
+  // The Scraper AI (its API key and Custom Parser) is main-admin only; the
+  // server refuses sub-admins as well, this just keeps the page honest.
+  const { isAdmin: isMainAdmin } = useAuth();
 
   // Search and Filter Tab state
   const [search, setSearch] = useState("");
@@ -160,8 +164,9 @@ export default function SeriesManagement() {
   // Notice banner
   const [notice, setNotice] = useState(null);
 
-  // Fetch scraper AI API config
+  // Fetch scraper AI API config (main admin only)
   useEffect(() => {
+    if (!isMainAdmin) return;
     apiFetch("/api/v1/admin/scraper/ai-config")
       .then((r) => r.json())
       .then((d) => {
@@ -169,7 +174,7 @@ export default function SeriesManagement() {
         if (d?.model) setScraperAiModel(d.model);
       })
       .catch(() => {});
-  }, []);
+  }, [isMainAdmin]);
 
   const handleSaveScraperAi = async (e) => {
     e.preventDefault();
@@ -277,8 +282,8 @@ export default function SeriesManagement() {
   };
 
   useEffect(() => {
-    if (parserOpen) loadParsers();
-  }, [parserOpen]);
+    if (parserOpen && isMainAdmin) loadParsers();
+  }, [parserOpen, isMainAdmin]);
 
   // Ask the Scraper AI to write extraction rules for any website address.
   const handleGenerateParser = async (e) => {
@@ -555,6 +560,7 @@ export default function SeriesManagement() {
         </div>
 
         <div className="flex items-center gap-2.5 flex-wrap">
+          {isMainAdmin && (
           <button
             type="button"
             onClick={() => setAiConfigOpen(!aiConfigOpen)}
@@ -563,7 +569,9 @@ export default function SeriesManagement() {
             <i className="fas fa-robot text-purple-400"></i>
             <span>Scraper AI API</span>
           </button>
+          )}
 
+          {isMainAdmin && (
           <button
             type="button"
             onClick={() => setParserOpen(!parserOpen)}
@@ -572,6 +580,7 @@ export default function SeriesManagement() {
             <i className="fas fa-code text-cyan-400"></i>
             <span>Custom Parser</span>
           </button>
+          )}
 
           <button
             type="button"
@@ -584,8 +593,8 @@ export default function SeriesManagement() {
         </div>
       </div>
 
-      {/* Dedicated Scraper AI API Box */}
-      {aiConfigOpen && (
+      {/* Dedicated Scraper AI API Box (main admin only) */}
+      {isMainAdmin && aiConfigOpen && (
         <div className="bg-[#15171c] border border-purple-500/50 p-5 rounded-2xl shadow-2xl space-y-4 animate-in fade-in">
           <div className="flex items-center justify-between border-b border-[#262a33] pb-3">
             <div className="flex items-center gap-2.5">
@@ -703,8 +712,8 @@ export default function SeriesManagement() {
         </div>
       )}
 
-      {/* Custom parser: enter any website, the Scraper AI writes its extraction rules */}
-      {parserOpen && (
+      {/* Custom parser: enter any website, the Scraper AI writes its extraction rules (main admin only) */}
+      {isMainAdmin && parserOpen && (
         <div className="bg-[#15171c] border border-cyan-500/50 p-5 rounded-2xl shadow-2xl space-y-4">
           <div className="flex items-center justify-between border-b border-[#262a33] pb-3">
             <div className="flex items-center gap-2.5">

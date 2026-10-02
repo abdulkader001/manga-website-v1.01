@@ -523,6 +523,11 @@ content you have the rights to host.
 
 ### Add a new source website (Custom Parser)
 
+**Main admin only.** Sub-admins don't see *Scraper AI API* or *Custom
+Parser*, can't be given them in Role Management, and their previews and
+imports never use the Scraper AI (only built-in and detected parsers). If a
+sub-admin's preview says "ask the main admin", add the site as below.
+
 1. Admin → Series → **Scraper AI API**: add a key and press **Test** (only
    needed for sites no built-in parser or auto-detection can read).
 2. In your browser, open **one series** on that site that has **at least two
@@ -682,6 +687,7 @@ procedure: `backend_fastapi/deployment/backups.md` and `deployment/runbook.md`.
 | Custom Parser: "No parser could read a title and a chapter list" | You pasted a homepage, list or chapter. Paste one series page with 2+ chapters (Section 7, *Add a new source website*). |
 | Custom Parser: "naver.com is Naver's portal" | Use the series page on `comic.naver.com` (`.../webtoon/list?titleId=...`). |
 | Custom Parser: "Scraper AI judged this site cannot be scraped" | The AI found a login, paywall or scrambled images. Use another source. |
+| Sub-admin: no *Scraper AI API* / *Custom Parser* buttons, or preview says "ask the main admin" | Intended: the Scraper AI is main-admin only. The main admin adds the site with Custom Parser (Section 7). |
 | `$argon2id...` value turns into garbage | Wrap values containing `$` in single quotes in `.env`. Admin hash lines made by `make_admin_hash.py` start with `a2:` and have no `$`. |
 | Translation/OCR overlay does nothing | Reader: *Settings → Reading & Translation* must be on. Server: vault *Server OCR enabled* = true and restarted (4.1). |
 | Reader says "Text was found but not translated" | OCR works but nothing translates: add an AI key in *Settings → AI & OCR Engines* (press **Test connection**), or a site default in Admin → API Management. |
@@ -714,7 +720,7 @@ procedure: `backend_fastapi/deployment/backups.md` and `deployment/runbook.md`.
 - [ ] OCR, e-mail and sign-in settings entered in **Admin → Secret Vault**
 - [ ] Sign-in required on/off chosen (Admin Settings); donation links added if wanted
 - [ ] First series imported; new chapters arrive via beat
-- [ ] Scraper AI key tested (Admin → Series → Scraper AI API) before adding new source sites with Custom Parser
+- [ ] Scraper AI key tested (Admin → Series → Scraper AI API) before adding new source sites with Custom Parser (main admin only)
 - [ ] Domain + HTTPS in front (production)
 - [ ] `.env` and backups stored safely off the server
 

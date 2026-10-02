@@ -140,11 +140,16 @@ def _hotlink_referer(scraper: BaseScraper, image_url: str, page_url: str) -> Opt
 
 
 def _series_candidates(
-    db: Session, scraper: BaseScraper, url: str, html: str, base_url: Optional[str]
+    db: Session,
+    scraper: BaseScraper,
+    url: str,
+    html: str,
+    base_url: Optional[str],
+    allow_ai: bool = True,
 ) -> Iterator[Tuple[str, Definition, Optional[Dict[str, Any]]]]:
     """(label, definition, generation test_results) for each way of writing a
     series-page parser, cheapest first. Lazy: the AI is only asked if the
-    earlier candidates all failed."""
+    earlier candidates all failed, and only when ``allow_ai``."""
 
     known = presets.detect_family(html, "manga", known_pool(db))
     if known:
@@ -153,7 +158,7 @@ def _series_candidates(
     if structural:
         yield "auto-detected structure", structural, None
 
-    if not scraper_ai_service.is_configured():
+    if not allow_ai or not scraper_ai_service.is_configured():
         return
     feedback: Optional[str] = None
     hints = _series_hints(html, structural)
@@ -231,7 +236,12 @@ def _series_feedback(
 
 
 def _reader_candidates(
-    db: Session, scraper: BaseScraper, series_def: Definition, chapter_url: str, html: str
+    db: Session,
+    scraper: BaseScraper,
+    series_def: Definition,
+    chapter_url: str,
+    html: str,
+    allow_ai: bool = True,
 ) -> Iterator[Tuple[str, Definition]]:
     if series_def.get("page_images") or series_def.get("image_source"):
         yield "series parser", {
@@ -244,7 +254,7 @@ def _reader_candidates(
     if structural:
         yield "auto-detected structure", structural
 
-    if not scraper_ai_service.is_configured():
+    if not allow_ai or not scraper_ai_service.is_configured():
         return
     feedback: Optional[str] = None
     for _attempt in range(AI_ATTEMPTS):
@@ -279,11 +289,13 @@ def build_parser(
     series_html: str,
     *,
     base_url: Optional[str] = None,
+    allow_ai: bool = True,
 ) -> Dict[str, Any]:
-    """Assemble and test a full definition (series page + reader page)."""
+    """Assemble and test a full definition (series page + reader page).
+    ``allow_ai`` False skips the Scraper AI (it is main-admin only)."""
 
     for label, series_def, gen_results in _series_candidates(
-        db, scraper, series_url, series_html, base_url
+        db, scraper, series_url, series_html, base_url, allow_ai
     ):
         data = _try_series(scraper, series_url, series_def)
         if not data:
@@ -300,7 +312,7 @@ def build_parser(
             soups.append((chapter_url, soup))
         first_url, first_soup = soups[0]
         for reader_label, reader_def in _reader_candidates(
-            db, scraper, series_def, first_url, str(first_soup)
+            db, scraper, series_def, first_url, str(first_soup), allow_ai
         ):
             merged = {**series_def, **reader_def}
             found = [_images_on(scraper, soup, url, merged) for url, soup in soups]
@@ -411,11 +423,14 @@ def resolve_parser(
     base_url: Optional[str] = None,
     actor: Optional[User] = None,
     activate: bool = False,
+    allow_ai: bool = True,
 ) -> Dict[str, Any]:
     """Probe ``series_url`` and return
 
     ``{"ok": True, "parser": {...}, "series": {...}}`` or
     ``{"ok": False, "reason": ..., "message": ..., "required_inputs": [...]}``.
+
+    ``allow_ai`` False never calls the Scraper AI (see ``may_use_scraper_ai``).
     """
 
     host = host_of(series_url)
@@ -471,7 +486,7 @@ def resolve_parser(
         }
 
     # 2-4. Known parsers on this page, structure detection, AI.
-    built = build_parser(db, scraper, series_url, str(soup), base_url=base_url)
+    built = build_parser(db, scraper, series_url, str(soup), base_url=base_url, allow_ai=allow_ai)
     if built.get("ok"):
         registered = _register(
             db,
@@ -490,12 +505,31 @@ def resolve_parser(
 
     built["reason"] = "no_parser"
     built["site_signals"] = _signals(str(soup), series_url)
-    if not scraper_ai_service.is_configured():
+    if not allow_ai:
+        built["message"] = (
+            "No built-in or detected parser could read this website. Creating one with the "
+            "Scraper AI is main-admin only: ask the main admin to add this site with Custom Parser."
+        )
+        built["next_steps"] = [
+            "Ask the main admin to open Series → Custom Parser and paste this series address.",
+        ]
+    elif not scraper_ai_service.is_configured():
         built["message"] = (
             "Structure analysis could not read this website, and no Scraper AI key is "
             "configured. Add one in Scraper AI API so a parser can be generated."
         )
     return built
+
+
+def may_use_scraper_ai(db: Session, actor: Optional[User]) -> bool:
+    """Only the main admin may have the Scraper AI write a parser (owner's
+    rule; ``core.permissions.MAIN_ADMIN_ONLY``)."""
+
+    if actor is None:
+        return False
+    from ..services.permissions_service import has_permission
+
+    return has_permission(db, actor, "trigger_scraper_ai")
 
 
 def _signals(html: str, url: str) -> List[str]:
@@ -520,7 +554,7 @@ def _chapter_rows(series: Dict[str, Any]) -> List[Dict[str, Any]]:
 
 
 def sample_layout(
-    series_url: str, chapters: List[Dict[str, Any]], total: int = 0
+    series_url: str, chapters: List[Dict[str, Any]], total: int = 0, *, allow_ai: bool = True
 ) -> Optional[Dict[str, Any]]:
     """Look at a few real chapters and say how the source lays its content out.
 
@@ -540,6 +574,7 @@ def sample_layout(
     picks = list({rows[0]["url"]: rows[0], rows[len(rows) // 2]["url"]: rows[len(rows) // 2],
                   rows[-1]["url"]: rows[-1]}.values())
     scraper = BaseScraper(host_of(series_url))
+    scraper.allow_ai = allow_ai
     counts: List[int] = []
     first_pages: List[str] = []
     for row in picks:
@@ -597,6 +632,7 @@ def run_preview(db: Session, payload: Dict[str, Any], actor: Optional[User]) -> 
 
     series_url = str(payload.get("url") or "").strip()
     mu_url = str(payload.get("mangaupdates_url") or "").strip()
+    allow_ai = may_use_scraper_ai(db, actor)
     warnings: List[str] = []
     metadata: Optional[SeriesMetadata] = None
 
@@ -614,6 +650,7 @@ def run_preview(db: Session, payload: Dict[str, Any], actor: Optional[User]) -> 
             base_url=str(payload.get("base_url") or "") or None,
             actor=actor,
             activate=True,
+            allow_ai=allow_ai,
         )
         if not source.get("ok"):
             warnings.append(source.get("message") or "The source site could not be read.")
@@ -650,7 +687,7 @@ def run_preview(db: Session, payload: Dict[str, Any], actor: Optional[User]) -> 
     }
     if source and source.get("ok"):
         try:
-            hint = sample_layout(series_url, series.get("chapters") or [], total)
+            hint = sample_layout(series_url, series.get("chapters") or [], total, allow_ai=allow_ai)
         except Exception as exc:
             logger.info("layout_sample_failed", url=series_url, error=str(exc)[:160])
             hint = None
@@ -665,6 +702,10 @@ def run_generate_parser(db: Session, payload: Dict[str, Any], actor: Optional[Us
     who may, and report exactly what was found."""
 
     from ..services import series_import
+
+    if not may_use_scraper_ai(db, actor):
+        # The endpoint already refuses; this guards a queued row as well.
+        return {"ok": False, "message": "Custom Parser (the Scraper AI) is main-admin only."}
 
     raw = str(payload.get("url") or "").strip()
     parsed = urlparse(raw if "://" in raw else f"https://{raw}")
