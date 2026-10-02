@@ -149,7 +149,10 @@ docker compose up -d --build
 curl http://localhost:8000/healthz          # {"ok":true}
 ```
 
-Open <http://localhost:8080>. Then continue at
+Open <http://localhost:8080>. The site runs, but nobody is the owner yet: you
+become the owner by signing in with Google using your e-mail, so before
+anything else you need two more things in `.env` (your Google client ID and
+secret, and a hash of your e-mail). Continue at
 [Section 6](#6-become-the-owner-sign-in-with-google). A real
 server with a domain and HTTPS: [Section 8](#8-go-live-on-a-linux-server-with-a-domain-and-https).
 
@@ -386,12 +389,15 @@ refuses to start in production with it off, and cookies would be insecure.
 ### 3.5 Optional features (leave blank to disable)
 
 All of these can be set in **Admin → Secret Vault** instead of `.env`
-(recommended). The variable names are the same in both places.
+(recommended). The variable names are the same in both places. **The one
+exception is Google sign-in: it is not optional for you.** You become the
+owner by signing in with Google (Section 6), and the vault only opens for the
+owner, so put the Google client in `.env` first.
 
 | Feature | Variables | Notes |
 | --- | --- | --- |
 | **Real e-mail login links** | `EMAIL_BACKEND=smtp`, `SMTP_HOST`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD`, `SMTP_USE_TLS`, `EMAIL_FROM_ADDRESS` | With the default `EMAIL_BACKEND=console`, magic links are **printed in the worker logs** instead of sent: `docker compose logs -f celery_worker_email` (small profile: `celery_worker`). |
-| **Google sign-in** | `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET`, `GOOGLE_OAUTH_REDIRECT_URI`, `GOOGLE_PROJECT_ID` | Create an OAuth client in Google Cloud Console → *APIs & Services → Credentials*; add the redirect URI there exactly. Step by step: [`GOOGLE_LOGIN_SETUP.md`](GOOGLE_LOGIN_SETUP.md). |
+| **Google sign-in** (**needed first, in `.env`**, to become the owner) | `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET`, `GOOGLE_OAUTH_REDIRECT_URI`, `GOOGLE_PROJECT_ID` | Create an OAuth client in Google Cloud Console → *APIs & Services → Credentials*; add the redirect URI there exactly. Step by step: [`GOOGLE_LOGIN_SETUP.md`](GOOGLE_LOGIN_SETUP.md). |
 | **Microsoft sign-in** | `MICROSOFT_OAUTH_CLIENT_ID`, `_CLIENT_SECRET`, `_REDIRECT_URI`, `_TENANT` | Empty client id hides the button. |
 | **OCR (reading the text on pages)** | `OCR_ENABLED=true` | The backend image ships **Tesseract with Korean, Japanese and Chinese**; nothing else to install. Set the language per series (Series → layout → *Text language on pages*), or leave *Auto*. A remote OCR API is optional (`OCR_MODE=remote`, `REMOTE_OCR_URL`). |
 | **Translation** | `TRANSLATION_ENABLED=true` + a provider | OCR only reads text; something must translate it. Easiest: each reader adds a free **Google Gemini** key in *Settings → AI & OCR Engines*. A site-wide default for everyone: Admin → API Management, or `TRANSLATION_API_URL` / `TRANSLATION_API_KEY` in the vault. |
@@ -1061,8 +1067,10 @@ getent hosts manga.example.com
 ### Step 3 — Install and configure
 
 Install Docker and clone the repo on the server (Sections 1–2), then create the
-`.env` (Section 3.1) and the domain lines (Section 3.3). Keep
-`FORCE_HTTPS_REDIRECTS=true`. Caddy on the same machine needs nothing in
+`.env` (Section 3.1) and the domain lines (Section 3.3). Also put your Google
+client ID and secret and the owner e-mail line (`MAIN_ADMIN_EMAIL_HASH`) in
+`.env` (Section 6, steps 1–2), using your real domain in the Google redirect
+address. Keep `FORCE_HTTPS_REDIRECTS=true`. Caddy on the same machine needs nothing in
 `TRUSTED_PROXY_CIDRS` (the default already covers it); if a load balancer or
 another proxy sits in front, add its network range.
 

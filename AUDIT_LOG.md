@@ -127,9 +127,29 @@ exceptions; for those, restore the database backup taken before the update.
 
 ## Change entries
 
-### 2026-10-02 — Owner signs in with Google: one-time admin password and `/admin-login` removed
+### 2026-10-02 — Owner sign-in clean-up: guide order, leftovers of the admin password
 
-Merge SHA: fill in when known. Branch `claude/nifty-fermat-53hmly`.
+Merge SHA: fill in when known. Branch `claude/nifty-fermat-53hmly` (restarted from `main` after #39 merged). Follow-up to PR #39; documentation and comments only, no behaviour change.
+
+The owner asked that everything that depended on the admin password hash works with the new Google sign-in, `GUIDE.md` included. A search of the whole repository (code, tests, scripts, compose and deployment files, CI, guides) found no remaining use of `MAIN_ADMIN_PASSWORD_HASH`, `/admin-login` or the password helpers. The leftovers were these:
+
+| Change | Why | Main files |
+| --- | --- | --- |
+| §3.5 no longer lists Google sign-in as optional: it is needed first, in `.env`, because the vault opens only for the owner | A reader following "leave blank to disable" could never become the owner | `GUIDE.md` §3.5 |
+| The "short version" (trial) and §8 Step 3 (production) now say the owner line and the Google client go in `.env` before the first sign-in, with the real domain in the redirect address | Both paths skipped the two things the new flow needs | `GUIDE.md` §0, §8 |
+| Removed the last mention of `MAIN_ADMIN_PASSWORD_HASH` from the vault key notes and the "never in the vault" test list | Stale after #39 | `app/vault_keys.py`, `tests/test_secret_vault.py` |
+| Filled in the merge SHA of PR #39 | Repository rule | `AUDIT_LOG.md` |
+
+- **Checked and left as is:** `docker-compose.yml` still passes `.env` to every container (so `MAIN_ADMIN_EMAIL_HASH` and the Google client reach the backend); a stale `MAIN_ADMIN_PASSWORD_HASH` line in an old `.env` is ignored (settings allow extra keys, tested); `system/state` reports the owner by `is_main_admin`, unchanged; `system_settings.admin_setup_password_used` stays unused in the database.
+- **Database:** none. **Settings:** none.
+- **Check:** `GUIDE.md` §3.5, §0 and §8 Step 3 read in order; `pytest backend_fastapi/tests/test_secret_vault.py`.
+- **Undo:** `git revert -m 1 <merge>`. Nothing else changed.
+
+---
+
+### 2026-10-02 — PR #39: owner signs in with Google; one-time admin password and `/admin-login` removed
+
+Merge `d7074e8`. Commit `386aa6c`.
 
 The owner asked for a simpler first login: put the Google client in `.env`, keep only a hash of the owner's e-mail there, and become the owner by signing in with Google using that e-mail. The one-time password and its page caused lock-out friction (a used password, a browser closed mid-way, a magic-link request that diverted to the page).
 
