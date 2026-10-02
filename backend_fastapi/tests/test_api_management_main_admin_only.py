@@ -124,3 +124,36 @@ def test_role_management_is_main_admin_only(fastapi_client):
         assert response.status_code == 403, (method, path, response.status_code)
     # A sub-admin still sees their own permissions (drives their admin tiles).
     assert fastapi_client.get("/api/v1/admin/permissions/me", headers=_h(sub)).status_code == 200
+
+
+def test_admin_settings_destructive_actions_are_main_admin_only(fastapi_client):
+    """Admin Settings can purge caches and delete every series: a sub-admin
+    holding every grantable toggle still can't trigger any of it."""
+
+    from backend_fastapi.app.core.permissions import ALL_PERMISSIONS
+    from backend_fastapi.app.models import Manga
+
+    grantable = [k for k in ALL_PERMISSIONS if k not in MAIN_ADMIN_ONLY]
+    sub = _user(UserRole.SECONDARY, secondary=True, grants=grantable)
+    tag = uuid.uuid4().hex[:8]
+    with SessionLocal() as session:
+        manga = Manga(title=f"Keep {tag}", slug=f"keep-{tag}", source_url=f"https://example.com/{tag}")
+        session.add(manga)
+        session.commit()
+        manga_id = manga.id
+
+    calls = [
+        ("post", "/api/v1/admin/settings/clear-cache"),
+        ("post", "/api/v1/admin/maintenance/delete-all-manga"),
+        ("post", "/api/v1/admin/maintenance/purge-all-images"),
+        ("post", "/api/v1/admin/maintenance/mirror-all-images"),
+        ("post", "/api/v1/admin/cache/clear"),
+        ("post", "/api/v1/admin/cache/refresh"),
+        ("patch", "/api/v1/admin/cache/priority"),
+        ("post", "/api/v1/admin/settings"),
+    ]
+    for method, path in calls:
+        response = getattr(fastapi_client, method)(path, headers=_h(sub), json={})
+        assert response.status_code == 403, (method, path, response.status_code)
+    with SessionLocal() as session:
+        assert session.get(Manga, manga_id) is not None
