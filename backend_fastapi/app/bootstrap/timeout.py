@@ -16,13 +16,23 @@ from ..core.api_errors import ErrorCode, error_body
 # 504s for valid requests, so they are exempted here and bounded by their own
 # generous timeout instead. Prefer moving genuinely long work to a background
 # job (see the job/status pattern) so the HTTP request itself stays fast.
+def _mounts(path: str) -> tuple[str, ...]:
+    return (f"/api/v1{path}", f"/api{path}", path)
+
+
 DEFAULT_EXEMPT_PREFIXES: tuple[str, ...] = (
-    "/api/translation/",
-    "/api/v1/translation/",
-    "/translation/",
-    "/api/ocr/",
-    "/api/v1/ocr/",
-    "/ocr/",
+    *_mounts("/translation/"),
+    *_mounts("/ocr/"),
+    # Storage & Backups and Geolock talk to outside storage / download services.
+    *_mounts("/admin/backups/"),
+    *_mounts("/admin/geolock/"),
+)
+
+# No timeout at all: a backup upload streams many GB for as long as it takes
+# (the main admin only; nginx has the matching no-limit location).
+NO_TIMEOUT_PREFIXES: tuple[str, ...] = (
+    *_mounts("/admin/backups/upload"),
+    *_mounts("/admin/geolock/database/upload"),
 )
 
 
@@ -44,6 +54,8 @@ class TimeoutMiddleware(BaseHTTPMiddleware):
         self.exempt_timeout_seconds = exempt_timeout_seconds
 
     def _timeout_for(self, path: str) -> float | None:
+        if path.startswith(NO_TIMEOUT_PREFIXES):
+            return None
         if any(path.startswith(prefix) for prefix in self.exempt_prefixes):
             return self.exempt_timeout_seconds
         return self.timeout_seconds

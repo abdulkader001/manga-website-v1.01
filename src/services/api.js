@@ -231,6 +231,11 @@ async function request(path, options = {}, retried = false) {
       window.dispatchEvent(new Event("admin-step-up-required"));
     }
 
+    // Geolock: the visitor's country is blocked; show the notice page.
+    if (res.status === 451 && err.code === "REGION_BLOCKED" && typeof window !== "undefined") {
+      window.dispatchEvent(new Event("region-blocked"));
+    }
+
     if (res.status === 401 && !isSessionCheckPath(p) && (sessionActive || method !== "GET")) {
       handleSessionExpired();
     }

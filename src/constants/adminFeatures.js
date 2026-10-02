@@ -76,6 +76,21 @@ export const ADMIN_FEATURE_LINKS = [
       "Google/Microsoft sign-in, SMTP and API keys, encrypted. Main admin only; cannot be delegated.",
     minRole: "admin",
   },
+  {
+    key: "backups",
+    label: "Storage & Backups",
+    to: "/admin/backups",
+    description:
+      "Weekly whole-site backups: download, upload, restore, and copy to R2 / B2 / MinIO storage. Main admin only.",
+    minRole: "admin",
+  },
+  {
+    key: "geolock",
+    label: "Geolock",
+    to: "/admin/geolock",
+    description: "Choose countries that can't open the site. Main admin only.",
+    minRole: "admin",
+  },
 ];
 
 /**

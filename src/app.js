@@ -17,6 +17,7 @@ import NotFound from "./pages/NotFound";
 import Footer from "./components/Footer";
 
 import AuthGuard from "./components/AuthGuard";
+import RegionGate from "./components/RegionGate";
 import ErrorBoundary from "./components/ErrorBoundary";
 import AdblockCheck from "./components/AdblockCheck";
 import AdSection, { AdsProvider } from "./components/GlobalAds";
@@ -40,6 +41,8 @@ const AuditReport = React.lazy(() => import("./pages/Admin/AuditReport"));
 const ChapterReports = React.lazy(() => import("./pages/Admin/ChapterReports"));
 const AdminSecurity = React.lazy(() => import("./pages/Admin/AdminSecurity"));
 const SecretVault = React.lazy(() => import("./pages/Admin/SecretVault"));
+const StorageBackups = React.lazy(() => import("./pages/Admin/StorageBackups"));
+const Geolock = React.lazy(() => import("./pages/Admin/Geolock"));
 
 function PageLoading() {
   return (
@@ -207,6 +210,22 @@ function AppRoutes() {
           }
         />
         <Route
+          path="/admin/backups"
+          element={
+            <AuthGuard requireAdmin requireMainAdmin>
+              <StorageBackups />
+            </AuthGuard>
+          }
+        />
+        <Route
+          path="/admin/geolock"
+          element={
+            <AuthGuard requireAdmin requireMainAdmin>
+              <Geolock />
+            </AuthGuard>
+          }
+        />
+        <Route
           path="/admin/settings"
           element={
             <AuthGuard requireAdmin>
@@ -251,11 +270,13 @@ function AppContent() {
   const location = useLocation();
 
   return (
-    <AppShell>
-      <ErrorBoundary resetKey={location.pathname}>
-        <AppRoutes />
-      </ErrorBoundary>
-    </AppShell>
+    <RegionGate>
+      <AppShell>
+        <ErrorBoundary resetKey={location.pathname}>
+          <AppRoutes />
+        </ErrorBoundary>
+      </AppShell>
+    </RegionGate>
   );
 }
 

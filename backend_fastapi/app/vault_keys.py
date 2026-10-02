@@ -49,6 +49,8 @@ _G_MON = "Error monitoring"
 _G_LIMITS = "Limits & performance"
 _G_IMG = "Images, uploads & storage"
 _G_SEC = "Sign-in sessions & scanning"
+_G_BACKUP = "Storage & backups"
+_G_GEO = "Geolock"
 
 SPECS = (
     # Website domain: one value drives every address below (see derived_from_domain)
@@ -207,6 +209,29 @@ SPECS = (
     ),
     SecretSpec("CLAMAV_HOST", _G_SEC, "ClamAV host", help="Virus scanning of uploads. Leave unset to disable."),
     SecretSpec("CLAMAV_PORT", _G_SEC, "ClamAV port", kind="int"),
+    # Storage & backups (set from Admin -> Storage & Backups)
+    SecretSpec("BACKUP_SCHEDULE_ENABLED", _G_BACKUP, "Weekly backup on", kind="bool"),
+    SecretSpec("BACKUP_WEEKDAY", _G_BACKUP, "Backup day (0 = Monday ... 6 = Sunday)", kind="number"),
+    SecretSpec("BACKUP_HOUR_UTC", _G_BACKUP, "Backup hour (UTC, 0-23)", kind="number"),
+    SecretSpec("BACKUP_KEEP", _G_BACKUP, "Backups to keep", kind="int"),
+    SecretSpec("BACKUP_INCLUDE_IMAGES", _G_BACKUP, "Include pictures in backups", kind="bool"),
+    SecretSpec(
+        "BACKUP_PASSWORD",
+        _G_BACKUP,
+        "Backup password",
+        secret=True,
+        help="Encrypts every backup. Without it a backup can't be restored: keep a copy off the server.",
+    ),
+    SecretSpec("BACKUP_S3_ENDPOINT", _G_BACKUP, "Storage endpoint", kind="url", help="S3-compatible: Cloudflare R2, Backblaze B2, Wasabi, MinIO..."),
+    SecretSpec("BACKUP_S3_REGION", _G_BACKUP, "Storage region", help="'auto' for R2."),
+    SecretSpec("BACKUP_S3_BUCKET", _G_BACKUP, "Storage bucket"),
+    SecretSpec("BACKUP_S3_PREFIX", _G_BACKUP, "Folder in the bucket"),
+    SecretSpec("BACKUP_S3_ACCESS_KEY_ID", _G_BACKUP, "Storage access key ID"),
+    SecretSpec("BACKUP_S3_SECRET_ACCESS_KEY", _G_BACKUP, "Storage secret access key", secret=True),
+    # Geolock (set from Admin -> Geolock)
+    SecretSpec("GEOLOCK_ENABLED", _G_GEO, "Geolock on", kind="bool"),
+    SecretSpec("GEOLOCK_BLOCKED_COUNTRIES", _G_GEO, "Blocked countries", help="Two-letter codes, comma-separated (JP,CN,US)."),
+    SecretSpec("GEOLOCK_COUNTRY_SOURCE", _G_GEO, "Country comes from", help="'geoip' (database on this server) or 'cloudflare' (CF-IPCountry header)."),
 )
 
 MANAGED_KEYS: Dict[str, SecretSpec] = {spec.key: spec for spec in SPECS}

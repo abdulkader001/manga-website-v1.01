@@ -116,6 +116,7 @@ celery_app = Celery(
         "backend_fastapi.app.tasks.notification_tasks",
         "backend_fastapi.app.tasks.manga_tasks",
         "backend_fastapi.app.tasks.community_tasks",
+        "backend_fastapi.app.tasks.backup_tasks",
     ],
 )
 
@@ -216,6 +217,10 @@ celery_app.conf.task_routes = {
     "backend_fastapi.app.tasks.community_tasks.*": {
         "queue": "maintenance",
         "priority": priority_for("backend_fastapi.app.tasks.community_tasks"),
+    },
+    "backend_fastapi.app.tasks.backup_tasks.*": {
+        "queue": "maintenance",
+        "priority": priority_for("backend_fastapi.app.tasks.backup_tasks"),
     },
 }
 # Bounded retries with exponential backoff + jitter for every task by default.
@@ -424,6 +429,11 @@ celery_app.conf.beat_schedule = {
     "revoked-tokens-purge-daily": {
         "task": "backend_fastapi.app.tasks.audit_tasks.purge_expired_revoked_tokens",
         "schedule": 60.0 * 60.0 * 24.0,
+    },
+    # Storage & Backups: hourly look at the weekly schedule (day + hour UTC).
+    "backups-weekly-check": {
+        "task": "backend_fastapi.app.tasks.backup_tasks.weekly_check",
+        "schedule": 60.0 * 60.0,
     },
 }
 
