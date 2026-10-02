@@ -1,8 +1,8 @@
-"""API Management and Admin Settings are main-admin only (owner's rule).
+"""API Management, Admin Settings and Role Management are site-owner powers.
 
-Sub-admins can't open them in the UI (tiles hidden, routes main-admin only),
-can't read them through the API, and Role Management offers no toggle that
-would grant them.
+A sub-admin only reaches them when the owner gave the power (with the owner's
+authenticator code) and the sub-admin has an authenticator; stored rows, presets
+and everyday toggles never open them (tests/test_deputies.py covers granting).
 """
 
 from __future__ import annotations
@@ -12,12 +12,12 @@ import uuid
 import pytest
 
 from backend_fastapi.app.core.db import Base, SessionLocal, engine
-from backend_fastapi.app.core.permissions import BUILTIN_PRESETS, MAIN_ADMIN_ONLY, catalogue
+from backend_fastapi.app.core.permissions import BUILTIN_PRESETS, OWNER_POWERS, catalogue
 from backend_fastapi.app.core.security import create_access_token
 from backend_fastapi.app.models import PermissionOverride, User, UserRole
 from backend_fastapi.app.services import permissions_service
 
-API_MANAGEMENT = ["view_providers", "configure_ocr", "configure_translation", "configure_ai", "set_provider_priority"]
+API_MANAGEMENT = ["view_providers", "manage_providers"]
 
 
 @pytest.fixture(scope="module", autouse=True)
@@ -59,12 +59,12 @@ MAIN_ONLY_CALLS = [
 ]
 
 
-def test_api_management_keys_are_main_admin_only():
-    assert set(API_MANAGEMENT) <= MAIN_ADMIN_ONLY
+def test_api_management_keys_are_site_owner_powers():
+    assert set(API_MANAGEMENT) <= OWNER_POWERS
     entries = {e["key"]: e for e in catalogue()}
     for key in API_MANAGEMENT:
-        assert entries[key]["main_admin_only"] is True
-    assert not set(BUILTIN_PRESETS["operations_admin"]["grant"]) & MAIN_ADMIN_ONLY
+        assert entries[key]["owner_power"] is True
+    assert not set(BUILTIN_PRESETS["operations_admin"]["grant"]) & OWNER_POWERS
 
 
 def test_stored_api_management_grants_do_nothing():
@@ -101,8 +101,8 @@ def test_session_policy_read_follows_its_permission(fastapi_client):
 ROLE_MANAGEMENT = ["promote_secondary", "demote_secondary"]
 
 
-def test_role_management_is_main_admin_only(fastapi_client):
-    assert set(ROLE_MANAGEMENT) <= MAIN_ADMIN_ONLY
+def test_role_management_needs_an_owner_grant(fastapi_client):
+    assert set(ROLE_MANAGEMENT) <= OWNER_POWERS
     sub = _user(UserRole.SECONDARY, secondary=True, grants=ROLE_MANAGEMENT)
     target = _user(UserRole.USER)
     with SessionLocal() as session:
@@ -126,14 +126,14 @@ def test_role_management_is_main_admin_only(fastapi_client):
     assert fastapi_client.get("/api/v1/admin/permissions/me", headers=_h(sub)).status_code == 200
 
 
-def test_admin_settings_destructive_actions_are_main_admin_only(fastapi_client):
+def test_admin_settings_destructive_actions_need_site_owner_powers(fastapi_client):
     """Admin Settings can purge caches and delete every series: a sub-admin
-    holding every grantable toggle still can't trigger any of it."""
+    holding every everyday toggle still can't trigger any of it."""
 
     from backend_fastapi.app.core.permissions import ALL_PERMISSIONS
     from backend_fastapi.app.models import Manga
 
-    grantable = [k for k in ALL_PERMISSIONS if k not in MAIN_ADMIN_ONLY]
+    grantable = [k for k in ALL_PERMISSIONS if k not in OWNER_POWERS]
     sub = _user(UserRole.SECONDARY, secondary=True, grants=grantable)
     tag = uuid.uuid4().hex[:8]
     with SessionLocal() as session:

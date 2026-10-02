@@ -17,7 +17,7 @@ from sqlalchemy.orm import Session
 
 from ...core.api_errors import ApiError, ErrorCode
 from ...core.db import get_db
-from ...dependencies.auth import require_main_admin_user
+from ...dependencies.powers import require_power
 from ...models import Manga
 from ...services import cache_admin_service as cache_admin
 from ...utils.audit_logger import log_admin_action
@@ -29,17 +29,17 @@ class CachePriorityPayload(BaseModel):
     cache_priority: str = Field(..., description="on | reduced | off")
 
 
-@router.get("", dependencies=[Depends(require_main_admin_user)])
+@router.get("", dependencies=[Depends(require_power("manage_cache"))])
 def get_cache_admin_overview(db: Session = Depends(get_db)) -> Dict[str, Any]:
     return cache_admin.cache_statistics(db)
 
 
-@router.patch("/priority", dependencies=[Depends(require_main_admin_user)])
+@router.patch("/priority", dependencies=[Depends(require_power("manage_cache"))])
 def update_cache_priority(
     request: Request,
     payload: CachePriorityPayload,
     db: Session = Depends(get_db),
-    current_user=Depends(require_main_admin_user),
+    current_user=Depends(require_power("manage_cache")),
 ) -> Dict[str, Any]:
     try:
         value = cache_admin.set_cache_priority(db, payload.cache_priority)
@@ -148,12 +148,12 @@ def _run_scoped_action(
     return result
 
 
-@router.post("/clear", dependencies=[Depends(require_main_admin_user)])
+@router.post("/clear", dependencies=[Depends(require_power("manage_cache"))])
 def clear_cache(
     request: Request,
     payload: CacheActionPayload,
     db: Session = Depends(get_db),
-    current_user=Depends(require_main_admin_user),
+    current_user=Depends(require_power("manage_cache")),
 ) -> Dict[str, Any]:
     return _run_scoped_action(
         request,
@@ -166,12 +166,12 @@ def clear_cache(
     )
 
 
-@router.post("/refresh", dependencies=[Depends(require_main_admin_user)])
+@router.post("/refresh", dependencies=[Depends(require_power("manage_cache"))])
 def refresh_cache(
     request: Request,
     payload: CacheActionPayload,
     db: Session = Depends(get_db),
-    current_user=Depends(require_main_admin_user),
+    current_user=Depends(require_power("manage_cache")),
 ) -> Dict[str, Any]:
     return _run_scoped_action(
         request,

@@ -16,7 +16,7 @@ import pytest
 
 from backend_fastapi.app.core.api_errors import ApiError
 from backend_fastapi.app.core.db import Base, SessionLocal, engine
-from backend_fastapi.app.core.permissions import MAIN_ADMIN_ONLY, catalogue
+from backend_fastapi.app.core.permissions import OWNER_POWERS, catalogue
 from backend_fastapi.app.core.security import create_access_token
 from backend_fastapi.app.models import PermissionOverride, PermissionPreset, User, UserRole
 from backend_fastapi.app.scrapers import source_pipeline
@@ -70,11 +70,13 @@ def _h(uid: int) -> dict:
 # ---------------------------------------------------------------------------
 
 
-def test_the_scraper_ai_powers_are_main_admin_only():
-    assert set(SCRAPER_AI) <= MAIN_ADMIN_ONLY
+def test_the_scraper_ai_powers_are_site_owner_powers():
+    assert set(SCRAPER_AI) <= OWNER_POWERS
 
 
-def test_stored_grants_never_give_a_sub_admin_the_scraper_ai():
+def test_stored_grants_without_an_authenticator_give_nothing():
+    """A row written straight into the table (no owner's code, no
+    authenticator on the sub-admin) never hands out the Scraper AI."""
     sub = _sub_admin_with_stored_grants()
     main = _user(UserRole.ADMIN, main=True)
     with SessionLocal() as session:
@@ -86,8 +88,9 @@ def test_stored_grants_never_give_a_sub_admin_the_scraper_ai():
         assert permissions_service.has_permission(session, sub_user, "approve_parser") is True
         effective = {p["key"]: p for p in permissions_service.resolve_effective(session, sub_user)}
         for key in SCRAPER_AI:
+            # Shown as granted, but paused: no authenticator on this account.
             assert effective[key]["effective"] is False
-            assert effective[key]["state"] == "inherited"
+            assert effective[key]["state"] == "granted"
 
 
 def test_granting_is_refused_and_revoking_stores_nothing():
@@ -98,8 +101,8 @@ def test_granting_is_refused_and_revoking_stores_nothing():
         for key in SCRAPER_AI:
             with pytest.raises(ApiError) as refused:
                 permissions_service.set_override(session, target, key, "granted", main)
-            assert refused.value.details["reason"] == "main_admin_only"
-            permissions_service.set_override(session, target, key, "revoked", main)
+            assert refused.value.details["reason"] == "owner_only"
+            permissions_service.set_override(session, target, key, "revoked", main, by_owner=True)
         session.commit()
         assert session.query(PermissionOverride).filter_by(user_id=sub).count() == 0
 
@@ -138,9 +141,9 @@ def test_presets_skip_the_scraper_ai():
 def test_catalogue_marks_them_for_the_role_page():
     entries = {e["key"]: e for e in catalogue()}
     for key in SCRAPER_AI:
-        assert entries[key]["main_admin_only"] is True
+        assert entries[key]["owner_power"] is True
         assert entries[key]["defaults"]["secondary_admin"] is False
-    assert entries["approve_parser"]["main_admin_only"] is False
+    assert entries["approve_parser"]["owner_power"] is False
 
 
 # ---------------------------------------------------------------------------
@@ -195,7 +198,8 @@ def test_role_page_cannot_grant_it_and_sees_the_flag(fastapi_client):
     assert refused.status_code == 403, refused.text[:200]
     listed = fastapi_client.get("/api/admin/permissions/catalogue", headers=_h(main))
     assert listed.status_code == 200
-    flags = {e["key"]: e.get("main_admin_only") for e in listed.json()["permissions"]}
+    assert refused.json()["error"]["details"]["reason"] == "code_required"
+    flags = {e["key"]: e.get("owner_power") for e in listed.json()["permissions"]}
     assert flags["trigger_scraper_ai"] is True and flags["configure_scraper_ai"] is True
 
 

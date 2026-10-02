@@ -381,7 +381,7 @@ def test_secondary_admin_cannot_update_system_provider(fastapi_client):
     )
 
     assert response.status_code == 403
-    assert response.json()["error"]["message"] == "Main admin privileges required"
+    assert response.json()["error"]["details"]["reason"] == "missing_power"
 
 
 def test_secondary_admin_cannot_update_system_settings(fastapi_client):
@@ -393,7 +393,7 @@ def test_secondary_admin_cannot_update_system_settings(fastapi_client):
     )
 
     assert response.status_code == 403
-    assert response.json()["error"]["message"] == "Main admin privileges required"
+    assert response.json()["error"]["details"]["reason"] == "missing_power"
 
 
 def test_secondary_admin_cannot_update_ads_config(fastapi_client):
@@ -405,7 +405,7 @@ def test_secondary_admin_cannot_update_ads_config(fastapi_client):
     )
 
     assert response.status_code == 403
-    assert response.json()["error"]["message"] == "Main admin privileges required"
+    assert response.json()["error"]["details"]["reason"] == "missing_power"
 
 
 def test_admin_series_preview_and_creation(fastapi_client):

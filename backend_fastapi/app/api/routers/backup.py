@@ -21,7 +21,7 @@ from starlette.background import BackgroundTask
 
 from ...core.api_errors import ApiError, ErrorCode
 from ...core.db import DATABASE_URL, get_db
-from ...dependencies.auth import require_main_admin_user
+from ...dependencies.powers import require_power
 
 logger = structlog.get_logger("backend_fastapi.backup")
 
@@ -318,7 +318,7 @@ def _create_postgres_backup(url: str) -> FileResponse:
 @router.post("/create")
 def create_backup(
     _: Session = Depends(get_db),
-    __: None = Depends(require_main_admin_user),
+    __: None = Depends(require_power("manage_backups")),
 ) -> FileResponse:
     """Return a database snapshot for the current environment."""
 
@@ -404,7 +404,7 @@ def _restore_postgres(contents: bytes, url: str) -> None:
 async def restore_backup(
     request: Request,
     _: Session = Depends(get_db),
-    __: None = Depends(require_main_admin_user),
+    __: None = Depends(require_power("manage_backups")),
 ) -> JSONResponse:
     """Restore the database from an uploaded backup."""
 

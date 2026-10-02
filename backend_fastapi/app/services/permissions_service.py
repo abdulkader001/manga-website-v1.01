@@ -5,8 +5,12 @@ default. Effective permission is resolved server-side on every request; there is
 no client input to the decision. Overrides are stored per person; absence means
 inherited.
 
-Only the Permanent Administrator may change overrides (enforced at the API
-layer). Attempting to grant a never-grantable permission (1F.8) is refused.
+The owner changes any sub-admin's overrides; a sub-admin holding
+``manage_roles`` changes other sub-admins' everyday powers only
+(``authorize_change``). Site-owner powers (``OWNER_POWERS``) are given and
+taken by the owner alone, to at most ``MAX_DEPUTIES`` sub-admins who keep an
+authenticator. Attempting to grant a never-grantable permission (1F.8) is
+refused.
 """
 
 from __future__ import annotations
@@ -17,8 +21,9 @@ from ..core.api_errors import ApiError, ErrorCode
 from ..core.permissions import (
     ALL_PERMISSIONS,
     BUILTIN_PRESETS,
-    MAIN_ADMIN_ONLY,
+    MAX_DEPUTIES,
     NEVER_GRANTABLE,
+    OWNER_POWERS,
     builtin_presets,
     catalogue,
     effective_role,
@@ -58,10 +63,14 @@ def has_permission(db: Session, user: User, permission: str) -> bool:
         return False
     if role in (UserRole.ADMIN, UserRole.PERMANENT):
         return True
-    if permission in MAIN_ADMIN_ONLY:
-        # Main admin only: an override stored before this rule (or written
-        # straight into the table) never gives it to a sub-admin.
-        return False
+    if permission in OWNER_POWERS:
+        # Only an explicit grant from the owner, and only while the holder
+        # keeps an authenticator (a deputy who drops it is paused, not kept).
+        return (
+            override is not None
+            and override.state == "granted"
+            and bool(getattr(user, "totp_enabled", False))
+        )
 
     if override is not None:
         return override.state == "granted"
@@ -83,11 +92,12 @@ def resolve_effective(db: Session, user: User) -> list[dict]:
     for key in ALL_PERMISSIONS:
         default = role_default(key, role)
         state = overrides.get(key)
-        if key in MAIN_ADMIN_ONLY:
-            # Never held by a sub-admin, whatever is stored (has_permission).
+        if key in OWNER_POWERS and state != "granted":
             state = None
         if state == "granted":
             effective, label = True, "granted"
+            if key in OWNER_POWERS and not getattr(user, "totp_enabled", False):
+                effective = False  # paused until they set up an authenticator
         elif state == "revoked":
             effective, label = False, "revoked"
         else:
@@ -120,14 +130,66 @@ def _assert_sub_admin(target: User) -> None:
         )
 
 
+def _is_owner(user: User) -> bool:
+    return effective_role(user) in (UserRole.ADMIN, UserRole.PERMANENT)
+
+
+def deputy_ids(db: Session) -> set[int]:
+    """Sub-admins holding at least one site-owner power (granted)."""
+
+    rows = (
+        db.query(PermissionOverride.user_id)
+        .join(User, User.id == PermissionOverride.user_id)
+        .filter(
+            PermissionOverride.permission.in_(sorted(OWNER_POWERS)),
+            PermissionOverride.state == "granted",
+            User.role == UserRole.SECONDARY,
+        )
+        .distinct()
+        .all()
+    )
+    return {row[0] for row in rows}
+
+
+def is_deputy(db: Session, user: User) -> bool:
+    return user.id in deputy_ids(db)
+
+
+def _refuse(message: str, reason: str, **details) -> ApiError:
+    return ApiError(ErrorCode.FORBIDDEN, message, details={"reason": reason, **details})
+
+
+def authorize_change(db: Session, actor: User, target: User, grants: list[str]) -> None:
+    """Who may change ``target``'s permissions, and grant ``grants``.
+
+    * The owner: anyone but themselves (their own powers are fixed).
+    * A sub-admin with ``manage_roles``: never themselves, never a deputy,
+      never a site-owner power, and only powers they hold themselves.
+    """
+
+    if _is_owner(actor):
+        return
+    if target.id == actor.id:
+        raise _refuse("You can't change your own permissions.", "self_change")
+    if is_deputy(db, target):
+        raise _refuse("Only the site owner can change a deputy's permissions.", "deputy_protected")
+    for key in grants:
+        if key in OWNER_POWERS:
+            raise _refuse("Only the site owner can give site-owner powers.", "owner_only", permission=key)
+        if not has_permission(db, actor, key):
+            raise _refuse(f"You can't give '{key}': you don't hold it yourself.", "not_yours_to_give", permission=key)
+
+
 def set_override(
-    db: Session, target: User, permission: str, state: str, actor_id: int
+    db: Session, target: User, permission: str, state: str, actor_id: int, *, by_owner: bool = False
 ) -> None:
     """Set or clear a single override (1F.6.2).
 
     ``state`` is 'granted', 'revoked', or 'inherited' (clears the override).
     Never-grantable permissions (1F.8) are refused, and only a sub-admin's
     permissions are adjustable (users hold none, the main admin holds all).
+    Site-owner powers need ``by_owner`` (the caller checked the owner's
+    authenticator code), an authenticator on the target, and a free deputy seat.
     """
 
     _assert_sub_admin(target)
@@ -145,17 +207,25 @@ def set_override(
             "state must be granted, revoked, or inherited",
             field="state",
         )
-    if permission in MAIN_ADMIN_ONLY:
+    if permission in OWNER_POWERS:
+        if not by_owner:
+            raise _refuse("Only the site owner can give or take site-owner powers.", "owner_only", permission=permission)
         if state == "granted":
-            raise ApiError(
-                ErrorCode.FORBIDDEN,
-                "The Scraper AI (its API key and Custom Parser) is main-admin only "
-                "and cannot be given to a sub-admin.",
-                field="permission",
-                details={"permission": permission, "reason": "main_admin_only"},
-            )
-        # Revoking is already the only possible state: drop any stored row.
-        state = "inherited"
+            if not getattr(target, "totp_enabled", False):
+                raise _refuse(
+                    "This sub-admin must set up an authenticator app (Admin -> Security) before holding site-owner powers.",
+                    "authenticator_required",
+                )
+            others = deputy_ids(db) - {target.id}
+            if len(others) >= MAX_DEPUTIES:
+                raise _refuse(
+                    f"Only {MAX_DEPUTIES} sub-admins can hold site-owner powers. Take them from one first.",
+                    "deputy_limit",
+                    limit=MAX_DEPUTIES,
+                )
+        else:
+            # Off is the only other state: drop any stored row.
+            state = "inherited"
 
     existing = (
         db.query(PermissionOverride)
@@ -169,6 +239,7 @@ def set_override(
     if state == "inherited":
         if existing is not None:
             db.delete(existing)
+        db.flush()
         return
 
     if existing is None:
@@ -183,14 +254,29 @@ def set_override(
     else:
         existing.state = state
         existing.updated_by = actor_id
+    db.flush()
 
 
-def reset_to_default(db: Session, target: User) -> None:
+def clear_owner_powers(db: Session, target: User) -> int:
+    """Take every site-owner power from ``target`` (demotion, succession)."""
+
+    return (
+        db.query(PermissionOverride)
+        .filter(
+            PermissionOverride.user_id == target.id,
+            PermissionOverride.permission.in_(sorted(OWNER_POWERS)),
+        )
+        .delete(synchronize_session=False)
+    )
+
+
+def reset_to_default(db: Session, target: User, *, keep_owner_powers: bool = False) -> None:
     """Remove all overrides for a person (1F.9.2 reset-to-role-default)."""
 
-    db.query(PermissionOverride).filter(PermissionOverride.user_id == target.id).delete(
-        synchronize_session=False
-    )
+    query = db.query(PermissionOverride).filter(PermissionOverride.user_id == target.id)
+    if keep_owner_powers:
+        query = query.filter(PermissionOverride.permission.notin_(sorted(OWNER_POWERS)))
+    query.delete(synchronize_session=False)
 
 
 def full_catalogue() -> list[dict]:
@@ -250,7 +336,8 @@ def apply_preset(db: Session, target: User, preset_key: str, actor_id: int) -> N
             f"Unknown preset '{preset_key}'.",
             field="preset",
         )
-    reset_to_default(db, target)
+    # A preset shapes everyday powers; site-owner powers are left as they are.
+    reset_to_default(db, target, keep_owner_powers=True)
     for key in preset.get("revoke", []):
         if _presettable(key):
             set_override(db, target, key, "revoked", actor_id)
@@ -261,10 +348,10 @@ def apply_preset(db: Session, target: User, preset_key: str, actor_id: int) -> N
 
 def _presettable(key: str) -> bool:
     """A key a preset may set on a sub-admin: a real catalogue permission that
-    is neither never-grantable nor main-admin only (those are skipped, so an
-    older custom preset that lists them still applies)."""
+    is neither never-grantable nor a site-owner power (those are skipped, so
+    an older custom preset that lists them still applies)."""
 
-    return is_valid_permission(key) and key not in NEVER_GRANTABLE and key not in MAIN_ADMIN_ONLY
+    return is_valid_permission(key) and key not in NEVER_GRANTABLE and key not in OWNER_POWERS
 
 
 def create_custom_preset(
@@ -278,7 +365,7 @@ def create_custom_preset(
     actor_id: int,
 ) -> PermissionPreset:
     """Persist a custom preset (PA only). Drops invalid, never-grantable and
-    main-admin-only keys."""
+    site-owner-power keys."""
 
     key = (key or "").strip().lower()
     if not key or key in BUILTIN_PRESETS:
@@ -319,6 +406,7 @@ def list_managed_people(db: Session, *, modified_only: bool = False) -> list[dic
         .all()
     )
     out: list[dict] = []
+    deputies = deputy_ids(db)
     for user in rows:
         count = modified_count(db, user)
         if modified_only and count == 0:
@@ -329,6 +417,8 @@ def list_managed_people(db: Session, *, modified_only: bool = False) -> list[dic
                 "name": getattr(user, "name", None),
                 "role": user.role.value if user.role else None,
                 "modified_count": count,
+                "deputy": user.id in deputies,
+                "authenticator": bool(getattr(user, "totp_enabled", False)),
             }
         )
     return out

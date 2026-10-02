@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 
 from ...core.test_mode import is_production
-from ...dependencies.auth import require_main_admin_user
+from ...dependencies.powers import require_power
 from ...models import User
 from ...tasks import echo
 
@@ -33,7 +33,7 @@ router = APIRouter(prefix="/tasks", tags=["tasks"])
 )
 async def enqueue_test_task(
     payload: TestTaskRequest,
-    _admin: User = Depends(require_main_admin_user),
+    _admin: User = Depends(require_power("view_system_health")),
 ) -> TestTaskResponse:
     """Queue a background job that echoes the provided message.
 

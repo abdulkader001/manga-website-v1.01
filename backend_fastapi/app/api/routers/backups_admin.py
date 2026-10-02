@@ -21,7 +21,7 @@ from sqlalchemy.orm import Session
 
 from ...core.api_errors import ApiError, ErrorCode
 from ...core.db import get_db
-from ...dependencies.auth import require_main_admin_user
+from ...dependencies.powers import require_power
 from ...models import User
 from ...services import backup_service
 from ...services import secret_vault as vault
@@ -69,12 +69,12 @@ def _overview() -> Dict[str, Any]:
 
 
 @router.get("")
-def get_backups(_: User = Depends(require_main_admin_user)) -> Dict[str, Any]:
+def get_backups(_: User = Depends(require_power("manage_backups"))) -> Dict[str, Any]:
     return _overview()
 
 
 @router.get("/status")
-def get_status(_: User = Depends(require_main_admin_user)) -> Dict[str, Any]:
+def get_status(_: User = Depends(require_power("manage_backups"))) -> Dict[str, Any]:
     return {"status": backup_service.status(), "backups": backup_service.list_local()}
 
 
@@ -94,7 +94,7 @@ def save_settings(
     payload: SettingsPayload,
     request: Request,
     db: Session = Depends(get_db),
-    user: User = Depends(require_main_admin_user),
+    user: User = Depends(require_power("manage_backups")),
 ) -> Dict[str, Any]:
     values = {
         "BACKUP_SCHEDULE_ENABLED": "true" if payload.schedule_enabled else "false",
@@ -121,7 +121,7 @@ def set_password(
     payload: PasswordPayload,
     request: Request,
     db: Session = Depends(get_db),
-    user: User = Depends(require_main_admin_user),
+    user: User = Depends(require_power("manage_backups")),
 ) -> Dict[str, Any]:
     vault.store(db, "BACKUP_PASSWORD", payload.password, actor_id=user.id)
     log_admin_action(db, request, user, "backups.password_set", "backups", "password", "success")
@@ -132,7 +132,7 @@ def set_password(
 def remove_password(
     request: Request,
     db: Session = Depends(get_db),
-    user: User = Depends(require_main_admin_user),
+    user: User = Depends(require_power("manage_backups")),
 ) -> Dict[str, Any]:
     vault.remove(db, "BACKUP_PASSWORD")
     log_admin_action(db, request, user, "backups.password_removed", "backups", "password", "success")
@@ -177,7 +177,7 @@ def _test(target: S3Target) -> None:
 
 
 @router.post("/storage/test")
-def test_storage(payload: StoragePayload, _: User = Depends(require_main_admin_user)) -> Dict[str, Any]:
+def test_storage(payload: StoragePayload, _: User = Depends(require_power("manage_backups"))) -> Dict[str, Any]:
     _test(_target_from(payload))
     return {"ok": True}
 
@@ -187,7 +187,7 @@ def connect_storage(
     payload: StoragePayload,
     request: Request,
     db: Session = Depends(get_db),
-    user: User = Depends(require_main_admin_user),
+    user: User = Depends(require_power("manage_backups")),
 ) -> Dict[str, Any]:
     """Test first; only a storage that accepted a write, read and delete is saved."""
 
@@ -217,7 +217,7 @@ def connect_storage(
 def disconnect_storage(
     request: Request,
     db: Session = Depends(get_db),
-    user: User = Depends(require_main_admin_user),
+    user: User = Depends(require_power("manage_backups")),
 ) -> Dict[str, Any]:
     """Forget the storage keys. Files already in the storage stay there."""
 
@@ -228,7 +228,7 @@ def disconnect_storage(
 
 
 @router.get("/remote")
-def list_remote(_: User = Depends(require_main_admin_user)) -> Dict[str, Any]:
+def list_remote(_: User = Depends(require_power("manage_backups"))) -> Dict[str, Any]:
     try:
         return {"backups": backup_service.list_remote()}
     except (StorageError, backup_service.BackupError) as exc:
@@ -244,7 +244,7 @@ def fetch_remote(
     payload: NamePayload,
     request: Request,
     db: Session = Depends(get_db),
-    user: User = Depends(require_main_admin_user),
+    user: User = Depends(require_power("manage_backups")),
 ) -> Dict[str, Any]:
     from ...tasks.backup_tasks import fetch_remote as task
 
@@ -273,7 +273,7 @@ def run_backup(
     payload: RunPayload,
     request: Request,
     db: Session = Depends(get_db),
-    user: User = Depends(require_main_admin_user),
+    user: User = Depends(require_power("manage_backups")),
 ) -> Dict[str, Any]:
     from ...tasks.backup_tasks import run_backup as task
 
@@ -291,7 +291,7 @@ def _path(name: str) -> Path:
 
 
 @router.get("/files/{name}")
-def download_backup(name: str, _: User = Depends(require_main_admin_user)) -> FileResponse:
+def download_backup(name: str, _: User = Depends(require_power("manage_backups"))) -> FileResponse:
     path = _path(name)
     return FileResponse(path, filename=path.name, media_type="application/octet-stream")
 
@@ -301,7 +301,7 @@ def delete_backup(
     name: str,
     request: Request,
     db: Session = Depends(get_db),
-    user: User = Depends(require_main_admin_user),
+    user: User = Depends(require_power("manage_backups")),
 ) -> Dict[str, Any]:
     _path(name)
     backup_service.delete_local(name)
@@ -313,7 +313,7 @@ def delete_backup(
 async def upload_backup(
     request: Request,
     filename: str = Query(..., min_length=5, max_length=200),
-    user: User = Depends(require_main_admin_user),
+    user: User = Depends(require_power("manage_backups")),
 ) -> Dict[str, Any]:
     """Raw file body (not a form), streamed to disk: archives can be many GB."""
 
@@ -353,7 +353,7 @@ def restore_backup(
     payload: RestorePayload,
     request: Request,
     db: Session = Depends(get_db),
-    user: User = Depends(require_main_admin_user),
+    user: User = Depends(require_power("manage_backups")),
 ) -> Dict[str, Any]:
     """Replace the site's database (and pictures in the backup) with this backup."""
 

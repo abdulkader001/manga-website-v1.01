@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 
 from ...core.api_errors import ApiError, ErrorCode
 from ...core.db import get_db
-from ...dependencies.auth import require_main_admin_user
+from ...dependencies.powers import require_power
 from ...models import User
 from ...services import donation_service as donations
 from ...utils.audit_logger import log_admin_action
@@ -27,7 +27,7 @@ def public_support_links(db: Session = Depends(get_db)) -> Dict[str, Any]:
 
 @router.get("/admin/support")
 def admin_support_links(
-    db: Session = Depends(get_db), _: User = Depends(require_main_admin_user)
+    db: Session = Depends(get_db), _: User = Depends(require_power("manage_donations"))
 ) -> Dict[str, Any]:
     return {"links": donations.get_links(db), **donations.options()}
 
@@ -41,7 +41,7 @@ def update_support_links(
     payload: SupportLinksPayload,
     request: Request,
     db: Session = Depends(get_db),
-    user: User = Depends(require_main_admin_user),
+    user: User = Depends(require_power("manage_donations")),
 ) -> Dict[str, Any]:
     try:
         links, changes = donations.replace_links(db, payload.links)

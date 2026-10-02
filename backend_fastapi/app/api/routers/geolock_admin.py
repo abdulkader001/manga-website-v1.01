@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 
 from ...core.api_errors import ApiError, ErrorCode
 from ...core.db import get_db
-from ...dependencies.auth import require_main_admin_user
+from ...dependencies.powers import require_power
 from ...models import User
 from ...services import geolock
 from ...services import secret_vault as vault
@@ -46,7 +46,7 @@ def _overview(request: Request) -> Dict[str, Any]:
 
 
 @router.get("")
-def get_geolock(request: Request, _: User = Depends(require_main_admin_user)) -> Dict[str, Any]:
+def get_geolock(request: Request, _: User = Depends(require_power("manage_geolock"))) -> Dict[str, Any]:
     return _overview(request)
 
 
@@ -63,7 +63,7 @@ def save_geolock(
     payload: GeolockPayload,
     request: Request,
     db: Session = Depends(get_db),
-    user: User = Depends(require_main_admin_user),
+    user: User = Depends(require_power("manage_geolock")),
 ) -> Dict[str, Any]:
     try:
         blocked = geolock.clean_countries(payload.blocked)
@@ -100,7 +100,7 @@ def save_geolock(
 
 
 @router.post("/database/update")
-def update_database(request: Request, user: User = Depends(require_main_admin_user)) -> Dict[str, Any]:
+def update_database(request: Request, user: User = Depends(require_power("manage_geolock"))) -> Dict[str, Any]:
     try:
         geolock.download_dbip()
     except geolock.GeolockError as exc:
@@ -109,7 +109,7 @@ def update_database(request: Request, user: User = Depends(require_main_admin_us
 
 
 @router.post("/database/upload")
-async def upload_database(request: Request, user: User = Depends(require_main_admin_user)) -> Dict[str, Any]:
+async def upload_database(request: Request, user: User = Depends(require_power("manage_geolock"))) -> Dict[str, Any]:
     """Raw .mmdb body (e.g. MaxMind GeoLite2-Country.mmdb)."""
 
     folder = geolock.db_path().parent

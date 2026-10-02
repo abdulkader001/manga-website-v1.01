@@ -2,9 +2,9 @@
 
 Access is deliberately narrower than every other admin page:
 
-* Main admin only (``require_main_admin_user``). This is a role-tier check,
-  not a catalogue permission, so no permission override or preset can ever
-  extend it to a secondary admin or moderator.
+* The owner, or a deputy the owner gave ``manage_secret_vault``
+  (``require_power``; a site-owner power: only the owner can grant it, it is
+  never part of a preset, and at most two sub-admins hold such powers).
 * An authenticator app must be enrolled.
 * Reading the listing needs the usual admin step-up; changing, removing or
   revealing a value additionally needs a vault unlock -- a fresh TOTP code
@@ -28,7 +28,7 @@ from ...core.api_errors import ApiError, ErrorCode
 from ...core.db import get_db
 from ...core.security import _create_token, _get_algorithm, _get_secret_key
 from ...core.settings import settings
-from ...dependencies.auth import require_main_admin_user
+from ...dependencies.powers import require_power
 from ...models import User
 from ...services import admin_second_factor as second_factor
 from ...services import secret_vault as vault
@@ -54,7 +54,7 @@ class ValuePayload(BaseModel):
 
 
 async def require_vault_owner(
-    user: User = Depends(require_main_admin_user),
+    user: User = Depends(require_power("manage_secret_vault")),
 ) -> User:
     if not getattr(user, "totp_enabled", False):
         # FORBIDDEN rather than REVERIFICATION_REQUIRED: the frontend treats the

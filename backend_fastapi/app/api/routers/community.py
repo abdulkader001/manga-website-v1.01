@@ -17,9 +17,9 @@ from ...core.api_errors import ApiError, ErrorCode
 from ...core.db import get_db
 from ...dependencies.auth import (
     get_current_user,
-    require_main_admin_user,
     require_permission,
 )
+from ...dependencies.powers import require_power
 from ...models import User
 from ...services import (
     comment_service,
@@ -59,7 +59,7 @@ def list_emojis(q: Optional[str] = Query(None), db: Session = Depends(get_db)):
 @router.post("/emojis/custom")
 def add_custom_emoji(
     payload: CustomEmojiCreateRequest,
-    admin: User = Depends(require_main_admin_user),
+    admin: User = Depends(require_power("manage_community")),
     db: Session = Depends(get_db),
 ):
     emoji = emoji_catalogue.add_custom(
@@ -81,7 +81,7 @@ def add_custom_emoji(
 @router.delete("/emojis/custom/{emoji_id}")
 def remove_custom_emoji(
     emoji_id: int,
-    _admin: User = Depends(require_main_admin_user),
+    _admin: User = Depends(require_power("manage_community")),
     db: Session = Depends(get_db),
 ):
     removed = emoji_catalogue.remove_custom(db, emoji_id)
@@ -123,7 +123,7 @@ def list_realms(db: Session = Depends(get_db)):
 def update_realm(
     realm_id: int,
     payload: RealmUpdateRequest,
-    _admin: User = Depends(require_main_admin_user),
+    _admin: User = Depends(require_power("manage_community")),
     db: Session = Depends(get_db),
 ):
     realm = ranking_service.update_realm(

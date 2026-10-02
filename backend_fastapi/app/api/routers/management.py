@@ -7,7 +7,7 @@ from typing import Any
 
 from fastapi import APIRouter, Depends
 
-from ...dependencies.auth import require_main_admin_user
+from ...dependencies.powers import require_power
 from ...services.config_manager import load_config
 
 router = APIRouter(tags=["management"])
@@ -53,7 +53,7 @@ def get_version() -> dict[str, str]:
 
 
 @router.get("/config")
-def get_config(_: Any = Depends(require_main_admin_user)) -> dict[str, Any]:
+def get_config(_: Any = Depends(require_power("manage_admin_settings"))) -> dict[str, Any]:
     """Return a sanitized snapshot of the admin configuration.
 
     Nothing in this application ever calls ``config_manager.save_config``/

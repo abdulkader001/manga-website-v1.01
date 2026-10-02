@@ -332,6 +332,31 @@ def assert_may_change_admin_tier(
     if not has_permission(db, actor, permission):
         raise AdminServiceError("insufficient_privileges")
 
+    # Deputies (owner's rules): a sub-admin holding these powers never changes
+    # their own tier, the owner's, or a deputy's -- only the owner does that.
+    if not _is_owner_tier(effective_role(actor)):
+        from .permissions_service import is_deputy
+
+        if target.id == actor.id:
+            raise AdminServiceError("cannot_change_own_role")
+        if _is_owner_tier(effective_role(target)) or getattr(target, "permanent", False):
+            raise AdminServiceError("cannot_modify_permanent_admin")
+        if is_deputy(db, target):
+            raise AdminServiceError("only_the_owner_can_change_a_deputy")
+
+
+def _is_owner_tier(role) -> bool:
+    return role in (UserRole.ADMIN, UserRole.PERMANENT)
+
+
+def _drop_owner_powers(db: Session, user: User) -> None:
+    """Leaving the sub-admin tier takes every site-owner power with it, so
+    promoting the person again never quietly hands them back."""
+
+    from .permissions_service import clear_owner_powers
+
+    clear_owner_powers(db, user)
+
 
 def promote_user_to_secondary(db: Session, user: User, current_user: User) -> User:
     assert_may_change_admin_tier(db, current_user, user, grant=True)
@@ -367,6 +392,7 @@ def demote_user_from_secondary(db: Session, user: User, current_user: User) -> U
     user.is_secondary_admin = False
     if getattr(user, "role", None) == UserRole.SECONDARY:
         user.role = UserRole.USER
+    _drop_owner_powers(db, user)
 
     db.commit()
     log_role_change(
@@ -466,6 +492,7 @@ def promote_user_role(
         user.role = UserRole.USER
         user.is_secondary_admin = False
         action = "admin.demote"
+        _drop_owner_powers(db, user)
 
     db.commit()
     log_role_change(
@@ -493,6 +520,7 @@ def demote_user_role(
     previous_role = role_to_string(user.role)
     user.role = UserRole.USER
     user.is_secondary_admin = False
+    _drop_owner_powers(db, user)
     db.commit()
     log_role_change(
         db,
