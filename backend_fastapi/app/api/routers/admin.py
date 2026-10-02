@@ -2402,6 +2402,17 @@ def demote_by_email(
     )
 
 
+def _scope_audit_query(query, db: Session, current_user: User):
+    """F-91: the main admin and holders of ``view_full_audit`` see every row;
+    other admins see only their own actions (``view_scope_audit``). The
+    filter is applied before counting and paging, so totals never leak."""
+    if is_main_admin(current_user) or has_permission(db, current_user, "view_full_audit"):
+        return query
+    if not has_permission(db, current_user, "view_scope_audit"):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not allowed to view the audit log")
+    return query.filter(AdminAuditLog.user_id == current_user.id)
+
+
 @router.get(
     "/audit/logs",
     response_model=List[AdminAuditLogEntry],
@@ -2411,10 +2422,10 @@ def list_audit_logs(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin_user),
 ) -> List[AdminAuditLogEntry]:
-    """Kept for existing callers; unfiltered, capped at 500. Prefer
+    """Kept for existing callers; capped at 500. Prefer
     GET /audit/logs/search for filtering and true pagination (1H.7.2)."""
     rows = (
-        db.query(AdminAuditLog)
+        _scope_audit_query(db.query(AdminAuditLog), db, current_user)
         .order_by(AdminAuditLog.timestamp.desc(), AdminAuditLog.id.desc())
         .limit(limit)
         .all()
@@ -2450,7 +2461,7 @@ def search_audit_logs(
     """Searchable, filterable, paginated audit log (SRS 1H.7.2): filter by
     actor, action type, target, date range, and outcome."""
 
-    query = db.query(AdminAuditLog)
+    query = _scope_audit_query(db.query(AdminAuditLog), db, current_user)
     if actor_id is not None:
         query = query.filter(AdminAuditLog.user_id == actor_id)
     if action:
