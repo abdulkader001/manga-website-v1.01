@@ -19,7 +19,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from ...core.db import get_db
-from ...dependencies.auth import require_main_admin_user
+from ...dependencies.powers import require_power
 from ...models.provider_management import PROVIDER_SERVICES
 from ...services import provider_management_service as pms
 from ...services.audit_service import audit_service
@@ -64,7 +64,7 @@ class UpdateProviderPayload(BaseModel):
     status: Optional[str] = None
 
 
-@router.get("", dependencies=[Depends(require_main_admin_user)])
+@router.get("", dependencies=[Depends(require_power("view_providers"))])
 def list_providers(
     service: Optional[str] = None, db: Session = Depends(get_db)
 ) -> Dict[str, List[Dict[str, Any]]]:
@@ -74,12 +74,12 @@ def list_providers(
     return {"providers": [pms.to_dict(r) for r in records]}
 
 
-@router.post("", dependencies=[Depends(require_main_admin_user)])
+@router.post("", dependencies=[Depends(require_power("manage_providers"))])
 def create_provider(
     request: Request,
     payload: CreateProviderPayload,
     db: Session = Depends(get_db),
-    current_user=Depends(require_main_admin_user),
+    current_user=Depends(require_power("manage_providers")),
 ) -> Dict[str, Any]:
     try:
         record = pms.create_provider(
@@ -106,13 +106,13 @@ def create_provider(
     return pms.to_dict(record)
 
 
-@router.patch("/{provider_pk}", dependencies=[Depends(require_main_admin_user)])
+@router.patch("/{provider_pk}", dependencies=[Depends(require_power("manage_providers"))])
 def update_provider(
     request: Request,
     provider_pk: int,
     payload: UpdateProviderPayload,
     db: Session = Depends(get_db),
-    current_user=Depends(require_main_admin_user),
+    current_user=Depends(require_power("manage_providers")),
 ) -> Dict[str, Any]:
     updates = payload.model_dump(exclude_unset=True)
     try:
@@ -130,11 +130,11 @@ def update_provider(
     return pms.to_dict(record)
 
 
-@router.delete("/{provider_pk}", dependencies=[Depends(require_main_admin_user)])
+@router.delete("/{provider_pk}", dependencies=[Depends(require_power("manage_providers"))])
 def delete_provider(
     provider_pk: int,
     db: Session = Depends(get_db),
-    current_user=Depends(require_main_admin_user),
+    current_user=Depends(require_power("manage_providers")),
 ) -> Dict[str, Any]:
     removed = pms.delete_provider(db, provider_pk)
     if not removed:
@@ -147,12 +147,12 @@ def delete_provider(
     return {"status": "ok"}
 
 
-@router.post("/{provider_pk}/test", dependencies=[Depends(require_main_admin_user)])
+@router.post("/{provider_pk}/test", dependencies=[Depends(require_power("manage_providers"))])
 def test_provider(
     request: Request,
     provider_pk: int,
     db: Session = Depends(get_db),
-    current_user=Depends(require_main_admin_user),
+    current_user=Depends(require_power("manage_providers")),
 ) -> Dict[str, Any]:
     """2D.5: the live test a provider must pass before activation."""
 
@@ -169,7 +169,7 @@ def test_provider(
     return result
 
 
-@router.post("/health-check", dependencies=[Depends(require_main_admin_user)])
+@router.post("/health-check", dependencies=[Depends(require_power("manage_providers"))])
 def health_check_all(request: Request, db: Session = Depends(get_db)) -> Dict[str, Any]:
     results = pms.run_health_checks(db, decrypt=_decrypt(request))
     return {"results": results}

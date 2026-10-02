@@ -22,6 +22,7 @@ from ..utils.structured_logging import bind_request_context, clear_request_conte
 from ..utils.csrf_middleware import CSRFMiddleware
 from ..services.maintenance import MaintenanceModeMiddleware
 from .backpressure import BackpressureMiddleware
+from .geolock_middleware import GeolockMiddleware
 from .metrics import add_prometheus_middleware, record_legacy_alias
 from .timeout import TimeoutMiddleware
 
@@ -337,7 +338,7 @@ def configure_middleware(app: FastAPI, settings) -> list[str]:
     Intended runtime order, outermost (first to see a request, last to touch
     the response) to innermost::
 
-        CORS -> SecurityHeaders -> Prometheus -> ForwardedHeaders ->
+        CORS -> SecurityHeaders -> Prometheus -> Geolock -> ForwardedHeaders ->
         HTTPSRedirect -> Timeout -> Backpressure -> LegacyAlias -> Logging ->
         GZip -> MaintenanceMode -> CSRF -> RateLimit -> router
 
@@ -417,6 +418,10 @@ def configure_middleware(app: FastAPI, settings) -> list[str]:
     # X-Forwarded-Proto, which is what stops the redirect loop behind a
     # TLS-terminating proxy.
     app.add_middleware(ForwardedHeadersMiddleware)
+
+    # Geolock: refuse blocked countries before any other work, inside CORS and
+    # the security headers so the 451 still carries both.
+    app.add_middleware(GeolockMiddleware)
 
     add_prometheus_middleware(app)
 

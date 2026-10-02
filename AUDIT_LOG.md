@@ -36,13 +36,14 @@ Contents
 | Layer | Holds | Who changes it | Undo |
 | --- | --- | --- | --- |
 | `.env` on the server | Foundation only: database/Redis, signing and encryption keys, `INTEGRATIONS_SECRET`, admin identity (`MAIN_ADMIN_EMAIL_HASH`, `MAIN_ADMIN_PASSWORD_HASH`), starting site address | Whoever has the server | Edit the file and recreate the containers |
-| **Secret Vault** (Admin → Secret Vault) | Everything else: Google/Microsoft sign-in, SMTP/magic links, OCR/translation, API keys, limits, Sentry, **website domain** | Main admin only, with an authenticator code and a 10-minute unlock | Remove the value and it falls back to `.env`. `VAULT_PRELOAD_DISABLED=true` skips the vault if a bad value stops start-up |
+| **Secret Vault** (Admin → Secret Vault) | Everything else: Google/Microsoft sign-in, SMTP/magic links, OCR/translation, API keys, limits, Sentry, **website domain**, the **backup** schedule, password and storage keys (`BACKUP_*`, set from Storage & Backups) and **Geolock** (`GEOLOCK_*`, set from Geolock) | Main admin only, with an authenticator code and a 10-minute unlock | Remove the value and it falls back to `.env`. `VAULT_PRELOAD_DISABLED=true` skips the vault if a bad value stops start-up |
 | **Admin Settings** (database) | Site name/logo/footer, sign-in required switch, donations, maintenance, session policy | Main admin (sub-admins get only the toggles granted to them) | Change it back in the page |
 
 ### People and roles
 
 - **Main admin**: one owner. Proves it **once** at `/admin-login` with e-mail, a **one-time** password from `.env` and an authenticator code. After that the page is gone (404, no link anywhere), the owner signs in like readers, and every admin page asks for the authenticator code. A new password hash in `.env` (server access) re-opens the page once, for recovery. Signing in with the owner's e-mail alone never grants admin.
-- **Sub-admin**: a user with per-person permission toggles (Role Management). Sees only **their own** rows in the admin audit log unless granted *See the full audit log* (`view_full_audit`); without *See the audit log for their own actions* (`view_scope_audit`) the log is closed to them. Can never get the Secret Vault, Admin Settings (not even read), **API Management** (OCR / translation / AI providers), branding, **Role Management** (permissions, presets, appointing/removing sub-admins, any role change), or the **Scraper AI** (its API key and Custom Parser; `core/permissions.py` `MAIN_ADMIN_ONLY`). Previews, imports and re-scrapes a sub-admin starts use built-in and detected parsers only, never the AI.
+- **Sub-admin**: a user with per-person permission toggles (Role Management). Sees only **their own** rows in the admin audit log unless granted *See the full audit log* (`view_full_audit`). Previews, imports and re-scrapes use the Scraper AI only for a sub-admin who holds it.
+- **Deputy**: a sub-admin the owner gave one or more **site-owner powers** (`core/permissions.py` `OWNER_POWERS`: Secret Vault, Admin Settings, cache, purge, API Management, Scraper AI, Role Management, branding, donations, Storage & Backups, Geolock, e-mail reveal). At most **two** deputies. Only the owner gives or takes these (giving needs the owner's authenticator code); the deputy needs an authenticator and enters a code to use them (`dependencies/powers.py`). A sub-admin can't pass them on, change their own permissions, or change/reset/demote a deputy; demotion strips them. **Automatic succession** (owner only, off by default): a deputy idle longer than the chosen days (default 60) becomes a user and the most active eligible sub-admin inherits their powers (`services/admin_succession.py`, daily job). Stepping down as owner (`/admin/demote-main`) stays owner-only.
 - **User (reader)**: signs in with a magic link, Google or Microsoft. **No passwords.** One inbox gives one account for life.
 
 ### Data that is deliberately *not* on the server
@@ -58,6 +59,7 @@ Contents
 | `cli_bootstrap admin-status` | Is `/admin-login` open, used up or not set up, and can the server see both lines |
 | `cli_bootstrap admin-hashes` | Same as `make_admin_hash.py` (prints the lines) |
 | `cli_bootstrap reset-2fa --email …` | Removes a lost authenticator |
+| `cli_bootstrap geolock-off` | Switches Geolock off (you blocked the country you are in) |
 | `cli_bootstrap login-link --email …` | Prints a one-time sign-in link (no e-mail sent) |
 | `set_site_domain new-domain.com` / `--clear` | Moves the site to a new domain when the admin page can't be reached |
 
@@ -80,6 +82,7 @@ back what the upgrade removed, so restore a backup instead.
 | `20261010_email_identity` | #27 | Unique `users.email_identity_hash` (one inbox, one account), backfilled | Drops it. Gmail-alias duplicates become possible again |
 | `20261011_admin_password_single_use` | #27 | `system_settings.admin_setup_password_used` | Drops it, so the **current admin password works again** |
 | `20261012_overlay_text_scale` | #33 | `user_processing_settings.overlay_font_size` becomes the 1-100 slider (pixels converted: 20 px → 28.5); new `overlay_outline_color`, `overlay_match_bubble` | **Lossy**: sizes go back to pixels rounded and capped at 10-40 px (a reader on 100 = 70 px gets 40 px); outline colour and bubble switch are dropped |
+| `20261013_admin_succession` | #34 | `admin_activity_days` table (one row per admin per active day) and `system_settings.succession_enabled` / `succession_inactive_days` / `succession_enabled_at` | Drops them. **Lossy**: the activity history and the succession switch are gone (succession is off again) |
 
 Check where a server is: `docker compose exec backend alembic current`.
 
@@ -121,9 +124,26 @@ exceptions; for those, restore the database backup taken before the update.
 
 ## Change entries
 
+### 2026-10-02 — PR #34: Storage & Backups, Geolock, deputies and automatic succession
+
+Branch `claude/great-faraday-nh2dwx`. Commits `c96b98e`, `2da5e86`, `c608f69` and the follow-ups. Merge SHA: fill in when known.
+
+| Change | Why | Main files |
+| --- | --- | --- |
+| **Storage & Backups tab** (Admin, main admin only). One `.zip` per backup: database (`pg_dump`/SQLite), pictures and other uploads (optional), and a manifest. Weekly on a chosen day and hour (UTC), newest *N* kept, "Back up now", download, upload a backup made elsewhere, restore (types RESTORE; a database safety copy is made first). A backup password encrypts archives (`.zip.enc`, AES-256-GCM). Connect any S3-compatible storage (R2, B2, Wasabi, MinIO): tested with a write/read/delete before it is saved; every new backup is copied there and pruned there too; files in the storage can be brought back to the server. One job at a time, in the maintenance worker | Owner asked for backups made, kept, downloaded and restored from the website, with storage that plugs in and out | `app/services/backup_service.py`, `backup_crypto.py`, `s3_storage.py`, `app/api/routers/backups_admin.py`, `app/tasks/backup_tasks.py`, `src/pages/Admin/StorageBackups.jsx` |
+| **Geolock tab** (Admin, main admin only). Tick countries that can't open the site; they get a 451 and a "not available in your country" page. Country from a GeoIP database on the server (free DB-IP Lite, downloaded from the tab, or an uploaded MaxMind `.mmdb`) or from Cloudflare's `CF-IPCountry` header. Saving a list that blocks the admin's own country asks first; `cli_bootstrap geolock-off` undoes a lockout | Owner asked to block chosen countries | `app/services/geolock.py`, `app/bootstrap/geolock_middleware.py`, `app/api/routers/geolock_admin.py`, `src/pages/Admin/Geolock.jsx`, `src/components/RegionGate.jsx` |
+| **Deputies.** Every admin power is now a Role Management toggle. Site-owner powers (Secret Vault, Admin Settings, cache, purge, API Management, Scraper AI, Role Management, branding, donations, backups, geolock, e-mail reveal) are given only by the owner with their authenticator code, to at most two sub-admins who have an authenticator and enter a code to use them. Sub-admins can't pass them on, edit themselves, or change/reset/demote a deputy; demotion strips them. The owner's pages open to a deputy holding the matching power (routes and hub tiles) | Owner wants the site to keep running if they are away, without anyone being able to take it over | `app/core/permissions.py`, `app/services/permissions_service.py`, `app/dependencies/powers.py`, `app/services/admin_service.py`, 100 routes moved from "main admin" to `require_power(...)`, `src/pages/Admin/RoleManagement.jsx`, `src/app.js`, `src/constants/adminFeatures.js` |
+| **Automatic succession** (owner only, off by default, owner's code to change). A deputy idle longer than the chosen days (30-365, default 60) becomes a user; the most active eligible sub-admin (admin 30+ days, active 20 of the last 30 days, admin work on 10 of them, authenticator) inherits exactly their site-owner powers. Activity is recorded by the server once a day. Switching it on never demotes anyone at once. Each change is audited and sent to the owner | Owner asked for idle deputies to be replaced automatically | `app/services/admin_succession.py`, `app/api/routers/roles_succession.py`, `app/tasks/roles_tasks.py` |
+| nginx: backup and GeoIP uploads/downloads have no size cap or buffering (only those paths); the API's 5 s timeout doesn't apply to them | Archives can be many GB | `deployment/nginx/site.conf`, `deployment/manga-site.conf`, `app/bootstrap/timeout.py` |
+
+- **Database:** `20261013_admin_succession` (added to §2). Backup and Geolock settings live in the Secret Vault; the backup list is read from the backup folder, so it survives a restore.
+- **Settings:** new vault keys `BACKUP_SCHEDULE_ENABLED`, `BACKUP_WEEKDAY`, `BACKUP_HOUR_UTC`, `BACKUP_KEEP`, `BACKUP_INCLUDE_IMAGES`, `BACKUP_PASSWORD`, `BACKUP_S3_*`, `GEOLOCK_ENABLED`, `GEOLOCK_BLOCKED_COUNTRIES`, `GEOLOCK_COUNTRY_SOURCE`, all set from the two tabs. Optional `.env` paths `STORAGE_ROOT`, `BACKUP_DIR`, `GEOIP_DATABASE_PATH`. New dependency `maxminddb` (rebuild the backend image). Weekly backup is **on by default** (Sunday 03:00 UTC, keep 2, with pictures); it refuses to run when the disk lacks room.
+- **Check:** Admin → Storage & Backups → Back up now; the archive appears, downloads and opens as a zip (unless a password is set). Admin → Geolock → Download free database, tick a country, save; `curl -H "CF-IPCountry: JP"` only matters in Cloudflare mode.
+- **Undo:** `alembic downgrade 20261012_overlay_text_scale` (activity history lost), then `git revert` the merge commit and rebuild; reverting makes every site-owner power main-admin only again (stored grants stay in the table but do nothing). Backups already made stay in `<storage>/backups` (and the storage); the vault keys can be removed in Secret Vault. If a Geolock change locked you out: `cli_bootstrap geolock-off`.
+
 ### 2026-10-02 — PR #33: all 13 audit findings fixed; bubble-shaped translations, colour pickers, 1-100 text size
 
-Branch `claude/great-faraday-nh2dwx`. Commits `4a92b2e` … `c310edf` (see below). PR number and merge SHA: fill in when known.
+Merge `00390cd`. Commits `4a92b2e` … `773ab2f` (see below).
 
 | Change | Why | Main files |
 | --- | --- | --- |
@@ -314,6 +334,8 @@ PRs #1–#22 predate this log. Their summaries are in the merge commits
 
 ## 5. Open items and known limits
 
+- **Storage & Backups** was tested against an in-memory S3 server (and the signer against AWS's published example), not against a live R2/B2 bucket: press *Test connection* with your own keys once. **Geolock** does not cover picture files nginx serves directly, and VPNs get around any country lock.
+- **Scraper AI in scrapes a deputy starts**: a deputy holding *trigger_scraper_ai* gets AI help in previews and re-scrapes without entering a fresh code (the Custom Parser page itself asks for one). It only spends AI quota.
 - **Bubble shapes** are found with a light heuristic (Pillow, no AI): tested on synthetic pages with round, square, freeform, dark and open bubbles. A bubble whose outline has a gap, touches the page edge, or holds two separately-read text lines falls back to the plain box. Report pages where the shape looks wrong.
 - **Per-site scraper settings** (baozimh page templates, mkzhan image API, senmanga page URLs, Madara AJAX) follow each site's public structure and were tested on synthetic pages only; the build sandbox could not reach the sites. Run Custom Parser on one real series per site.
 - **Anime-Planet parser** was tested on synthetic pages only (the build sandbox couldn't reach the site). Check a real link in the import preview.

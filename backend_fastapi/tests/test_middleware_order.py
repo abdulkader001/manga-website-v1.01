@@ -20,6 +20,7 @@ EXPECTED_ORDER = [
     "LiveCORSMiddleware",  # CORSMiddleware that follows the vault domain live
     "SecurityHeadersMiddleware",
     "PrometheusMiddleware",
+    "GeolockMiddleware",  # 451 for blocked countries, still with CORS + security headers
     "ForwardedHeadersMiddleware",
     "TimeoutMiddleware",
     "BackpressureMiddleware",

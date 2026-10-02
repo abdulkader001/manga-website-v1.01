@@ -68,6 +68,16 @@ def _cipher() -> IntegrationKeyVault:
     return vault
 
 
+def seal(text: str) -> str:
+    """Encrypt a short-lived secret (e.g. a backup password handed to a worker)."""
+
+    return _cipher().encrypt(text)
+
+
+def unseal(token: str) -> str:
+    return _cipher().decrypt(token)
+
+
 # ---------------------------------------------------------------------------
 # Validation
 # ---------------------------------------------------------------------------

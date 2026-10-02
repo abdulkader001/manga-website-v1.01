@@ -15,14 +15,14 @@ import time
 import psutil
 from fastapi import APIRouter, Depends, Response
 
-from ...dependencies.auth import require_main_admin_user
+from ...dependencies.powers import require_power
 
 # Process stats describe the server (uptime, memory, CPU): main admin only.
 # The Prometheus scraper uses /metrics, which nginx does not expose (F-90).
 router = APIRouter(
     prefix="/system/stats",
     tags=["monitoring"],
-    dependencies=[Depends(require_main_admin_user)],
+    dependencies=[Depends(require_power("view_system_health"))],
 )
 
 _PROCESS = psutil.Process()

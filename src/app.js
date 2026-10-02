@@ -17,6 +17,7 @@ import NotFound from "./pages/NotFound";
 import Footer from "./components/Footer";
 
 import AuthGuard from "./components/AuthGuard";
+import RegionGate from "./components/RegionGate";
 import ErrorBoundary from "./components/ErrorBoundary";
 import AdblockCheck from "./components/AdblockCheck";
 import AdSection, { AdsProvider } from "./components/GlobalAds";
@@ -40,6 +41,8 @@ const AuditReport = React.lazy(() => import("./pages/Admin/AuditReport"));
 const ChapterReports = React.lazy(() => import("./pages/Admin/ChapterReports"));
 const AdminSecurity = React.lazy(() => import("./pages/Admin/AdminSecurity"));
 const SecretVault = React.lazy(() => import("./pages/Admin/SecretVault"));
+const StorageBackups = React.lazy(() => import("./pages/Admin/StorageBackups"));
+const Geolock = React.lazy(() => import("./pages/Admin/Geolock"));
 
 function PageLoading() {
   return (
@@ -145,7 +148,7 @@ function AppRoutes() {
         <Route
           path="/admin/roles"
           element={
-            <AuthGuard requireMainAdmin>
+            <AuthGuard requireAdmin allowSecondaryAdmins permission="manage_roles">
               <RoleManagement />
             </AuthGuard>
           }
@@ -161,7 +164,7 @@ function AppRoutes() {
         <Route
           path="/admin/ads"
           element={
-            <AuthGuard requireAdmin>
+            <AuthGuard requireAdmin allowSecondaryAdmins permission="manage_ads">
               <AdsManager />
             </AuthGuard>
           }
@@ -169,7 +172,7 @@ function AppRoutes() {
         <Route
           path="/admin/ad-slots"
           element={
-            <AuthGuard requireAdmin>
+            <AuthGuard requireAdmin allowSecondaryAdmins permission="manage_ads">
               <AdSlotsManager />
             </AuthGuard>
           }
@@ -201,15 +204,31 @@ function AppRoutes() {
         <Route
           path="/admin/vault"
           element={
-            <AuthGuard requireAdmin requireMainAdmin>
+            <AuthGuard requireAdmin allowSecondaryAdmins permission="manage_secret_vault">
               <SecretVault />
+            </AuthGuard>
+          }
+        />
+        <Route
+          path="/admin/backups"
+          element={
+            <AuthGuard requireAdmin allowSecondaryAdmins permission="manage_backups">
+              <StorageBackups />
+            </AuthGuard>
+          }
+        />
+        <Route
+          path="/admin/geolock"
+          element={
+            <AuthGuard requireAdmin allowSecondaryAdmins permission="manage_geolock">
+              <Geolock />
             </AuthGuard>
           }
         />
         <Route
           path="/admin/settings"
           element={
-            <AuthGuard requireAdmin>
+            <AuthGuard requireAdmin allowSecondaryAdmins permission="manage_admin_settings">
               <AdminSettings />
             </AuthGuard>
           }
@@ -217,7 +236,7 @@ function AppRoutes() {
         <Route
           path="/admin/api-management"
           element={
-            <AuthGuard requireAdmin>
+            <AuthGuard requireAdmin allowSecondaryAdmins permission="view_providers">
               <ApiManagement />
             </AuthGuard>
           }
@@ -225,7 +244,7 @@ function AppRoutes() {
         <Route
           path="/admin/audit-report"
           element={
-            <AuthGuard requireAdmin>
+            <AuthGuard requireAdmin allowSecondaryAdmins permission="view_system_health">
               <AuditReport />
             </AuthGuard>
           }
@@ -251,11 +270,13 @@ function AppContent() {
   const location = useLocation();
 
   return (
-    <AppShell>
-      <ErrorBoundary resetKey={location.pathname}>
-        <AppRoutes />
-      </ErrorBoundary>
-    </AppShell>
+    <RegionGate>
+      <AppShell>
+        <ErrorBoundary resetKey={location.pathname}>
+          <AppRoutes />
+        </ErrorBoundary>
+      </AppShell>
+    </RegionGate>
   );
 }
 

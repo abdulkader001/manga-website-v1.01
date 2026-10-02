@@ -449,7 +449,7 @@ def test_reveal_user_email_rejects_secondary_admins(fastapi_client):
         f"/api/admin/users/{target_id}/email", headers=secondary_headers
     )
     assert forbidden.status_code == 403
-    assert forbidden.json()["error"]["message"] == "Main admin privileges required"
+    assert forbidden.json()["error"]["details"]["reason"] == "missing_power"
 
     main_headers = {"Authorization": f"Bearer {create_access_token(str(main_id))}"}
     allowed = fastapi_client.get(

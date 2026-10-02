@@ -10,12 +10,14 @@ describe("admin hub tiles (F-97)", () => {
     );
   });
 
-  it("never shows a sub-admin a main-admin-only tile, even with the permission", () => {
+  it("shows a deputy the owner tiles they were given, never the owner-only ones", () => {
     const shown = keys(visibleAdminLinks(ADMIN_FEATURE_LINKS, { isSecondaryAdmin: true, can: () => true }));
-    expect(shown).toEqual(["chapter-reports", "health", "series"]);
-    for (const hidden of ["users", "ads", "roles", "settings", "api-management", "vault", "audit-report"]) {
-      expect(shown).not.toContain(hidden);
+    expect(shown).not.toContain("users");
+    for (const tile of ["roles", "settings", "api-management", "vault", "backups", "geolock", "audit-report", "ads"]) {
+      expect(shown).toContain(tile);
     }
+    const backupsOnly = (key) => key === "manage_backups";
+    expect(keys(visibleAdminLinks(ADMIN_FEATURE_LINKS, { isSecondaryAdmin: true, can: backupsOnly }))).toEqual(["backups"]);
   });
 
   it("follows the sub-admin's toggles", () => {

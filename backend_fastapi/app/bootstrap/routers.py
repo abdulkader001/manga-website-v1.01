@@ -19,6 +19,10 @@ from ..api.routers import (
     support_router,
     auth_router,
     backup_router,
+    backups_admin_router,
+    geo_public_router,
+    geolock_admin_router,
+    roles_succession_router,
     bookmarks_router,
     branding_router,
     cache_admin_router,
@@ -91,6 +95,10 @@ def build_api_router() -> APIRouter:
     api_router.include_router(site_admin_router)
     api_router.include_router(scraper_admin_router)
     api_router.include_router(secret_vault_router)
+    api_router.include_router(backups_admin_router)
+    api_router.include_router(geolock_admin_router)
+    api_router.include_router(geo_public_router)
+    api_router.include_router(roles_succession_router)
     return api_router
 
 

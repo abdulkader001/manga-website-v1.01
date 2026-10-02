@@ -585,6 +585,15 @@ class PermissionOverride(Base):
     created_at = Column(DateTime, server_default=func.now())
 
 
+class AdminActivityDay(Base):
+    """One row per admin per day they used the admin panel (succession)."""
+
+    __tablename__ = "admin_activity_days"
+
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    day = Column(Date, primary_key=True)
+
+
 class PermissionPreset(Base):
     """A named, PA-creatable permission preset (SRS 1F.9.3).
 

@@ -20,9 +20,9 @@ from ...core.api_errors import ApiError, ErrorCode
 from ...core.db import get_db
 from ...dependencies.auth import (
     require_admin_user,
-    require_main_admin_user,
     require_permission,
 )
+from ...dependencies.powers import require_power
 from ...models import (
     Announcement,
     Chapter,
@@ -67,7 +67,7 @@ def list_social_links(db: Session = Depends(get_db)) -> Dict[str, Any]:
 def save_social_links(
     payload: SocialLinksPayload,
     db: Session = Depends(get_db),
-    _: User = Depends(require_main_admin_user),
+    _: User = Depends(require_power("configure_branding")),
 ) -> Dict[str, Any]:
     return {"success": True, "links": content.replace_social_links(db, payload.links)}
 
@@ -76,7 +76,7 @@ def save_social_links(
 def add_social_link(
     payload: Dict[str, Any],
     db: Session = Depends(get_db),
-    _: User = Depends(require_main_admin_user),
+    _: User = Depends(require_power("configure_branding")),
 ) -> Dict[str, Any]:
     link = content.normalize_social_link({**payload, "id": None})
     if link is None:
@@ -96,7 +96,7 @@ def update_social_link(
     link_id: str,
     payload: Dict[str, Any],
     db: Session = Depends(get_db),
-    _: User = Depends(require_main_admin_user),
+    _: User = Depends(require_power("configure_branding")),
 ) -> Dict[str, Any]:
     links = content.get_social_links(db)
     for index, existing in enumerate(links):
@@ -118,7 +118,7 @@ def update_social_link(
 def delete_social_link(
     link_id: str,
     db: Session = Depends(get_db),
-    _: User = Depends(require_main_admin_user),
+    _: User = Depends(require_power("configure_branding")),
 ) -> Dict[str, Any]:
     links = [link for link in content.get_social_links(db) if link["id"] != link_id]
     return {"success": True, "links": content.replace_social_links(db, links)}
@@ -355,7 +355,7 @@ def list_ad_networks(
 def create_ad_network(
     payload: AdNetworkPayload,
     db: Session = Depends(get_db),
-    _: User = Depends(require_main_admin_user),
+    _: User = Depends(require_power("manage_ads")),
 ) -> Dict[str, Any]:
     name = strip_all_html(payload.name or "").strip()[:100] or "Auto-Ads Network"
     if db.query(GlobalAdProvider).filter(GlobalAdProvider.name == name).first():
@@ -373,7 +373,7 @@ def update_ad_network(
     network_id: int,
     payload: AdNetworkPayload,
     db: Session = Depends(get_db),
-    _: User = Depends(require_main_admin_user),
+    _: User = Depends(require_power("manage_ads")),
 ) -> Dict[str, Any]:
     provider = db.get(GlobalAdProvider, network_id)
     if provider is None:
@@ -387,7 +387,7 @@ def update_ad_network(
 def delete_ad_network(
     network_id: int,
     db: Session = Depends(get_db),
-    _: User = Depends(require_main_admin_user),
+    _: User = Depends(require_power("manage_ads")),
 ) -> Dict[str, Any]:
     provider = db.get(GlobalAdProvider, network_id)
     if provider is not None:
@@ -434,7 +434,7 @@ def update_site_settings(
     request: Request,
     payload: Dict[str, Any],
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_main_admin_user),
+    current_user: User = Depends(require_power("manage_admin_settings")),
 ) -> Dict[str, Any]:
     content.update_site_settings(db, payload)
     if payload.get("session_timeout_days") not in (None, ""):
@@ -462,7 +462,7 @@ def update_site_settings(
 async def clear_site_cache(
     request: Request,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_main_admin_user),
+    current_user: User = Depends(require_power("manage_cache")),
 ) -> Dict[str, Any]:
     await ainvalidate_manga_caches(getattr(request.app.state, "redis", None))
     from ...utils.bounded_threadpool import run_in_db_threadpool
@@ -482,7 +482,7 @@ class ConfirmPayload(BaseModel):
 async def delete_all_manga(
     request: Request,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_main_admin_user),
+    current_user: User = Depends(require_power("purge_site_data")),
 ) -> Dict[str, Any]:
     from ...dependencies.auth import is_main_admin
 
@@ -516,7 +516,7 @@ async def delete_all_manga(
 async def purge_all_images(
     request: Request,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_main_admin_user),
+    current_user: User = Depends(require_power("purge_site_data")),
 ) -> Dict[str, Any]:
     """Drop cached OCR/translation results and catalogue caches. Stored page
     URLs are untouched, so chapters stay readable."""
@@ -686,7 +686,7 @@ def site_default_engines(db: Session) -> List[Dict[str, Any]]:
 def get_api_registry(
     request: Request,
     db: Session = Depends(get_db),
-    _: User = Depends(require_main_admin_user),
+    _: User = Depends(require_power("view_providers")),
 ) -> Dict[str, Any]:
     from ...services import provider_management_service as pms
 
@@ -708,7 +708,7 @@ def save_api_provider(
     request: Request,
     payload: RegistryProviderPayload,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_main_admin_user),
+    current_user: User = Depends(require_power("manage_providers")),
 ) -> Dict[str, Any]:
     from ...services import provider_management_service as pms
 
@@ -774,7 +774,7 @@ def delete_api_provider(
     category: str,
     provider_id: str,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_main_admin_user),
+    current_user: User = Depends(require_power("manage_providers")),
 ) -> Dict[str, Any]:
     from ...services import provider_management_service as pms
 
@@ -796,7 +796,7 @@ def test_api_provider(
     request: Request,
     payload: ConnectionTestPayload,
     db: Session = Depends(get_db),
-    _: User = Depends(require_main_admin_user),
+    _: User = Depends(require_power("manage_providers")),
 ) -> Dict[str, Any]:
     from ...services import provider_management_service as pms
 
@@ -824,7 +824,7 @@ ACTIVE_WINDOW = timedelta(minutes=15)
 def audit_report(
     range_key: str = Query("1d", alias="range"),
     db: Session = Depends(get_db),
-    _: User = Depends(require_main_admin_user),
+    _: User = Depends(require_power("view_system_health")),
 ) -> Dict[str, Any]:
     days = AUDIT_RANGES.get(range_key, 1)
     now = datetime.utcnow()
@@ -909,7 +909,7 @@ def audit_report(
 async def run_diagnostics(
     request: Request,
     db: Session = Depends(get_db),
-    _: User = Depends(require_main_admin_user),
+    _: User = Depends(require_power("view_system_health")),
 ) -> Dict[str, Any]:
     tests: List[Dict[str, Any]] = []
 
@@ -1407,7 +1407,7 @@ def storage_usage(
 @router.post("/admin/maintenance/mirror-all-images")
 def mirror_all_images(
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_main_admin_user),
+    current_user: User = Depends(require_power("manage_admin_settings")),
 ) -> Dict[str, Any]:
     from ...services import page_mirror_service
     from ...tasks.scraper_tasks import mirror_chapter_pages

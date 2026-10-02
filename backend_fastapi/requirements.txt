@@ -45,5 +45,7 @@ beautifulsoup4==4.15.0
 structlog==26.1.0
 bleach==6.4.0
 cachetools==7.1.4
+# Geolock: reads the country GeoIP database (DB-IP Lite or MaxMind .mmdb).
+maxminddb==3.2.0
 prometheus-client==0.21.1
 sentry-sdk==2.71.0

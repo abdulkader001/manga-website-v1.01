@@ -141,5 +141,16 @@ def reset_2fa(email: str) -> None:
     )
 
 
+@cli.command("geolock-off")
+def geolock_off() -> None:
+    """Switch Geolock off (e.g. you blocked the country you are in)."""
+
+    from backend_fastapi.app.services import secret_vault
+
+    with session_scope() as session:
+        secret_vault.store(session, "GEOLOCK_ENABLED", "false", actor_id=None)
+    click.echo("Geolock is off. Every country can open the site again (within 30 seconds).")
+
+
 if __name__ == "__main__":
     cli()

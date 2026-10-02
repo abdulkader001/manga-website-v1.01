@@ -13,14 +13,14 @@ from sqlalchemy.orm import Session
 
 from ...core.db import get_db
 from ...core.settings import settings
-from ...dependencies.auth import require_main_admin_user
+from ...dependencies.powers import require_power
 
 logger = structlog.get_logger("backend_fastapi.health")
 
 router = APIRouter(
     prefix="/health",
     tags=["health"],
-    dependencies=[Depends(require_main_admin_user)],
+    dependencies=[Depends(require_power("view_system_health"))],
 )
 
 

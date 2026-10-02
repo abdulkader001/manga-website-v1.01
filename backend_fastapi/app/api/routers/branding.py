@@ -27,7 +27,7 @@ from sqlalchemy.orm import Session
 from ...utils.sanitizer import strip_all_html
 
 from ...core.db import get_db
-from ...dependencies.auth import require_main_admin_user
+from ...dependencies.powers import require_power
 from ...models import FooterSettings, Setting, User
 from ...schemas.branding import BrandingUpdateRequest, FooterUpdateRequest
 from ...utils.cdn import build_cdn_url
@@ -385,7 +385,7 @@ def get_branding(db: Session = Depends(get_db)) -> Dict[str, Any]:
 def update_branding(
     payload: BrandingUpdateRequest,
     db: Session = Depends(get_db),
-    _: User = Depends(require_main_admin_user),
+    _: User = Depends(require_power("configure_branding")),
 ) -> Dict[str, Any]:
     """Update branding metadata (logo URL and social links)."""
 
@@ -398,7 +398,7 @@ async def upload_branding_logo(
     request: Request,
     file: UploadFile = File(...),
     cleanup: str | None = Form(None),
-    _: User = Depends(require_main_admin_user),
+    _: User = Depends(require_power("configure_branding")),
 ) -> Dict[str, Any]:
     """Validate and store a branding logo asset for admin use."""
 
@@ -501,7 +501,7 @@ def get_footer(db: Session = Depends(get_db)) -> Dict[str, Any]:
 def update_footer(
     payload: FooterUpdateRequest,
     db: Session = Depends(get_db),
-    _: User = Depends(require_main_admin_user),
+    _: User = Depends(require_power("configure_branding")),
 ) -> Dict[str, Any]:
     """Update footer copy, links, and socials. Only fields present in the
     request change; omitting ``social_links`` never clears them."""

@@ -13,6 +13,7 @@ from .user import (
     Complaint as Complaint,
     Comment as Comment,
     PermissionOverride as PermissionOverride,
+    AdminActivityDay as AdminActivityDay,
     PermissionPreset as PermissionPreset,
     RevokedToken as RevokedToken,
 )

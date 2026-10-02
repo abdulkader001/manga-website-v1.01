@@ -13,7 +13,8 @@ export const ADMIN_FEATURE_LINKS = [
     label: "Role Management",
     to: "/admin/roles",
     description: "Calibrate sub-admin power levels, promote, demote, and assign duties.",
-    minRole: "admin",
+    minRole: "secondary",
+    permission: "manage_roles",
   },
   {
     key: "users",
@@ -28,7 +29,7 @@ export const ADMIN_FEATURE_LINKS = [
     label: "Ads & Placements Manager",
     to: "/admin/ads",
     description: "Create ad slots, configure banner creatives, and manage page placements.",
-    minRole: "admin",
+    minRole: "secondary",
     permission: "manage_ads",
   },
   {
@@ -44,7 +45,8 @@ export const ADMIN_FEATURE_LINKS = [
     label: "Operations & Traffic Audit",
     to: "/admin/audit-report",
     description: "24-hr UTC cycle audit, concurrent watchers per manga, uptime, and daily logins.",
-    minRole: "admin",
+    minRole: "secondary",
+    permission: "view_system_health",
   },
   {
     key: "chapter-reports",
@@ -59,22 +61,42 @@ export const ADMIN_FEATURE_LINKS = [
     label: "API Management",
     to: "/admin/api-management",
     description: "Manage OCR, AI, and Translation engines, custom endpoints, and API keys.",
-    minRole: "admin",
+    minRole: "secondary",
+    permission: "view_providers",
   },
   {
     key: "settings",
     label: "Admin Settings",
     to: "/admin/settings",
     description: "Edit site branding, default reader settings, maintenance, footer, and navigation.",
-    minRole: "admin",
+    minRole: "secondary",
+    permission: "manage_admin_settings",
   },
   {
     key: "vault",
     label: "Secret Vault",
     to: "/admin/vault",
     description:
-      "Google/Microsoft sign-in, SMTP and API keys, encrypted. Main admin only; cannot be delegated.",
-    minRole: "admin",
+      "Google/Microsoft sign-in, SMTP and API keys, encrypted. A site-owner power.",
+    minRole: "secondary",
+    permission: "manage_secret_vault",
+  },
+  {
+    key: "backups",
+    label: "Storage & Backups",
+    to: "/admin/backups",
+    description:
+      "Weekly whole-site backups: download, upload, restore, and copy to R2 / B2 / MinIO storage. A site-owner power.",
+    minRole: "secondary",
+    permission: "manage_backups",
+  },
+  {
+    key: "geolock",
+    label: "Geolock",
+    to: "/admin/geolock",
+    description: "Choose countries that can't open the site. A site-owner power.",
+    minRole: "secondary",
+    permission: "manage_geolock",
   },
 ];
 

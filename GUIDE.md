@@ -509,8 +509,8 @@ Other server-side tools:
 
 ### 6.2 Make sign-in mandatory (or not)
 
-**Admin → Admin Settings → "Sign-in required"** (main admin only; it can't
-be granted to a sub-admin).
+**Admin → Admin Settings → "Sign-in required"** (the owner, or a deputy given
+*Admin Settings*, Section 6.3).
 
 - **On:** visitors must sign in before they can browse or read. The server
   refuses catalogue, reader and community requests from guests too, not just
@@ -523,6 +523,34 @@ and the server commands (Section 6) are never behind this switch, so turning
 it on can't lock you out. It starts **off**.
 
 ---
+
+### 6.3 Sub-admins, deputies and automatic succession
+
+**Admin → Role Management.** Appoint sub-admins by e-mail and switch their
+everyday powers on and off. The **🔒 Site owner powers** group (Secret Vault,
+Admin Settings, cache, delete-all, API Management, Scraper AI, Role
+Management, branding, donations, Storage & Backups, Geolock, e-mail reveal)
+lets you hand your own powers to someone you trust, so the site keeps running
+if you are away. The rules can't be switched off:
+
+- Only you give or take them. Giving asks for the code from your authenticator
+  app. Taking back needs no code and works at any time.
+- At most **two** sub-admins hold any of them (they show as **Deputy**).
+- A deputy must have an authenticator (Admin → Security). Without it their
+  powers show as *paused*. They enter a code before using them.
+- A sub-admin can never give site-owner powers to anyone, change their own
+  powers, or change, reset or remove a deputy. Removing a sub-admin takes their
+  site-owner powers away for good (promoting them again doesn't bring them back).
+
+**Automatic succession** (bottom of Role Management, only you, off by
+default): choose the idle period (30-365 days, default 60) and confirm with your
+code. Every day the site checks each deputy. One who hasn't used the admin
+panel for longer than that becomes a user, and the most active eligible
+sub-admin gets exactly their site-owner powers. Eligible means: an admin for
+30+ days, active on 20 of the last 30 days, did admin work on 10 of them, and
+has an authenticator. The panel shows each deputy's last activity and who is
+next in line. Switching it on never demotes anyone straight away; the idle clock
+starts then. Every change goes to your notifications and the audit log.
 
 ## 7. Start using the site's functions
 
@@ -552,9 +580,9 @@ content you have the rights to host.
 
 ### Add a new source website (Custom Parser)
 
-**Main admin only.** Sub-admins don't see *Scraper AI API* or *Custom
-Parser*, can't be given them in Role Management, and their previews and
-imports never use the Scraper AI (only built-in and detected parsers). If a
+**The owner, or a deputy given the Scraper AI (Section 6.3).** Other
+sub-admins don't see *Scraper AI API* or *Custom Parser*, and their previews
+and imports never use the Scraper AI (only built-in and detected parsers). If a
 sub-admin's preview says "ask the main admin", add the site as below.
 
 1. Admin → Series → **Scraper AI API**: add a key and press **Test** (only
@@ -585,6 +613,8 @@ sub-admin's preview says "ask the main admin", add the site as below.
 | Translated chapter names | Same translator as the overlay. Source names like `522 원준 522화 2024-11-07` show as `Chapter 522`; real subtitles are translated and cached. |
 | Notifications, storage alerts | `celery_worker_notifications`, `celery_worker_maintenance`, beat |
 | Ads, branding, announcements, maintenance mode | Admin → Site settings |
+| Whole-site backups, download, restore, R2/B2 storage | Admin → Storage & Backups (Section 9.1). Main admin only |
+| Geolock (block countries) | Admin → Geolock: press *Download free database (DB-IP)* once (or upload a MaxMind `GeoLite2-Country.mmdb`), tick countries, save. Behind Cloudflare you can use its country header instead. Main admin only |
 | Backups | Section 9 |
 
 ---
@@ -699,6 +729,41 @@ Three things hold your site's state:
 Scheduled runs: `backend_fastapi/deployment/manga-backup.timer`. Restore
 procedure: `backend_fastapi/deployment/backups.md` and `deployment/runbook.md`.
 
+### 9.1 From the admin panel: Storage & Backups
+
+**Admin → Storage & Backups** (main admin only) does the same from the
+website, and is the easiest way to keep the site safe:
+
+1. **Set a backup password** first (at least 10 characters) and write it down
+   **off the server**. Every backup is then encrypted; without the password
+   no backup can be restored, here or on a new server.
+2. **Weekly backup** is on by default: Sunday 03:00 UTC, the newest 2 kept,
+   pictures included. Change the day, hour, how many to keep and whether
+   pictures go in. A backup with pictures is about as big as your pictures
+   folder; it is refused (not half-made) when the disk lacks room.
+3. **Back up now** makes one immediately. **Download** saves any backup to
+   your computer (or Google Drive from there).
+4. **Connect storage** to copy every backup off the server: any
+   S3-compatible storage. Paste the endpoint, bucket, region and an access key
+   limited to that bucket, press **Test connection**, then **Connect**.
+   Examples: Cloudflare R2 `https://<account-id>.r2.cloudflarestorage.com`,
+   region `auto`; Backblaze B2 `https://s3.<region>.backblazeb2.com`, region
+   e.g. `us-west-004`. **Disconnect** forgets the keys; files already there
+   stay. Old backups are pruned there too.
+5. **Restore**: press Restore on a backup, type `RESTORE`. A database-only
+   safety copy of the current site is made first (it appears in the list). Then
+   restart so the restored database is upgraded if it came from an older
+   version: `docker compose up -d --force-recreate`.
+
+**Moving to a new server:** install the site (sections 2–6) with the **same
+`.env`** (above all `EMAIL_ENCRYPTION_KEY` and `INTEGRATIONS_SECRET`), sign in,
+open Storage & Backups, then either **Upload a backup** from your computer or
+connect the same storage and **Bring to this server**, and Restore it with
+the backup password.
+
+Backups live in the `app-storage` volume under `backups/` (never served to
+visitors). Put `BACKUP_DIR` on another disk in `.env` if the main one is small.
+
 ---
 
 ## 10. Troubleshooting
@@ -716,8 +781,11 @@ procedure: `backend_fastapi/deployment/backups.md` and `deployment/runbook.md`.
 | Custom Parser: "No parser could read a title and a chapter list" | You pasted a homepage, list or chapter. Paste one series page with 2+ chapters (Section 7, *Add a new source website*). |
 | Custom Parser: "naver.com is Naver's portal" | Use the series page on `comic.naver.com` (`.../webtoon/list?titleId=...`). |
 | Custom Parser: "Scraper AI judged this site cannot be scraped" | The AI found a login, paywall or scrambled images. Use another source. |
-| Sub-admin: no *Scraper AI API* / *Custom Parser* buttons, or preview says "ask the main admin" | Intended: the Scraper AI is main-admin only. The main admin adds the site with Custom Parser (Section 7). |
-| Sub-admin gets "forbidden" on Admin Settings / API Management / Role Management, or the API and "appoint/remove sub-admins" toggles are gone from Role Management | Intended: all three are main-admin only, including read access. Only the main admin appoints or removes sub-admins. |
+| Sub-admin: no *Scraper AI API* / *Custom Parser* buttons, or preview says "ask the main admin" | The Scraper AI is a site-owner power. Give it in Role Management (Section 6.3), or add the site yourself with Custom Parser (Section 7). |
+| Sub-admin gets "forbidden" on Admin Settings / API Management / Role Management / Vault / Backups / Geolock | These are site-owner powers: only a deputy you gave them to can open them (Section 6.3). |
+| "Only 2 sub-admins can hold site-owner powers" | Take the powers from one deputy first. |
+| A deputy's powers show *paused* or they are asked for a code | They need an authenticator (Admin → Security) and must enter a code to use site-owner powers. Intended. |
+| A deputy became a user on their own | Automatic succession: they were idle longer than the chosen days. Your notifications say who took over; undo it in Role Management. |
 | `$argon2id...` value turns into garbage | Wrap values containing `$` in single quotes in `.env`. Admin hash lines made by `make_admin_hash.py` start with `a2:` and have no `$`. |
 | Translation/OCR overlay does nothing | Reader: *Settings → Reading & Translation* must be on. Server: vault *Server OCR enabled* = true and restarted (4.1). |
 | Translation is a plain box instead of the bubble's shape | Expected for text drawn on the art, bubbles with a gap in the outline, bubbles cut by the page edge, or two separately-read lines in one bubble. Also check the reader's *Match the bubble's shape* switch. Pages translated before the update keep boxes until their cached result is cleared (Admin Settings → cache) |
@@ -738,6 +806,12 @@ procedure: `backend_fastapi/deployment/backups.md` and `deployment/runbook.md`.
 | Site unreachable after switching the domain | DNS or HTTPS for the new name isn't ready. Run `set_site_domain --clear` on the server to go back (Section 8.1). |
 | A Secret Vault value stops the site from starting | Set `VAULT_PRELOAD_DISABLED=true` in `.env`, recreate the containers, fix the value, then remove the flag. |
 | Server slow, swapping, or containers killed for memory on a 1-2 GB server | Use the small profile (Section 4.2): `docker compose -f docker-compose.yml -f docker-compose.small.yml up -d`. |
+| Backup says "Not enough free disk" | Delete old backups, keep fewer, turn off *Include pictures*, or set `BACKUP_DIR` to a bigger disk. |
+| Backup "Storage copy failed" | The archive is safe on the server. Press *Test connection* in Storage & Backups to see why (wrong key, bucket, region, or key not allowed to write). |
+| Restore says "Wrong backup password" | Enter the password that was set when that backup was made. |
+| Backup upload stops at 10 MB (own nginx in front) | Your outer proxy caps uploads. Copy the backups location from `deployment/manga-site.conf` (no size cap for `/api/v1/admin/backups/upload`). |
+| You blocked your own country with Geolock | On the server: `docker compose exec backend python -m backend_fastapi.scripts.cli_bootstrap geolock-off`. |
+| Geolock blocks nobody | Turn it on, tick countries, and install the country database (Geolock tab). Visitors on a local network or VPN aren't matched. |
 | Port already in use | Another program uses 8080/8000/5432; stop it or change the published port in `docker-compose.yml`. |
 | Windows: `exec ... no such file or directory` in a container | Line endings; clone inside WSL (Section 1) or run `git config core.autocrlf false` before cloning. |
 | API docs (`/docs`) missing | Intentional in production; set `EXPOSE_API_DOCS=true` on a private deploy. |
@@ -757,7 +831,9 @@ procedure: `backend_fastapi/deployment/backups.md` and `deployment/runbook.md`.
 - [ ] Updating from before PR #33: provider keys that were saved in a **custom header** (e.g. Azure `api-key`) were publicly readable; rotate them at the provider and save the new key in Admin → API Management
 - [ ] Scraper AI key tested (Admin → Series → Scraper AI API) before adding new source sites with Custom Parser (main admin only)
 - [ ] Domain + HTTPS in front (production)
-- [ ] `.env` and backups stored safely off the server
+- [ ] `.env` and backups stored safely off the server: in **Admin → Storage & Backups** set a backup password (kept off the server), check the weekly schedule, and connect R2/B2 storage
+- [ ] Geolock set if needed (Admin → Geolock; install the country database first)
+- [ ] Deputies (optional): at most two trusted sub-admins with an authenticator, given site-owner powers in Role Management; automatic succession on if you want idle deputies replaced (Section 6.3)
 
 More detail: `README.md`, `backend_fastapi/README.md`, `deployment/README.md`,
 `deployment/runbook.md`, `deployment/key-rotation.md`.

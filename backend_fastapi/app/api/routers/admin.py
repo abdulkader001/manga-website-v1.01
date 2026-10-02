@@ -41,6 +41,7 @@ from ...dependencies.auth import (
     require_main_admin_user,
     require_permission,
 )
+from ...dependencies.powers import require_power
 from ...utils.endpoint_limiter import async_endpoint_limiter
 from ...utils.client_ip import resolve_client_ip
 from ...utils.audit_logger import log_admin_action
@@ -133,7 +134,7 @@ logger = structlog.get_logger("backend_fastapi.admin")
 @router.get(
     "/settings",
     # Admin Settings is main-admin only (house rule), reads included.
-    dependencies=[Depends(require_main_admin_user)],
+    dependencies=[Depends(require_power("manage_admin_settings"))],
 )
 def get_admin_settings(db: Session = Depends(get_db)) -> Dict[str, Any]:
     """Runtime feature toggles plus the editable site settings and branding."""
@@ -167,7 +168,7 @@ def _refresh_provider_registry(request: Request) -> ProviderRegistryState:
 _rescrape_limiter = resolve_rescrape_limit()
 
 
-@router.post("/database/alembic-status", dependencies=[Depends(require_main_admin_user)])
+@router.post("/database/alembic-status", dependencies=[Depends(require_power("manage_admin_settings"))])
 def trigger_alembic_status(
     request: Request,
 ) -> dict[str, object | None]:
@@ -192,7 +193,7 @@ def trigger_alembic_status(
 
 
 # API management (OCR / translation / AI providers) is main-admin only.
-@router.get("/validate-ocr-providers", dependencies=[Depends(require_main_admin_user)])
+@router.get("/validate-ocr-providers", dependencies=[Depends(require_power("view_providers"))])
 def validate_ocr_providers(
     request: Request,
 ) -> Dict[str, Any]:
@@ -246,7 +247,7 @@ def validate_ocr_providers(
     }
 
 
-@router.get("/system-providers", dependencies=[Depends(require_main_admin_user)])
+@router.get("/system-providers", dependencies=[Depends(require_power("view_providers"))])
 def get_system_providers(
     request: Request,
     db: Session = Depends(get_db),
@@ -262,7 +263,7 @@ def get_system_providers(
 
 @router.get(
     "/system-providers/{service}/secret",
-    dependencies=[Depends(require_main_admin_user)],
+    dependencies=[Depends(require_power("manage_providers"))],
 )
 def get_system_provider_secret(
     request: Request,
@@ -304,7 +305,7 @@ def get_system_provider_secret(
     }
 
 
-@router.put("/system-providers", dependencies=[Depends(require_main_admin_user)])
+@router.put("/system-providers", dependencies=[Depends(require_power("manage_providers"))])
 def update_system_provider(
     request: Request,
     payload: SystemProviderPayload,
@@ -400,7 +401,7 @@ def _mask_secret_value(secret: Optional[str]) -> str:
     return f"{secret[:4]}••••••••{secret[-4:]}"
 
 
-@router.get("/scraper/ai-config", dependencies=[Depends(require_main_admin_user)])
+@router.get("/scraper/ai-config", dependencies=[Depends(require_power("configure_scraper_ai"))])
 def get_scraper_ai_config(request: Request, db: Session = Depends(get_db)) -> Dict[str, Any]:
     """The dedicated scraper-generation AI as the Series page edits it. The
     key is never sent back in full -- only a masked form."""
@@ -431,12 +432,12 @@ def get_scraper_ai_config(request: Request, db: Session = Depends(get_db)) -> Di
     }
 
 
-@router.post("/scraper/ai-config", dependencies=[Depends(require_main_admin_user)])
+@router.post("/scraper/ai-config", dependencies=[Depends(require_power("configure_scraper_ai"))])
 def save_scraper_ai_config(
     request: Request,
     payload: ScraperAiConfigPayload,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_main_admin_user),
+    current_user: User = Depends(require_power("configure_scraper_ai")),
 ) -> Dict[str, Any]:
     from ...services import scraper_ai_service
     from ...services.url_guard import validate_remote_image_url
@@ -503,7 +504,7 @@ def save_scraper_ai_config(
 
 @router.post(
     "/system-providers/scraper-ai/test",
-    dependencies=[Depends(require_main_admin_user)],
+    dependencies=[Depends(require_power("configure_scraper_ai"))],
 )
 def test_scraper_ai() -> Dict[str, Any]:
     """The Test action for the scraper-creation AI (1G.8.8): verifies the
@@ -514,7 +515,7 @@ def test_scraper_ai() -> Dict[str, Any]:
     return scraper_ai_service.test_connection()
 
 
-@router.patch("/system-settings", dependencies=[Depends(require_main_admin_user)])
+@router.patch("/system-settings", dependencies=[Depends(require_power("manage_admin_settings"))])
 def update_system_settings(
     request: Request,
     payload: SystemSettingsPayload,
@@ -735,7 +736,7 @@ def get_ads_config() -> AdsConfigResponse:
 @router.post(
     "/ads",
     response_model=AdsConfigResponse,
-    dependencies=[Depends(require_main_admin_user)],
+    dependencies=[Depends(require_power("manage_ads"))],
 )
 def update_ads_config(
     payload: AdsConfigPayload,
@@ -886,7 +887,7 @@ class WebsiteStatusPayload(BaseModel):
 @router.put(
     "/approved-domains/{domain_id}/status",
     response_model=AdminDomainResponse,
-    dependencies=[Depends(require_main_admin_user)],
+    dependencies=[Depends(require_power("approve_website"))],
 )
 def set_website_status(
     domain_id: int,
@@ -937,13 +938,13 @@ def list_parser_versions(
 @router.post(
     "/parsers/{domain}/candidates",
     status_code=status.HTTP_201_CREATED,
-    dependencies=[Depends(require_main_admin_user)],
+    dependencies=[Depends(require_power("approve_parser"))],
 )
 def create_parser_candidate(
     domain: str,
     payload: ParserCandidatePayload,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_main_admin_user),
+    current_user: User = Depends(require_power("approve_parser")),
 ) -> Dict[str, Any]:
     """Register a manual/rule-based parser as a CANDIDATE (1G.10 / 1G.11).
 
@@ -967,13 +968,13 @@ def create_parser_candidate(
 
 @router.post(
     "/parsers/versions/{version_id}/approve",
-    dependencies=[Depends(require_main_admin_user)],
+    dependencies=[Depends(require_power("approve_parser"))],
 )
 def approve_parser_version(
     version_id: int,
     request: Request,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_main_admin_user),
+    current_user: User = Depends(require_power("approve_parser")),
 ) -> Dict[str, Any]:
     """Approve and activate a parser version (PA only, 1G.8.3/1G.8.4).
 
@@ -998,13 +999,13 @@ def approve_parser_version(
 
 @router.post(
     "/parsers/versions/{version_id}/reject",
-    dependencies=[Depends(require_main_admin_user)],
+    dependencies=[Depends(require_power("approve_parser"))],
 )
 def reject_parser_version(
     version_id: int,
     request: Request,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_main_admin_user),
+    current_user: User = Depends(require_power("approve_parser")),
 ) -> Dict[str, Any]:
     """Reject a candidate (1G.8.4): the website's state is unchanged."""
     from ...services import parser_versions_service
@@ -1043,7 +1044,7 @@ class ParserGenerationHints(BaseModel):
 
 @router.post(
     "/parsers/{domain}/generate",
-    dependencies=[Depends(require_main_admin_user)],
+    dependencies=[Depends(require_power("trigger_scraper_ai"))],
 )
 def generate_parser(
     domain: str,
@@ -1087,13 +1088,13 @@ def generate_parser(
 
 @router.post(
     "/parsers/{domain}/rollback",
-    dependencies=[Depends(require_main_admin_user)],
+    dependencies=[Depends(require_power("rollback_parser"))],
 )
 def rollback_parser(
     domain: str,
     request: Request,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_main_admin_user),
+    current_user: User = Depends(require_power("rollback_parser")),
 ) -> Dict[str, Any]:
     """One-action rollback to the previous working version (PA only, 1G.8.5)."""
     from ...services import parser_versions_service
@@ -1437,7 +1438,7 @@ class TakedownPayload(BaseModel):
 @router.put(
     "/approved-domains/{domain_id}/rights",
     response_model=AdminDomainResponse,
-    dependencies=[Depends(require_main_admin_user)],
+    dependencies=[Depends(require_power("modify_website"))],
 )
 def update_domain_rights(
     domain_id: int,
@@ -1484,7 +1485,7 @@ def get_series_rights(
 
 @router.put(
     "/series/{manga_id}/rights",
-    dependencies=[Depends(require_main_admin_user)],
+    dependencies=[Depends(require_power("set_rights_records"))],
 )
 def update_series_rights(
     manga_id: int,
@@ -1514,7 +1515,7 @@ def update_series_rights(
 
 @router.post(
     "/series/{manga_id}/takedown",
-    dependencies=[Depends(require_main_admin_user)],
+    dependencies=[Depends(require_power("set_takedown"))],
 )
 def set_series_takedown(
     request: Request,
@@ -1615,7 +1616,7 @@ class SiteAccessPayload(BaseModel):
 @router.get("/config/access")
 def get_site_access(
     db: Session = Depends(get_db),
-    _: User = Depends(require_main_admin_user),
+    _: User = Depends(require_power("manage_admin_settings")),
 ) -> Dict[str, Any]:
     row = get_or_create_system_settings(db)
     return {"login_required": bool(getattr(row, "login_required", False))}
@@ -1626,7 +1627,7 @@ def update_site_access(
     payload: SiteAccessPayload,
     request: Request,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_main_admin_user),
+    current_user: User = Depends(require_power("manage_admin_settings")),
 ) -> Dict[str, Any]:
     """Turn "readers must sign in" on or off. Sign-in pages and admin routes
     are never gated, so turning it on can't lock the admin out."""
@@ -1653,6 +1654,22 @@ class PermissionOverrideItem(BaseModel):
 
 class PermissionOverridesPayload(BaseModel):
     overrides: List[PermissionOverrideItem]
+    # The owner's authenticator code: needed to give any site-owner power.
+    code: Optional[str] = Field(default=None, max_length=12)
+
+
+def _guard_role_change(db: Session, actor: User, target: User, grants: List[str]) -> None:
+    """Who may change ``target``'s permissions (see permissions_service.authorize_change)."""
+    from ...services.permissions_service import authorize_change
+
+    if getattr(target, "permanent", False) or getattr(target, "is_main_admin", False):
+        _alert_permanent_admin_tamper_attempt(actor, target, "override permissions for")
+        raise ApiError(
+            ErrorCode.FORBIDDEN,
+            "The Permanent Administrator's permissions cannot be overridden.",
+            details={"reason": "permanent_admin_immutable"},
+        )
+    authorize_change(db, actor, target, grants)
 
 
 @router.get("/permissions/me")
@@ -1662,17 +1679,28 @@ def my_permissions(
 ) -> Dict[str, Any]:
     """What the signed-in admin / sub-admin may do, so the UI only offers it."""
 
-    from ...core.permissions import ALL_PERMISSIONS
-    from ...services.permissions_service import has_permission
+    from ...core.permissions import ALL_PERMISSIONS, OWNER_POWERS
+    from ...services.admin_succession import record_activity
+    from ...services.permissions_service import has_permission, is_deputy
 
+    # Every admin page asks this: it is the "was active today" signal that
+    # automatic succession reads (recorded server-side, once a day).
+    record_activity(db, current_user)
+    held = [key for key in ALL_PERMISSIONS if has_permission(db, current_user, key)]
     return {
+        "user_id": current_user.id,
         "is_main_admin": is_main_admin(current_user),
-        "permissions": [key for key in ALL_PERMISSIONS if has_permission(db, current_user, key)],
+        "is_deputy": not is_main_admin(current_user) and is_deputy(db, current_user),
+        "authenticator": bool(getattr(current_user, "totp_enabled", False)),
+        "permissions": held,
+        "owner_powers": [key for key in held if key in OWNER_POWERS],
     }
 
 
-# Role management is main-admin only (house rule), reads included.
-@router.get("/permissions/catalogue", dependencies=[Depends(require_main_admin_user)])
+# Role management: the owner, or a sub-admin holding manage_roles (a
+# site-owner power the owner gives). Site-owner powers themselves are only
+# ever changed by the owner (permissions_service.authorize_change).
+@router.get("/permissions/catalogue", dependencies=[Depends(require_power("manage_roles"))])
 def get_permission_catalogue() -> Dict[str, Any]:
     """Full permission catalogue, grouped (SRS 1F.7/1F.9.2)."""
     from ...services.permissions_service import full_catalogue
@@ -1682,7 +1710,7 @@ def get_permission_catalogue() -> Dict[str, Any]:
 
 @router.get(
     "/users/{user_id}/permissions",
-    dependencies=[Depends(require_main_admin_user)],
+    dependencies=[Depends(require_power("manage_roles"))],
 )
 def get_user_permissions(
     user_id: int,
@@ -1706,7 +1734,7 @@ def get_user_permissions(
 
 @router.put(
     "/users/{user_id}/permissions",
-    dependencies=[Depends(require_main_admin_user)],
+    dependencies=[Depends(require_power("manage_roles"))],
 )
 def set_user_permissions(
     user_id: int,
@@ -1714,11 +1742,15 @@ def set_user_permissions(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> Dict[str, Any]:
-    """Set per-person overrides (Permanent Administrator only, SRS 1F.6.3).
+    """Set per-person overrides (SRS 1F.6.3).
 
     Never-grantable permissions (1F.8) are refused with FORBIDDEN. The Permanent
     Administrator's own overrides cannot be edited (they hold everything).
+    Site-owner powers: the owner only, and giving one needs the owner's
+    authenticator code in ``code``.
     """
+    from ...core.permissions import OWNER_POWERS
+    from ...services import admin_second_factor
     from ...services.permissions_service import (
         modified_count,
         resolve_effective,
@@ -1730,18 +1762,21 @@ def set_user_permissions(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail={"error": "not_found"}
         )
-    if getattr(target, "permanent", False) or getattr(target, "is_main_admin", False):
-        _alert_permanent_admin_tamper_attempt(
-            current_user, target, "override permissions for"
-        )
-        raise ApiError(
-            ErrorCode.FORBIDDEN,
-            "The Permanent Administrator's permissions cannot be overridden.",
-            details={"reason": "permanent_admin_immutable"},
-        )
+    owner_keys = [i.permission for i in payload.overrides if i.permission in OWNER_POWERS]
+    grants = [i.permission for i in payload.overrides if i.state == "granted"]
+    _guard_role_change(db, current_user, target, sorted(set(grants) | set(owner_keys)))
+
+    by_owner = is_main_admin(current_user)
+    if any(i.permission in OWNER_POWERS and i.state == "granted" for i in payload.overrides):
+        if not admin_second_factor.verify_user_code(db, current_user, payload.code or "", enabled_only=True):
+            raise ApiError(
+                ErrorCode.FORBIDDEN,
+                "Enter the code from your authenticator app to give site-owner powers.",
+                details={"reason": "code_required"},
+            )
 
     for item in payload.overrides:
-        set_override(db, target, item.permission, item.state, current_user.id)
+        set_override(db, target, item.permission, item.state, current_user.id, by_owner=by_owner)
 
     # Audit the override change (SRS 1F.6.3).
     db.add(
@@ -1769,14 +1804,16 @@ def set_user_permissions(
 
 @router.post(
     "/users/{user_id}/permissions/reset",
-    dependencies=[Depends(require_main_admin_user)],
+    dependencies=[Depends(require_power("manage_roles"))],
 )
 def reset_user_permissions(
     user_id: int,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> Dict[str, Any]:
-    """Reset a person to their role defaults (SRS 1F.9.2)."""
+    """Reset a person to their role defaults (SRS 1F.9.2). Only the owner's
+    reset also removes site-owner powers; nobody resets themselves or a deputy
+    but the owner."""
     from ...services.permissions_service import reset_to_default, resolve_effective
 
     target = db.get(User, user_id)
@@ -1784,7 +1821,8 @@ def reset_user_permissions(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail={"error": "not_found"}
         )
-    reset_to_default(db, target)
+    _guard_role_change(db, current_user, target, [])
+    reset_to_default(db, target, keep_owner_powers=not is_main_admin(current_user))
     db.add(
         AdminAuditLog(
             user_id=current_user.id,
@@ -1809,7 +1847,7 @@ class ApplyPresetPayload(BaseModel):
     preset: str = Field(..., min_length=1, max_length=64)
 
 
-@router.get("/permissions/presets", dependencies=[Depends(require_main_admin_user)])
+@router.get("/permissions/presets", dependencies=[Depends(require_power("manage_roles"))])
 def get_permission_presets(db: Session = Depends(get_db)) -> Dict[str, Any]:
     """Built-in + custom permission presets (SRS 1F.9.3)."""
     from ...services.permissions_service import list_presets
@@ -1817,7 +1855,7 @@ def get_permission_presets(db: Session = Depends(get_db)) -> Dict[str, Any]:
     return {"presets": list_presets(db)}
 
 
-@router.post("/permissions/presets", dependencies=[Depends(require_main_admin_user)])
+@router.post("/permissions/presets", dependencies=[Depends(require_power("manage_roles"))])
 def create_permission_preset(
     payload: CreatePresetPayload,
     current_user: User = Depends(get_current_user),
@@ -1842,7 +1880,7 @@ def create_permission_preset(
 
 @router.post(
     "/users/{user_id}/permissions/apply-preset",
-    dependencies=[Depends(require_main_admin_user)],
+    dependencies=[Depends(require_power("manage_roles"))],
 )
 def apply_permission_preset(
     user_id: int,
@@ -1857,20 +1895,15 @@ def apply_permission_preset(
         resolve_effective,
     )
 
+    from ...services.permissions_service import _resolve_preset
+
     target = db.get(User, user_id)
     if target is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail={"error": "not_found"}
         )
-    if getattr(target, "permanent", False) or getattr(target, "is_main_admin", False):
-        _alert_permanent_admin_tamper_attempt(
-            current_user, target, "override permissions for"
-        )
-        raise ApiError(
-            ErrorCode.FORBIDDEN,
-            "The Permanent Administrator's permissions cannot be overridden.",
-            details={"reason": "permanent_admin_immutable"},
-        )
+    preset = _resolve_preset(db, payload.preset) or {}
+    _guard_role_change(db, current_user, target, list(preset.get("grant", [])))
     apply_preset(db, target, payload.preset, current_user.id)
     db.add(
         AdminAuditLog(
@@ -1890,7 +1923,7 @@ def apply_permission_preset(
 
 @router.get(
     "/permissions/managed",
-    dependencies=[Depends(require_main_admin_user)],
+    dependencies=[Depends(require_power("manage_roles"))],
 )
 def list_managed_permissions(
     modified_only: bool = Query(default=False),
@@ -2024,7 +2057,7 @@ class EmailRolePayload(BaseModel):
     role: str | None = None
 
 
-@router.get("/users/{user_id}/email", dependencies=[Depends(require_main_admin_user)])
+@router.get("/users/{user_id}/email", dependencies=[Depends(require_power("reveal_user_email"))])
 def reveal_user_email(
     user_id: int,
     db: Session = Depends(get_db),
@@ -2125,7 +2158,7 @@ def promote_secondary_admin(
     db: Session = Depends(get_db),
     # SRS 1F.7: promoting a Secondary Administrator is the Permanent
     # Administrator's by default; enforced via the permission engine.
-    current_user: User = Depends(require_permission("promote_secondary")),
+    current_user: User = Depends(require_power("promote_secondary")),
 ) -> RoleToggleResponse:
     """Grant secondary admin rights to a user."""
 
@@ -2149,7 +2182,7 @@ def promote_secondary_admin(
 def demote_secondary_admin(
     payload: UserLookupPayload,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_permission("demote_secondary")),
+    current_user: User = Depends(require_power("demote_secondary")),
 ) -> RoleToggleResponse:
     """Remove secondary admin rights from a user."""
 
@@ -2202,7 +2235,7 @@ def promote_user(
     user_id: int,
     payload: RoleTogglePayload,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_main_admin_user),
+    current_user: User = Depends(require_power("promote_secondary")),
 ) -> RoleToggleResponse:
     requested_role = normalize_role(payload.role)
     if requested_role in {None, "admin", "permanent_admin"}:
@@ -2255,7 +2288,7 @@ def demote_user(
     request: Request,
     user_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_main_admin_user),
+    current_user: User = Depends(require_power("demote_secondary")),
 ) -> RoleToggleResponse:
     user = db.get(User, user_id)
     if user is None:
@@ -2298,7 +2331,7 @@ def promote_by_email(
     request: Request,
     payload: EmailRolePayload,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_main_admin_user),
+    current_user: User = Depends(require_power("promote_secondary")),
 ) -> RoleToggleResponse:
     email = normalize_email(payload.email)
     requested_role = normalize_role(payload.role)
@@ -2355,7 +2388,7 @@ def demote_by_email(
     request: Request,
     payload: EmailRolePayload,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_main_admin_user),
+    current_user: User = Depends(require_power("demote_secondary")),
 ) -> RoleToggleResponse:
     email = normalize_email(payload.email)
     if not email:
@@ -2518,7 +2551,7 @@ def search_audit_logs(
 @router.get(
     "/series",
     response_model=List[MangaBase],
-    dependencies=[Depends(require_main_admin_user)],
+    dependencies=[Depends(require_power("edit_series"))],
 )
 def list_series(
     type_: str | None = Query(default=None, alias="type"),
@@ -2599,7 +2632,7 @@ def delete_series(
 @router.post(
     "/series/bulk-delete",
     response_model=AdminActionResponse,
-    dependencies=[Depends(require_main_admin_user)],
+    dependencies=[Depends(require_power("delete_series"))],
 )
 def bulk_delete_series(
     request: Request,
@@ -2762,13 +2795,13 @@ def rescrape_series(
 @router.post(
     "/series/{manga_id}/rescrape/rollback",
     response_model=RescrapeResponse,
-    dependencies=[Depends(require_main_admin_user)],
+    dependencies=[Depends(require_power("rollback_series"))],
 )
 def rollback_series_rescrape(
     manga_id: int,
     request: Request,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_main_admin_user),
+    current_user: User = Depends(require_power("rollback_series")),
 ) -> RescrapeResponse:
     """Restore the prior snapshot after a bad rescrape (PA only, 1G.12.4)."""
     from ...services.rescrape_service import rollback_series

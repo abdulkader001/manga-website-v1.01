@@ -1,9 +1,12 @@
 """Permission catalogue, role defaults, and never-grantable set (SRS 1F.6–1F.8).
 
 Effective permission = role default (1F.5/1F.7) modified by that person's
-explicit override (granted/revoked). Only the Permanent Administrator may change
-overrides. Six capabilities (1F.8) are **never grantable** — they have no entry
-in the catalogue at all and any attempt to grant them is refused.
+explicit override (granted/revoked). Every power the owner (main admin) has is
+in the catalogue. The site-owner powers (``OWNER_POWERS``) can only be handed
+out by the owner, to at most ``MAX_DEPUTIES`` sub-admins ("deputies"), with the
+owner's authenticator code; a deputy needs their own authenticator to hold and
+use them (``permissions_service``). Six capabilities (1F.8) are **never
+grantable** — they have no entry in the catalogue at all.
 
 Resolution order (SRS 1F.10): never-grantable check -> explicit override ->
 role default.
@@ -25,6 +28,7 @@ class Group(str, Enum):
     USER_ADMIN = "User administration"
     ROLE_MGMT = "Role management"
     PLATFORM = "Platform configuration"
+    OWNER = "Site owner powers"
     OBSERVABILITY = "Observability"
 
 
@@ -41,6 +45,7 @@ _CATALOGUE: dict[str, tuple[Group, bool, bool]] = {
     "rescrape_series": (Group.CONTENT, True, True),
     "rollback_series": (Group.CONTENT, True, False),
     "set_rights_records": (Group.CONTENT, True, True),
+    "set_takedown": (Group.CONTENT, True, False),
     # Websites and scrapers
     "view_websites": (Group.WEBSITES, True, True),
     "approve_website": (Group.WEBSITES, True, False),
@@ -51,12 +56,9 @@ _CATALOGUE: dict[str, tuple[Group, bool, bool]] = {
     "activate_parser": (Group.WEBSITES, True, False),
     "rollback_parser": (Group.WEBSITES, True, False),
     # Providers and APIs
-    "view_providers": (Group.PROVIDERS, True, True),
-    "configure_ocr": (Group.PROVIDERS, True, True),
-    "configure_translation": (Group.PROVIDERS, True, True),
-    "configure_ai": (Group.PROVIDERS, True, True),
+    "view_providers": (Group.PROVIDERS, True, False),
+    "manage_providers": (Group.PROVIDERS, True, False),
     "configure_scraper_ai": (Group.PROVIDERS, True, False),
-    "set_provider_priority": (Group.PROVIDERS, True, True),
     # Translation quality
     "correct_translation": (Group.TRANSLATION, True, True),
     "force_regen_translation": (Group.TRANSLATION, True, True),
@@ -68,6 +70,7 @@ _CATALOGUE: dict[str, tuple[Group, bool, bool]] = {
     "handle_reports": (Group.COMMUNITY, True, True),
     "broadcast": (Group.COMMUNITY, True, True),
     "moderate_images": (Group.COMMUNITY, True, True),
+    "manage_community": (Group.COMMUNITY, True, False),
     # User administration
     "view_user_list": (Group.USER_ADMIN, True, True),
     "view_user_detail": (Group.USER_ADMIN, True, True),
@@ -75,7 +78,9 @@ _CATALOGUE: dict[str, tuple[Group, bool, bool]] = {
     "ban_account": (Group.USER_ADMIN, True, True),
     "restore_account": (Group.USER_ADMIN, True, True),
     "revoke_user_sessions": (Group.USER_ADMIN, True, True),
+    "reveal_user_email": (Group.USER_ADMIN, True, False),
     # Role management
+    "manage_roles": (Group.ROLE_MGMT, True, False),
     "promote_secondary": (Group.ROLE_MGMT, True, False),
     "demote_secondary": (Group.ROLE_MGMT, True, False),
     # Platform configuration
@@ -85,33 +90,54 @@ _CATALOGUE: dict[str, tuple[Group, bool, bool]] = {
     "set_resource_policy": (Group.PLATFORM, True, False),
     "configure_branding": (Group.PLATFORM, True, False),
     "manage_ads": (Group.PLATFORM, True, False),
+    # Site owner powers
+    "manage_admin_settings": (Group.OWNER, True, False),
+    "manage_cache": (Group.OWNER, True, False),
+    "purge_site_data": (Group.OWNER, True, False),
+    "manage_secret_vault": (Group.OWNER, True, False),
+    "manage_donations": (Group.OWNER, True, False),
+    "manage_backups": (Group.OWNER, True, False),
+    "manage_geolock": (Group.OWNER, True, False),
     # Observability
     "view_dashboard": (Group.OBSERVABILITY, True, True),
     "view_scraper_health": (Group.OBSERVABILITY, True, True),
     "view_scope_audit": (Group.OBSERVABILITY, True, True),
     "view_full_audit": (Group.OBSERVABILITY, True, False),
+    "view_system_health": (Group.OBSERVABILITY, True, False),
 }
 
 
-# Owner's rules: the Scraper AI (its API key, and creating parsers with it --
-# the Series Management "Scraper AI API" and "Custom Parser" sections), API
-# Management (OCR / translation / AI providers) and Role Management
-# (appointing/removing sub-admins) belong to the main admin alone. The main admin holds these like every catalogue permission; a
-# sub-admin can never hold them -- no toggle, preset or stored override grants
-# them (enforced in ``permissions_service``).
-MAIN_ADMIN_ONLY: frozenset[str] = frozenset(
+# Site-owner powers (owner's rules, 2026-10-02). The owner can hand any of
+# them to a trusted sub-admin and take them back at any time. Guardrails
+# (enforced in ``permissions_service`` and the role routes):
+#   * only the owner grants or revokes them, each grant with the owner's
+#     authenticator code -- a sub-admin can never pass them on;
+#   * at most ``MAX_DEPUTIES`` sub-admins hold any of them at once;
+#   * the holder must have an authenticator, and uses them only after a
+#     fresh code (the admin step-up);
+#   * never part of a preset; nobody changes their own permissions; a
+#     sub-admin can't change or remove a deputy.
+OWNER_POWERS: frozenset[str] = frozenset(
     {
-        "trigger_scraper_ai",
-        "configure_scraper_ai",
+        "manage_secret_vault",
+        "manage_admin_settings",
+        "manage_cache",
+        "purge_site_data",
         "view_providers",
-        "configure_ocr",
-        "configure_translation",
-        "configure_ai",
-        "set_provider_priority",
+        "manage_providers",
+        "configure_scraper_ai",
+        "trigger_scraper_ai",
+        "manage_roles",
         "promote_secondary",
         "demote_secondary",
+        "configure_branding",
+        "manage_donations",
+        "manage_backups",
+        "manage_geolock",
+        "reveal_user_email",
     }
 )
+MAX_DEPUTIES = 2
 
 # SRS 1F.8 — no toggle exists for these; absent from the catalogue entirely.
 NEVER_GRANTABLE: frozenset[str] = frozenset(
@@ -134,20 +160,18 @@ DESCRIPTIONS: dict[str, str] = {
     "rescrape_series": "Re-scrape every chapter of a series.",
     "rollback_series": "Roll a series back to an earlier scrape.",
     "set_rights_records": "Record who owns the rights to a series and whether it may be translated.",
+    "set_takedown": "Take a series down (or put it back) after a rights complaint.",
     "view_websites": "See the approved source websites.",
     "approve_website": "Approve a new source website for scraping.",
     "modify_website": "Change an approved website's settings.",
     "remove_website": "Remove an approved website.",
-    "trigger_scraper_ai": "Main admin only: create a parser for a website with the Scraper AI (Custom Parser).",
+    "trigger_scraper_ai": "Create parsers for websites with the Scraper AI (Custom Parser).",
     "approve_parser": "Approve a generated parser.",
     "activate_parser": "Switch a parser on.",
     "rollback_parser": "Go back to an earlier parser version.",
-    "view_providers": "Main admin only: see API Management (OCR / translation / AI providers).",
-    "configure_ocr": "Main admin only: change OCR providers.",
-    "configure_translation": "Main admin only: change translation providers.",
-    "configure_ai": "Main admin only: change AI providers.",
-    "configure_scraper_ai": "Main admin only: add or change the Scraper AI API key.",
-    "set_provider_priority": "Main admin only: reorder providers.",
+    "view_providers": "See API Management (OCR / translation / AI providers).",
+    "manage_providers": "Add, change, test, reorder and delete OCR / translation / AI providers and their keys.",
+    "configure_scraper_ai": "Add or change the Scraper AI API key.",
     "correct_translation": "Fix a wrong translation.",
     "force_regen_translation": "Throw away a cached translation and make it again.",
     "review_quality_flags": "Review translations flagged as poor.",
@@ -157,24 +181,35 @@ DESCRIPTIONS: dict[str, str] = {
     "handle_reports": "See and resolve chapter reports.",
     "broadcast": "Write site announcements and pop-up messages.",
     "moderate_images": "Remove reported images.",
+    "manage_community": "Custom emojis and community realms.",
     "view_user_list": "Browse the user list.",
     "view_user_detail": "Open a user's account details.",
     "suspend_account": "Suspend an account.",
     "ban_account": "Ban an account.",
     "restore_account": "Restore a suspended or banned account.",
     "revoke_user_sessions": "Sign a user out everywhere.",
-    "promote_secondary": "Main admin only: appoint sub-admins (Role Management).",
-    "demote_secondary": "Main admin only: remove sub-admins (Role Management).",
+    "reveal_user_email": "See a user's real e-mail address.",
+    "manage_roles": "Role Management: change other sub-admins' everyday powers (never site-owner powers, never their own, never a deputy's).",
+    "promote_secondary": "Appoint sub-admins.",
+    "demote_secondary": "Remove sub-admins (not deputies).",
     "view_limits": "See usage limits.",
     "set_limits": "Change usage limits.",
     "set_session_policy": "Change how long logins last.",
     "set_resource_policy": "Change resource policies.",
-    "configure_branding": "Reserved: logo, footer and social links are main-admin only.",
-    "manage_ads": "Create and edit ad slots.",
+    "configure_branding": "Logo, site name, footer and social links.",
+    "manage_ads": "Create and edit ad slots and ad networks.",
+    "manage_admin_settings": "Admin Settings: site settings, sign-in required switch, maintenance, image mirroring.",
+    "manage_cache": "See, refresh, reprioritise and clear the site cache.",
+    "purge_site_data": "Danger: delete all manga and purge all images.",
+    "manage_secret_vault": "Secret Vault: the site's secret settings and domain.",
+    "manage_donations": "Donation links and crypto addresses.",
+    "manage_backups": "Storage & Backups: connect storage, make, download and restore backups.",
+    "manage_geolock": "Geolock: choose countries that can't open the site.",
     "view_dashboard": "See the admin dashboard.",
     "view_scraper_health": "See scraper and source health.",
     "view_scope_audit": "See the audit log for their own actions.",
     "view_full_audit": "See the full audit log.",
+    "view_system_health": "System health, diagnostics, server stats and the security report.",
 }
 
 ALL_PERMISSIONS: tuple[str, ...] = tuple(_CATALOGUE.keys())
@@ -233,8 +268,8 @@ def role_default(key: str, role: UserRole) -> bool:
     if role in (UserRole.PERMANENT, UserRole.ADMIN):
         # Main/permanent-admin accounts hold every catalogue permission.
         return True
-    if key in MAIN_ADMIN_ONLY:
-        return False
+    if key in OWNER_POWERS:
+        return False  # only ever by an explicit grant from the owner
     if role == UserRole.SECONDARY:
         return secondary_d
     # Registered users / guests hold no catalogue (admin) permissions.
@@ -302,7 +337,7 @@ BUILTIN_PRESETS: dict[str, dict] = {
     },
     "operations_admin": {
         "label": "Sub-admin: Operations",
-        "description": "Users and accounts. No website approval (API Management is main-admin only).",
+        "description": "Users and accounts. No website approval.",
         "grant": [
             "view_user_list",
             "view_user_detail",
@@ -342,18 +377,18 @@ def catalogue() -> list[dict]:
 
     out: list[dict] = []
     for key, (group, admin_d, secondary_d) in _CATALOGUE.items():
-        main_only = key in MAIN_ADMIN_ONLY
+        owner_power = key in OWNER_POWERS
         out.append(
             {
                 "key": key,
                 "group": group.value,
                 "description": DESCRIPTIONS.get(key, ""),
-                # The Role Management page shows no toggle for these.
-                "main_admin_only": main_only,
+                # Only the owner grants these, with an authenticator code.
+                "owner_power": owner_power,
                 "defaults": {
                     "permanent_admin": True,
                     "admin": admin_d,
-                    "secondary_admin": False if main_only else secondary_d,
+                    "secondary_admin": False if owner_power else secondary_d,
                 },
             }
         )
