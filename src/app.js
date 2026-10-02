@@ -169,7 +169,7 @@ function AppRoutes() {
         <Route
           path="/admin/health"
           element={
-            <AuthGuard requireAdmin>
+            <AuthGuard requireAdmin allowSecondaryAdmins permission="view_dashboard">
               <Health />
             </AuthGuard>
           }
@@ -225,7 +225,7 @@ function AppRoutes() {
         <Route
           path="/admin/chapter-reports"
           element={
-            <AuthGuard requireAdmin>
+            <AuthGuard requireAdmin allowSecondaryAdmins permission="handle_reports">
               <ChapterReports />
             </AuthGuard>
           }
