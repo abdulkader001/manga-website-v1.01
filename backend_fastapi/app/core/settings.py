@@ -257,7 +257,12 @@ class Settings(BaseSettings):
         if self.access_token_expire_minutes <= 0:
             raise ValueError("ACCESS_TOKEN_EXPIRE_MINUTES must be greater than zero")
 
-        algorithm = (self.algorithm or "").strip() or "HS256"
+        algorithm = (self.algorithm or "").strip().upper() or "HS256"
+        # JWTs are signed with the shared secret (HMAC). Asymmetric algorithms
+        # would need key pairs this app doesn't manage, and the ecdsa waiver
+        # in requirements.txt relies on EC code never being reached (F-87).
+        if algorithm not in {"HS256", "HS384", "HS512"}:
+            raise ValueError("ALGORITHM must be HS256, HS384 or HS512")
         self.algorithm = algorithm
 
         # Blind Spot #8: never silently store plaintext PII. Outside of explicit
