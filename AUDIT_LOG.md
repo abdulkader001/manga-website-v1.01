@@ -120,9 +120,20 @@ exceptions; for those, restore the database backup taken before the update.
 
 ## Change entries
 
-### 2026-10-02 — API Management, Admin Settings and Role Management main-admin only; full audit
+### 2026-10-02 — Test: Admin Settings destructive actions are main-admin only
 
-Branch `claude/great-faraday-nh2dwx`. PR number and merge SHA: fill in when known.
+Branch `claude/great-faraday-nh2dwx`. Commit `19c2d3b` (pushed just after PR #31 was merged, so it ships separately). PR number and merge SHA: fill in when known.
+
+- **What:** a regression test proving a sub-admin holding every grantable toggle gets 403 on clear site cache, delete all manga, purge / mirror all images, cache clear / refresh / priority and saving settings, and that nothing is deleted. `CLAUDE.md` house rule names Admin Settings' cache purge and delete-all actions explicitly.
+- **Why:** the owner asked that only the main admin can reach these destructive actions; the server already enforced it, now a test keeps it that way.
+- **Main files:** `backend_fastapi/tests/test_api_management_main_admin_only.py`, `CLAUDE.md`, `AUDIT_LOG.md`.
+- **Database / settings:** none.
+- **Check:** `pytest backend_fastapi/tests/test_api_management_main_admin_only.py`.
+- **Undo:** `git revert` the merge commit. Test and documentation only.
+
+### 2026-10-02 — PR #31: API Management, Admin Settings and Role Management main-admin only; full audit
+
+Merge `8370d34`. Commits `1f69fe9`, `af90062`.
 
 | Change | Why | Main files |
 | --- | --- | --- |
@@ -137,9 +148,9 @@ Branch `claude/great-faraday-nh2dwx`. PR number and merge SHA: fill in when know
 - **Check:** `pytest backend_fastapi/tests/test_api_management_main_admin_only.py`; as a sub-admin, Role Management (seen by the main admin) shows no API-management toggles.
 - **Undo:** `git revert` the commit. No migration.
 
-### 2026-10-02 — Scraper AI is main-admin only
+### 2026-10-02 — PR #31: Scraper AI is main-admin only
 
-Branch `claude/great-faraday-nh2dwx` (commit on top of `a41aff1`, which `main` merged as `93acd4d` with no other change). PR number and merge SHA: fill in when known.
+Merge `8370d34` (same PR as the entry above). Commit `ac52a33`.
 
 | Change | Why | Main files |
 | --- | --- | --- |
