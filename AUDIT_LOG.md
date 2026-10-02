@@ -120,9 +120,9 @@ exceptions; for those, restore the database backup taken before the update.
 
 ## Change entries
 
-### 2026-10-01 — Scraper engine upgrades, Scraper AI playbook and guard
+### 2026-10-01 — PR #30: scraper engine upgrades, Scraper AI playbook and guard
 
-Branch `claude/great-faraday-nh2dwx`. Merge SHA and PR number: fill in when merged.
+Commit `d1f7415`. Merge SHA: filled in by the next PR.
 
 | Change | Why | Main files |
 | --- | --- | --- |
