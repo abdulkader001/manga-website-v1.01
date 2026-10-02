@@ -127,9 +127,31 @@ exceptions; for those, restore the database backup taken before the update.
 
 ## Change entries
 
+### 2026-10-02 — GUIDE.md: commands that match the machine
+
+Documentation only. Branch `claude/guide-fewer-mismatches`. Merge SHA: fill in when known.
+
+Written from a real terminal log of an Ubuntu 26.04 machine (Python 3.14, no `python3.11`, `pip` or `nvm`) where many guide commands "didn't match".
+
+| Change | Why | Main files |
+| --- | --- | --- |
+| New **"Read this first"** section: copy one block at a time; no `<placeholder>` in any runnable block (a block that needs your value sets it on its first line); be in the project folder; run the site one way only; the **real** service, container, volume, database-user and in-container path names; "You should see" lines; host Python/Node/pip are not needed for Docker | The log shows `cd: /path/to/manga-website`, `no configuration file provided`, `/app/scripts/…` (real: `/app/backend_fastapi/scripts/`), service `migrate` (real: `manga-stack-migrate`), `pg_dumpall -U postgres` (real user: `manga`) | `GUIDE.md` |
+| **§5 rewritten as developer mode**, with a stop sign and a separate `.env.dev`; Node via `nvm` and Python 3.11 via `uv` (the route that worked in the log); Docker app stopped first; steps to go back | Developer mode was run after Docker with the Docker `.env`: `could not translate host name "db"`, Redis name errors, `Address already in use` on 8000 | `GUIDE.md` §5 |
+| **§3.1 no longer shows hand-made secrets**; **§3.6 adds a password check** (prints `1` and `3`) | A hand edit of `POSTGRES_PASSWORD`/`REDIS_PASSWORD` leaves the old password in the URL lines (checked: the by-hand route prints `0` and `0`, `make_env.py` prints `1` and `3`) | `GUIDE.md` §3 |
+| **§12.5 Start again from zero**: scoped `docker compose down --volumes --rmi all`, checks, re-clone, the case where the folder is already deleted (remove by project label), the browser still showing the site, restoring `~/.bashrc` | The user wiped `~/Desktop` (taking the project folder with it, so the containers kept running), then needed a clean redo | `GUIDE.md` §12.5 |
+| Troubleshooting starts with the exact messages from the log | Look-up by the text on screen | `GUIDE.md` §10 |
+| Rollback, domain move, `reset-2fa` and `login-link` blocks use named variables (`OLD_VERSION=`, `DB_VERSION=`, `BACKUP_STAMP=`, `NEW_DOMAIN=`, `OWNER_EMAIL=`) instead of `<…>` | Placeholders pasted literally fail | `GUIDE.md` §6, §8.1, §12.3 |
+| §1: Docker fallback (`docker.io` + `docker-compose-v2`) for a brand-new Ubuntu release; `openssl` no longer installed (not used) | New releases may not be in Docker's installer yet | `GUIDE.md` §1 |
+
+- **Database:** none.
+- **Settings:** none. Developer mode makes an untracked `.env.dev` (added to `.git/info/exclude`) and `docker-compose.override.yml`.
+- **Check:** every block of §3, §5 (Steps 3–6), §8.1 and the checks of §12.5 was extracted from the guide and run on Ubuntu 24.04 against a real PostgreSQL 16 and Redis: `make_env.py` (also on Python 3.13), the password check, the `.env.dev` copy, venv + `pip install` + all migrations to `20261014_four_roles` + the seed, API `/healthz`, one worker on nine queues, beat, `npm ci` + `npm run dev` (gateway `/api/v1/version`), `admin-status` through `.env.dev`, `caddy validate` of the variable form; `docker compose down` and `ps` flags exist; every link and `GUIDE.md#…` anchor resolves; every shell block passes `bash -n`; no `<…>` placeholder is left in a runnable block.
+- **Not run:** Ubuntu 26.04 itself (not available in the sandbox; the `nvm` and `uv` steps are the commands that worked in the reported 26.04 log), the Docker image builds and `docker compose up/down` (no Docker daemon), and the removal-by-label block (syntax only).
+- **Undo:** `git revert -m 1 <merge>`. Nothing else changed.
+
 ### 2026-10-02 — GUIDE.md rewritten for Ubuntu, commands checked
 
-Documentation only. Not pushed yet. Merge SHA: fill in when known.
+Documentation only. Merge commit `178bb3d` (PR #37).
 
 | Change | Why | Main files |
 | --- | --- | --- |
