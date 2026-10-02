@@ -5,6 +5,10 @@ import api, { apiFetch } from "../../services/api";
 import useAuth from "../../hooks/useAuth";
 import { maskEmail } from "../../utils/maskEmail";
 
+const isOwnerRow = (u) => u.role === "admin" || u.role === "permanent_admin" || u.is_main_admin || u.permanent;
+const roleName = (u) =>
+  isOwnerRow(u) ? "Owner" : u.role === "co_admin" ? "Admin" : u.role === "secondary_admin" ? "Sub-admin" : "User";
+
 export default function UserDatabase() {
   const { isAdmin: isMainAdmin } = useAuth();
   const queryClient = useQueryClient();
@@ -226,16 +230,19 @@ export default function UserDatabase() {
                   </span>
 
                   <span className={`px-2.5 py-0.5 rounded text-[10px] font-bold uppercase ${
-                    u.role === "admin" || u.is_main_admin
+                    isOwnerRow(u)
+                      ? "bg-amber-500/20 text-amber-300 border border-amber-500/40"
+                      : u.role === "co_admin"
                       ? "bg-purple-500/20 text-purple-300 border border-purple-500/40"
                       : u.role === "secondary_admin" || u.is_secondary_admin
                       ? "bg-blue-500/20 text-blue-300 border border-blue-500/40"
                       : "bg-gray-800 text-gray-400"
                   }`}>
-                    {u.role || "reader"}
+                    {roleName(u)}
                   </span>
 
-                  {!(u.role === "admin" || u.is_main_admin) && (
+                  {/* The owner and Admins are managed in Role Management, never here. */}
+                  {!isOwnerRow(u) && u.role !== "co_admin" && (
                     u.role === "secondary_admin" ? (
                       <button
                         type="button"

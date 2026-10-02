@@ -4,7 +4,7 @@ import { Link } from "react-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import api, { apiFetch } from "../../services/api";
 import { auditUrlSecurity } from "../../utils/urlValidator";
-import useAuth from "../../hooks/useAuth";
+import useStaffPermissions from "../../hooks/useStaffPermissions";
 
 const FREQUENCY_PRESETS = [
   { key: "hourly_6", label: "Every 6 Hours (Fast Hot Release)", freq: "hourly", val: 6, unit: "hours" },
@@ -48,7 +48,10 @@ export default function SeriesManagement() {
   const queryClient = useQueryClient();
   // The Scraper AI (its API key and Custom Parser) is main-admin only; the
   // server refuses sub-admins as well, this just keeps the page honest.
-  const { isAdmin: isMainAdmin } = useAuth();
+  // Owner powers: the owner always, an Admin while the owner leaves them on.
+  const { can } = useStaffPermissions();
+  const canAi = can("configure_scraper_ai");
+  const canParser = can("trigger_scraper_ai");
 
   // Search and Filter Tab state
   const [search, setSearch] = useState("");
@@ -166,7 +169,7 @@ export default function SeriesManagement() {
 
   // Fetch scraper AI API config (main admin only)
   useEffect(() => {
-    if (!isMainAdmin) return;
+    if (!canAi) return;
     apiFetch("/api/v1/admin/scraper/ai-config")
       .then((r) => r.json())
       .then((d) => {
@@ -174,7 +177,7 @@ export default function SeriesManagement() {
         if (d?.model) setScraperAiModel(d.model);
       })
       .catch(() => {});
-  }, [isMainAdmin]);
+  }, [canAi]);
 
   const handleSaveScraperAi = async (e) => {
     e.preventDefault();
@@ -282,8 +285,8 @@ export default function SeriesManagement() {
   };
 
   useEffect(() => {
-    if (parserOpen && isMainAdmin) loadParsers();
-  }, [parserOpen, isMainAdmin]);
+    if (parserOpen && canParser) loadParsers();
+  }, [parserOpen, canParser]);
 
   // Ask the Scraper AI to write extraction rules for any website address.
   const handleGenerateParser = async (e) => {
@@ -560,7 +563,7 @@ export default function SeriesManagement() {
         </div>
 
         <div className="flex items-center gap-2.5 flex-wrap">
-          {isMainAdmin && (
+          {canAi && (
           <button
             type="button"
             onClick={() => setAiConfigOpen(!aiConfigOpen)}
@@ -571,7 +574,7 @@ export default function SeriesManagement() {
           </button>
           )}
 
-          {isMainAdmin && (
+          {canParser && (
           <button
             type="button"
             onClick={() => setParserOpen(!parserOpen)}
@@ -594,7 +597,7 @@ export default function SeriesManagement() {
       </div>
 
       {/* Dedicated Scraper AI API Box (main admin only) */}
-      {isMainAdmin && aiConfigOpen && (
+      {canAi && aiConfigOpen && (
         <div className="bg-[#15171c] border border-purple-500/50 p-5 rounded-2xl shadow-2xl space-y-4 animate-in fade-in">
           <div className="flex items-center justify-between border-b border-[#262a33] pb-3">
             <div className="flex items-center gap-2.5">
@@ -713,7 +716,7 @@ export default function SeriesManagement() {
       )}
 
       {/* Custom parser: enter any website, the Scraper AI writes its extraction rules (main admin only) */}
-      {isMainAdmin && parserOpen && (
+      {canParser && parserOpen && (
         <div className="bg-[#15171c] border border-cyan-500/50 p-5 rounded-2xl shadow-2xl space-y-4">
           <div className="flex items-center justify-between border-b border-[#262a33] pb-3">
             <div className="flex items-center gap-2.5">

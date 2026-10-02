@@ -127,9 +127,24 @@ exceptions; for those, restore the database backup taken before the update.
 
 ## Change entries
 
-### 2026-10-02 — Four roles: owner, Admin, sub-admin, user
+### 2026-10-02 — Four-role audit: pages and "delete all" follow the owner's switches
 
 Branch `claude/eager-noether-0jg9xq`. Merge SHA: fill in when known.
+
+| Change | Why | Main files |
+| --- | --- | --- |
+| "Delete all manga" no longer refuses an Admin the owner switched `purge_site_data` on for (it was a second, hidden owner-only check) | The toggle must mean what it says | `api/routers/site_admin.py` |
+| System Health cache/purge buttons, Series Management (Scraper AI key, Custom Parser) follow the power toggles instead of "owner only", so an Admin the owner left them on for can use them | Pages hid features the server allowed | `src/pages/Admin/Health.jsx`, `src/pages/Admin/SeriesManagement.jsx` |
+| User Database shows Owner / Admin / Sub-admin / User and never offers "Make Sub-Admin" on an Admin or the owner | The page only knew the old three roles | `src/pages/Admin/UserDatabase.jsx` |
+
+- **Database:** none.
+- **Settings:** none.
+- **Check:** as an Admin with `purge_site_data` on, Health → "Purge Image CDN Buffers" works; with it off the button is disabled. `pytest backend_fastapi/tests/test_four_roles.py`.
+- **Undo:** `git revert -m 1 <merge>`; nothing else changed.
+
+### 2026-10-02 — Four roles: owner, Admin, sub-admin, user
+
+Branch `claude/eager-noether-0jg9xq`. Merge commit `27eda94` (PR #35).
 
 | Change | Why | Main files |
 | --- | --- | --- |

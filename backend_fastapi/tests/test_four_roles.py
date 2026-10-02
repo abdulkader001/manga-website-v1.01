@@ -567,3 +567,13 @@ def test_community_moderation_follows_the_chain_of_command(fastapi_client):
     assert block(a, s) == 200 and block(a, reader) == 200
     assert block(a, other) == 403 and block(a, boss) == 403
     assert block(boss, a) == 200
+
+
+def test_purge_follows_the_owners_switch_for_an_admin(fastapi_client):
+    boss, a = owner(), admin()
+    url = "/api/v1/admin/maintenance/purge-all-images"
+    assert fastapi_client.post(url, headers=_h(a)).status_code == 403  # off by default
+    assert _set(fastapi_client, boss, a, {"purge_site_data": "granted"}, with_code=True).status_code == 200
+    assert fastapi_client.post(url, headers=_h(a)).status_code == 200
+    assert _set(fastapi_client, boss, a, {"purge_site_data": "revoked"}).status_code == 200
+    assert fastapi_client.post(url, headers=_h(a)).status_code == 403

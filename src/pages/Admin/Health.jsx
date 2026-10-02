@@ -2,7 +2,7 @@ import React, { useState, useEffect } from "react";
 import { Link } from "react-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import api, { apiFetch } from "../../services/api";
-import useAuth from "../../hooks/useAuth";
+import useStaffPermissions from "../../hooks/useStaffPermissions";
 import AuthGuard from "../../components/AuthGuard";
 
 const last = (arr) => (arr.length ? arr[arr.length - 1] : null);
@@ -11,7 +11,10 @@ const avg = (arr) =>
 
 export default function Health() {
   const queryClient = useQueryClient();
-  const { isAdmin: isMainAdmin } = useAuth();
+  // The owner always; an Admin only while the owner has switched the power on.
+  const { can } = useStaffPermissions();
+  const canCache = can("manage_cache");
+  const canPurge = can("purge_site_data");
   const [autoRefresh, setAutoRefresh] = useState(true);
   const [diagnosticReport, setDiagnosticReport] = useState(null);
   const [isRunningDiagnostics, setIsRunningDiagnostics] = useState(false);
@@ -74,7 +77,7 @@ export default function Health() {
   };
 
   const handleClearCache = async () => {
-    if (!isMainAdmin) return;
+    if (!canCache) return;
     setClearingCache(true);
     try {
       const res = await apiFetch("/api/v1/admin/settings/clear-cache", { method: "POST" });
@@ -90,7 +93,7 @@ export default function Health() {
   };
 
   const handlePurgeImages = async () => {
-    if (!isMainAdmin) return;
+    if (!canPurge) return;
     setClearingCache(true);
     try {
       const res = await apiFetch("/api/v1/admin/maintenance/purge-all-images", { method: "POST" });
@@ -277,12 +280,12 @@ export default function Health() {
                 <span>System Cache &amp; Buffer Operations</span>
               </h2>
               <p className="text-xs text-[#8b93a3]">
-                Purge in-memory lookup caches and CDN buffers. Strictly restricted to Main Administrator.
+                Purge in-memory lookup caches and CDN buffers. Only the site owner, or an Admin the owner switched it on for.
               </p>
             </div>
-            {!isMainAdmin && (
+            {!(canCache || canPurge) && (
               <span className="px-2.5 py-1 rounded-xl text-[10px] font-bold bg-red-500/20 text-red-300 border border-red-500/40">
-                🔒 Main Admin Protected
+                🔒 Owner Protected
               </span>
             )}
           </div>
@@ -296,10 +299,10 @@ export default function Health() {
             <div className="flex items-center gap-2.5 flex-wrap">
               <button
                 type="button"
-                disabled={!isMainAdmin || clearingCache}
+                disabled={!canCache || clearingCache}
                 onClick={handleClearCache}
                 className="px-4 py-2 rounded-xl bg-purple-600/20 hover:bg-purple-600/40 border border-purple-500/40 text-purple-300 font-bold text-xs transition flex items-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed"
-                title={!isMainAdmin ? "Restricted: Only Main Admin can flush cache" : "Flush system memory cache"}
+                title={!canCache ? "Restricted: the owner has not switched this on for you" : "Flush system memory cache"}
               >
                 <i className="fas fa-broom"></i>
                 <span>Flush System Index Cache</span>
@@ -307,10 +310,10 @@ export default function Health() {
 
               <button
                 type="button"
-                disabled={!isMainAdmin || clearingCache}
+                disabled={!canPurge || clearingCache}
                 onClick={handlePurgeImages}
                 className="px-4 py-2 rounded-xl bg-amber-500/20 hover:bg-amber-500/40 border border-amber-500/40 text-amber-300 font-bold text-xs transition flex items-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed"
-                title={!isMainAdmin ? "Restricted: Only Main Admin can purge CDN buffers" : "Purge image & CDN buffers"}
+                title={!canPurge ? "Restricted: the owner has not switched this on for you" : "Purge image & CDN buffers"}
               >
                 <i className="fas fa-images"></i>
                 <span>Purge Image CDN Buffers</span>

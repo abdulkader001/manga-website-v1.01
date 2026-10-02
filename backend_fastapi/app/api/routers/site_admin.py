@@ -484,10 +484,8 @@ async def delete_all_manga(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_power("purge_site_data")),
 ) -> Dict[str, Any]:
-    from ...dependencies.auth import is_main_admin
-
-    if not is_main_admin(current_user):
-        raise ApiError(ErrorCode.FORBIDDEN, "Only the main administrator can do this.")
+    # Gated by ``purge_site_data``: the owner always, an Admin only while the
+    # owner has switched it on for them (it is off by default).
     from ...utils.bounded_threadpool import run_in_db_threadpool
 
     def _purge() -> int:
