@@ -156,6 +156,15 @@ celery_app.conf.task_default_queue = "default"
 celery_app.conf.task_acks_late = True
 celery_app.conf.task_reject_on_worker_lost = True
 celery_app.conf.worker_prefetch_multiplier = 1
+# Recycle prefork children (F-96): a child is replaced after this many tasks or
+# once its resident memory passes the limit (KB, checked after each task), so
+# Pillow/OCR memory growth is returned to the OS. 0 disables either limit.
+celery_app.conf.worker_max_tasks_per_child = (
+    int(os.getenv("CELERY_MAX_TASKS_PER_CHILD", "200") or 0) or None
+)
+celery_app.conf.worker_max_memory_per_child = (
+    int(os.getenv("CELERY_MAX_MEMORY_PER_CHILD_KB", "400000") or 0) or None
+)
 # Workload priority policy (SRS 1C.5.3): user-facing translation (High) must
 # not queue behind background OCR (Medium) or scheduled scraping (Low). The
 # per-route ``priority`` is honoured by brokers that support message priority

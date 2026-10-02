@@ -1,0 +1,71 @@
+# Small-server profile (≈1 GB RAM, 1 vCPU). Use it ON TOP of the main file:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.small.yml up -d --build
+#
+# What it changes (see GUIDE.md "Small server"):
+#   * two Celery workers instead of eight, each a single process (solo pool):
+#       - celery_worker        reader-facing work: translation, OCR, e-mail,
+#                              notifications, default
+#       - celery_worker_scrape background work: scraping, picture compression,
+#                              maintenance
+#     so a long scrape never makes a reader's translation wait;
+#   * the other six per-queue workers are switched off (profile "per-queue");
+#   * 2 API workers, small database pools, Postgres and Redis memory caps.
+# Everything else (data, .env, ports) is the same as the full stack, so you can
+# switch between the two with no data change. The sizes below are fixed here on
+# purpose: .env.example carries the full-size values (4 API workers, pool 20),
+# which must not leak into this profile. Edit this file to tune them.
+
+services:
+  db:
+    command:
+      - "docker-entrypoint.sh"
+      - "postgres"
+      - "-c"
+      - "max_connections=60"
+      - "-c"
+      - "shared_buffers=96MB"
+      - "-c"
+      - "work_mem=4MB"
+      - "-c"
+      - "maintenance_work_mem=32MB"
+
+  redis:
+    environment:
+      REDIS_MAXMEMORY: 96mb
+
+  backend:
+    environment:
+      GUNICORN_WORKERS: 2
+      SQLALCHEMY_POOL_SIZE: 4
+      SQLALCHEMY_MAX_OVERFLOW: 4
+
+  celery_worker:
+    environment:
+      CELERY_QUEUES: "default,celery,translation,ocr,email,notifications"
+      CELERY_POOL: solo
+      CELERY_CONCURRENCY: 1
+      SQLALCHEMY_POOL_SIZE: 2
+      SQLALCHEMY_MAX_OVERFLOW: 2
+
+  celery_worker_scrape:
+    environment:
+      CELERY_QUEUES: "scrape,compress,maintenance"
+      CELERY_POOL: solo
+      CELERY_CONCURRENCY: 1
+      SQLALCHEMY_POOL_SIZE: 2
+      SQLALCHEMY_MAX_OVERFLOW: 2
+
+  # Covered by the two workers above; start them only with --profile per-queue.
+  celery_worker_compress:
+    profiles: ["per-queue"]
+  celery_worker_ocr:
+    profiles: ["per-queue"]
+  celery_worker_translation:
+    profiles: ["per-queue"]
+  celery_worker_email:
+    profiles: ["per-queue"]
+  celery_worker_maintenance:
+    profiles: ["per-queue"]
+  celery_worker_notifications:
+    profiles: ["per-queue"]

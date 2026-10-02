@@ -313,6 +313,31 @@ docker compose down                   # stop (data kept in volumes)
 docker compose down -v                # stop AND DELETE database + images  ⚠
 ```
 
+### 4.2 Small server (about 1 GB RAM, 1 CPU)
+
+The default stack starts eight background workers and four API workers
+(about 2.5 GB of memory). On a small server, add the small profile to
+**every** `docker compose` command:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.small.yml up -d --build
+docker compose -f docker-compose.yml -f docker-compose.small.yml ps
+```
+
+It runs two background workers instead of eight: one for readers'
+translations, OCR, e-mail and notifications, one for scraping, picture
+compression and maintenance, so a big scrape never makes a translation wait.
+It also uses 2 API workers, small database pools, and memory caps for Postgres
+and Redis. The sizes are written in `docker-compose.small.yml` itself (values in
+`.env` don't change them); edit that file to tune. Data is the same, so you can
+switch between small and full at any time.
+
+Both setups now recycle their workers: an API worker restarts after about
+2000 requests, a background worker after 200 jobs or 400 MB, so memory doesn't
+creep up over days. Tune with `GUNICORN_MAX_REQUESTS`,
+`CELERY_MAX_TASKS_PER_CHILD`, `CELERY_MAX_MEMORY_PER_CHILD_KB` in `.env`
+(0 turns a limit off).
+
 ---
 
 ## 5. Alternative: run without Docker for the app (developer setup)
@@ -705,6 +730,7 @@ procedure: `backend_fastapi/deployment/backups.md` and `deployment/runbook.md`.
 | Donation link or address refused | Links must be `https://` on the platform's own domain; addresses must match the chosen network. The message names the entry. |
 | Site unreachable after switching the domain | DNS or HTTPS for the new name isn't ready. Run `set_site_domain --clear` on the server to go back (Section 8.1). |
 | A Secret Vault value stops the site from starting | Set `VAULT_PRELOAD_DISABLED=true` in `.env`, recreate the containers, fix the value, then remove the flag. |
+| Server slow, swapping, or containers killed for memory on a 1-2 GB server | Use the small profile (Section 4.2): `docker compose -f docker-compose.yml -f docker-compose.small.yml up -d`. |
 | Port already in use | Another program uses 8080/8000/5432; stop it or change the published port in `docker-compose.yml`. |
 | Windows: `exec ... no such file or directory` in a container | Line endings; clone inside WSL (Section 1) or run `git config core.autocrlf false` before cloning. |
 | API docs (`/docs`) missing | Intentional in production; set `EXPOSE_API_DOCS=true` on a private deploy. |
@@ -715,7 +741,7 @@ procedure: `backend_fastapi/deployment/backups.md` and `deployment/runbook.md`.
 
 - [ ] Docker installed, `docker compose version` works
 - [ ] `.env` created; 6 random secrets + 2 passwords + Fernet key set; URLs/passwords consistent
-- [ ] `docker compose build --pull && docker compose up -d --force-recreate`; all services healthy
+- [ ] `docker compose build --pull && docker compose up -d --force-recreate`; all services healthy (on a 1-2 GB server add `-f docker-compose.yml -f docker-compose.small.yml`, Section 4.2)
 - [ ] `docker compose exec backend tesseract --list-langs` lists `kor jpn chi_sim`
 - [ ] `make_admin_hash.py --write .env`, `up -d --force-recreate`, `admin-status` says OPEN; first sign-in at `/admin-login` done (authenticator enrolled); `admin-status` now says CLOSED
 - [ ] OCR, e-mail and sign-in settings entered in **Admin → Secret Vault**
