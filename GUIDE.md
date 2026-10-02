@@ -517,9 +517,29 @@ All of this is in the **admin area** once you are logged in as admin.
    series' schedule (set per series in the admin panel).
 
 If the preview finds nothing, the site isn't covered by a built-in parser: use
-**Custom Parser** (needs a Scraper AI key added in that panel). Details and
-the list of supported/unsupported sources: `backend_fastapi/README.md` and
-`deployment/runbook.md`. Only import content you have the rights to host.
+**Custom Parser** (below). Details and the list of supported/unsupported
+sources: `backend_fastapi/README.md` and `deployment/runbook.md`. Only import
+content you have the rights to host.
+
+### Add a new source website (Custom Parser)
+
+1. Admin → Series → **Scraper AI API**: add a key and press **Test** (only
+   needed for sites no built-in parser or auto-detection can read).
+2. In your browser, open **one series** on that site that has **at least two
+   chapters**. Copy the address of the page that shows its chapter list (not
+   the homepage, a search page or a chapter).
+3. Admin → Series → **Custom Parser**: paste it and click **Generate Parser**.
+   The server tries, in order: the site's own parser, every known parser
+   (catches moved domains), structure detection, then the Scraper AI (up to
+   three attempts, each told exactly what failed). It must read a title, the
+   chapter list and the pictures of two chapters before anything is saved.
+4. Green: the parser is ready and the website approved; import as above.
+   Red: read **What to do next** under the message, and open **What the
+   scraper saw on the page** for the details (site type, lazy images, bot
+   check...).
+5. Sites behind a Cloudflare/CAPTCHA check, a login or payment, or with
+   scrambled pictures (Shonen Jump+, Comic Days, Comic Walker, ...) cannot be
+   added. The message says so; use another source for that series.
 
 ### Other features
 
@@ -658,6 +678,10 @@ procedure: `backend_fastapi/deployment/backups.md` and `deployment/runbook.md`.
 | `ModuleNotFoundError: psycopg` | `DATABASE_URL` must start `postgresql+psycopg2://`. |
 | Imports stay "queued" forever | Workers or beat not running: `docker compose ps`; for non-Docker, start the worker with **all** queues (Section 5). |
 | Chapter has no pictures / slow | Check `celery_worker_compress` logs; ensure enough disk (`docker system df`). |
+| Custom Parser: "answered with a bot check" | The site shows Cloudflare/CAPTCHA to servers. It cannot be added; use another source for the series. |
+| Custom Parser: "No parser could read a title and a chapter list" | You pasted a homepage, list or chapter. Paste one series page with 2+ chapters (Section 7, *Add a new source website*). |
+| Custom Parser: "naver.com is Naver's portal" | Use the series page on `comic.naver.com` (`.../webtoon/list?titleId=...`). |
+| Custom Parser: "Scraper AI judged this site cannot be scraped" | The AI found a login, paywall or scrambled images. Use another source. |
 | `$argon2id...` value turns into garbage | Wrap values containing `$` in single quotes in `.env`. Admin hash lines made by `make_admin_hash.py` start with `a2:` and have no `$`. |
 | Translation/OCR overlay does nothing | Reader: *Settings → Reading & Translation* must be on. Server: vault *Server OCR enabled* = true and restarted (4.1). |
 | Reader says "Text was found but not translated" | OCR works but nothing translates: add an AI key in *Settings → AI & OCR Engines* (press **Test connection**), or a site default in Admin → API Management. |
@@ -690,6 +714,7 @@ procedure: `backend_fastapi/deployment/backups.md` and `deployment/runbook.md`.
 - [ ] OCR, e-mail and sign-in settings entered in **Admin → Secret Vault**
 - [ ] Sign-in required on/off chosen (Admin Settings); donation links added if wanted
 - [ ] First series imported; new chapters arrive via beat
+- [ ] Scraper AI key tested (Admin → Series → Scraper AI API) before adding new source sites with Custom Parser
 - [ ] Domain + HTTPS in front (production)
 - [ ] `.env` and backups stored safely off the server
 

@@ -120,7 +120,28 @@ exceptions; for those, restore the database backup taken before the update.
 
 ## Change entries
 
+### 2026-10-01 — PR #30: scraper engine upgrades, Scraper AI playbook and guard
+
+Commit `d1f7415`. Merge SHA: filled in by the next PR.
+
+| Change | Why | Main files |
+| --- | --- | --- |
+| **Images hidden in scripts are read.** Decoders for SinMH (`chapterImages`), qTcms (base64 `$qingtiandy$` list), standard packed `eval` scripts and any image array; tried automatically when a reader page has no page `<img>` | Most of the requested Chinese sites build their `<img>` tags with JavaScript, so plain HTML had no pages | `app/scrapers/script_images.py`, `app/scrapers/base_scraper.py`, `app/scrapers/autodetect.py` |
+| **AJAX chapter lists** (`chapter_ajax`): WordPress Madara `POST …/ajax/chapters/` with `admin-ajax.php` fallback, or a generic same-site URL. Added to the Madara family, so sites such as mangaraw4u are recognised with no preset | Madara 1.6.5+ pages ship an empty chapter list | `base_scraper.py`, `presets.py`, `http_client.py` (`RequestWrapper.post`, same SSRF pinning as GET) |
+| **More page sources:** `image_api` (JSON API keyed by ids in the chapter URL; mkzhan), `hidden_chapter_list` (LZString list in `#__VIEWSTATE`; manhuagui age gate), `data-href`/`data-hreflink` links, `{stem}`/`{ext}` page templates built from the redirected URL (baozimh `0_5_2.html`, senmanga `/2`), and a numbered page that redirects elsewhere ends the chapter | Split chapters and redirector links lost pages or mixed in the next chapter | `base_scraper.py`, `presets.py` |
+| **Bot checks and 404s are named.** Cloudflare/CAPTCHA pages stop retries and are reported as such (also for Anime-Planet); 404 stops retrying. `naver.com` gets "use comic.naver.com". A list page pasted into Custom Parser falls back to the first series it links to; series discovery also recognises cover grids | Admins were told "selectors failed" for sites that were really blocking, or for the wrong page | `base_scraper.py` (`is_bot_challenge`), `source_pipeline.py`, `presets.py` (`WRONG_HOSTS`), `parser_generation_service.py`, `services/animeplanet_service.py` |
+| **Scraper AI playbook:** the AI gets the full manual (every key, site families, 14 common obstacles and the key for each, hard stops where it must answer `{"unsupported": …}`, examples), measured site signals and script excerpts for the page, and the HTML fenced as untrusted data | Owner asked for instructions that make generation easy and reliable | `app/scrapers/ai_playbook.py`, `services/scraper_ai_service.py` (`build_prompt`, `generate_definition`) |
+| **Guard on every AI answer:** only known keys; selectors must compile and avoid `:nth-child`/absolute paths; fetch URLs same-site; headers limited to Accept / Accept-Language / same-site Referer; known decoders only. Removed items are fed back to the next attempt; results are checked (chapter links on-site and distinct, page images not logos) | AI answers are untrusted (malformed, or steered by text on the page) | `app/scrapers/definition_guard.py`, `source_pipeline.py` |
+| **Custom Parser shows "What to do next"** and "What the scraper saw on the page" under a failure | Failures only said "not possible" | `src/pages/Admin/SeriesManagement.jsx`, `ai_playbook.NEXT_STEPS` |
+
+- **Database:** none.
+- **Settings:** none. New optional parser-definition keys: `chapter_ajax`, `ajax_marker`, `hidden_chapter_list`, `image_api`, `image_source.decoder` values `sinmh` / `qtcms` / `script_array` / `auto_script`, page-template tokens `{stem}` / `{ext}`.
+- **Check:** Admin → Series → Custom Parser with a series page of a requested site → green with a chapter count, or red with "What to do next". `pytest backend_fastapi/tests/test_scraper_site_capabilities.py` covers every requested address and capability offline. The live sites could not be fetched from the build sandbox (network policy), so the per-site settings follow each site's publicly known structure and are validated on every scrape.
+- **Undo:** `git revert -m 1 <merge sha>`. No migration. Parsers saved with the new keys keep their rows; after a revert those keys are ignored and such parsers fall back to their selectors.
+
 ### 2026-10-01 — PR #29: one-time admin page that disappears; admin hash fixes; legacy bootstrap removed; install guides per OS
+
+Merge `161a810`. Commit `843cad4`.
 
 | Change | Why | Main files |
 | --- | --- | --- |
@@ -223,6 +244,7 @@ PRs #1–#22 predate this log. Their summaries are in the merge commits
 
 ## 5. Open items and known limits
 
+- **Per-site scraper settings** (baozimh page templates, mkzhan image API, senmanga page URLs, Madara AJAX) follow each site's public structure and were tested on synthetic pages only; the build sandbox could not reach the sites. Run Custom Parser on one real series per site.
 - **Anime-Planet parser** was tested on synthetic pages only (the build sandbox couldn't reach the site). Check a real link in the import preview.
 - **Domain "is this site" check** asks `/healthz`, which any copy of this software answers. It confirms the domain reaches *a* MangaWorld server, not necessarily yours.
 - **Win + right-click**: Windows often swallows the Windows key. Shift + right-click is the reliable way to get a new window.

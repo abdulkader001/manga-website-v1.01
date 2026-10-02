@@ -37,6 +37,10 @@ MADARA: Definition = {
     "chapter_url": "a",
     "chapter_title": "a",
     "page_images": ".reading-content img, .page-break img",
+    # Madara 1.6.5+ leaves the chapter list empty and loads it with
+    # POST <series>/ajax/chapters/ (or admin-ajax.php on older installs).
+    "chapter_ajax": {"kind": "madara"},
+    "ajax_marker": "#manga-chapters-holder",
 }
 
 MANGASTREAM: Definition = {
@@ -110,6 +114,11 @@ _register(
         "chapter_url": "a",
         "chapter_title": "span",
         "page_images": ".comic-contain amp-img, .comic-contain img",
+        # Chapter links go through /user/page_direct?... which redirects to
+        # /comic/chapter/<slug>/0_5.html; long chapters continue on
+        # 0_5_2.html, 0_5_3.html ... (built from the redirected URL; a page
+        # past the end redirects away and stops the walk).
+        "page_url_template": "{stem}_{n}{ext}",
         "headers": {"Accept-Language": "zh-TW,zh;q=0.9"},
         "image_referer": "page",
     },
@@ -163,10 +172,31 @@ def _static(
     return definition
 
 
-_register(["wujinmh.com", "www.wujinmh.com"], _static("#chapter-list a, .chapter-list a", "img[data-original], #cp_img img", attr="data-original", headers=_ZH))
-_register(["m.yueman1.cc", "yueman1.cc"], _static(".chapter-list a, #chlist a", ".reader-img-box img", attr="data-src", headers=_ZH))
-_register(["mkzhan.com", "www.mkzhan.com"], _static(".chapter__list a, #chapter-list a", "img.lazy-read, .rd-article__pic img", attr="data-src", headers=_ZH))
-_register(["raw.senmanga.com", "senmanga.com"], _static(".element a, ul.chapter-list a", "img.picture, .reader img"))
+# Reader pages on these sites usually carry no <img> for the pages: the list
+# sits in a script (SinMH ``chapterImages``, qTcms base64, packed eval). The
+# engine reads those automatically when the selector finds nothing.
+_register(["wujinmh.com", "www.wujinmh.com", "m.wujinmh.com"], _static("#chapter-list a, .chapter-list a, #chapter-list-1 a", "img[data-original], #cp_img img, #images img", attr="data-original", headers=_ZH))
+_register(["m.yueman1.cc", "yueman1.cc", "www.yueman1.cc"], _static(".chapter-list a, #chlist a, .list_chapter a, #mh-chapter-list-ol-0 a", ".reader-img-box img, #cp_img img, .comicpage img", attr="data-src", headers=_ZH))
+_register(
+    ["mkzhan.com", "www.mkzhan.com", "m.mkzhan.com"],
+    {
+        **_static(".chapter__list a, #chapter-list a, a.j-chapter-link", "img.lazy-read, .rd-article__pic img", attr="data-src", headers=_ZH),
+        # The reader builds its pages from a JSON API keyed by the ids in
+        # the chapter URL (/<comic_id>/<chapter_id>.html).
+        "image_api": {
+            "url": "https://comic.mkzhan.com/chapter/content/v1/?chapter_id={chapter_id}&comic_id={comic_id}&format=1&quality=1&type=1",
+            "params_regex": r"/(?P<comic_id>\d+)/(?P<chapter_id>\d+)\.html",
+            "path": "data.page",
+            "field": "image",
+        },
+    },
+)
+# Sen Manga shows one page per URL (/<series>/<chapter>/<page>); on chapters
+# that show everything at once, page 2 adds nothing new and the walk stops.
+_register(
+    ["raw.senmanga.com", "senmanga.com"],
+    {**_static(".element a, ul.chapter-list a, .list .series a", "img.picture, .reader img"), "page_url_template": "{url}/{n}"},
+)
 _register(["mangaz.com", "www.mangaz.com"], _static(".chapter-list a, #ch-list a", "#viewer img"))
 
 
@@ -180,6 +210,8 @@ _register(
         "manga_author": ".detail-list a[href*='/author/']",
         "manga_genres": ".detail-list a[href*='/list/']",
         "chapter_list": "#chapterList a, .chapter-list a",
+        # Age-gated series keep the list LZString-compressed in a hidden field.
+        "hidden_chapter_list": "#__VIEWSTATE",
         "chapter_url": "a",
         "chapter_title": "a",
         "image_source": {"decoder": "manhuagui", "host": "https://i.hamreus.com"},
@@ -238,6 +270,22 @@ UNSUPPORTED_SITES: Dict[str, str] = {
     "kuaikanmanhua.com": "requires a signed mobile-app API",
 }
 
+# Addresses that are not a manga site themselves but point to one.
+WRONG_HOSTS: Dict[str, str] = {
+    "naver.com": (
+        "naver.com is Naver's portal, not its webtoon site. Use a series page on "
+        "comic.naver.com, for example https://comic.naver.com/webtoon/list?titleId=123456"
+    ),
+    "www.naver.com": (
+        "naver.com is Naver's portal, not its webtoon site. Use a series page on "
+        "comic.naver.com, for example https://comic.naver.com/webtoon/list?titleId=123456"
+    ),
+    "m.naver.com": (
+        "naver.com is Naver's portal, not its webtoon site. Use a series page on "
+        "comic.naver.com, for example https://comic.naver.com/webtoon/list?titleId=123456"
+    ),
+}
+
 
 def unsupported_reason(domain: str) -> Optional[str]:
     host = (domain or "").strip().lower().split(":")[0]
@@ -245,6 +293,11 @@ def unsupported_reason(domain: str) -> Optional[str]:
         if host == known or host.endswith("." + known):
             return reason
     return None
+
+
+def wrong_host_hint(domain: str) -> Optional[str]:
+    host = (domain or "").strip().lower().split(":")[0]
+    return WRONG_HOSTS.get(host)
 
 
 def known_definitions() -> List[Definition]:
@@ -299,11 +352,25 @@ def detect_family(
                 (item.name == "a" and item.get("href")) or item.select_one("a[href]")
                 for item in items[:5]
             )
-            if title is not None and parsing.text_of(title) and has_link:
+            # A theme that loads its chapter list by AJAX is recognised by
+            # its empty list container; the scrape then fetches the list.
+            loads_later = bool(definition.get("chapter_ajax")) and parsing.select_one(
+                soup, definition.get("ajax_marker")
+            ) is not None
+            if title is not None and parsing.text_of(title) and (has_link or loads_later):
                 return dict(definition)
         else:
             source = definition.get("image_source")
-            if isinstance(source, dict):
+            if isinstance(source, dict) and source.get("decoder"):
+                from . import packed_scripts, script_images
+
+                if source["decoder"] == "manhuagui":
+                    found = packed_scripts.manhuagui_images(soup)
+                else:
+                    found = script_images.decode(source["decoder"], soup, "https://example.invalid/")
+                if found:
+                    return dict(definition)
+            elif isinstance(source, dict):
                 data = parsing.json_from_scripts(
                     soup,
                     script_selector=source.get("script_selector"),

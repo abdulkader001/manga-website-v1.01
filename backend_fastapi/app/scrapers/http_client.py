@@ -60,3 +60,34 @@ class RequestWrapper:
             max_bytes=max_bytes,
             **kwargs,
         )
+
+    @staticmethod
+    def post(
+        url: str,
+        timeout: int = 15,
+        data: dict | None = None,
+        max_bytes: int | None = None,
+        **kwargs,
+    ) -> requests.Response:
+        """A form POST (AJAX chapter lists) through the same SSRF-validated,
+        IP-pinned connection as ``get``. Redirects are not followed: an AJAX
+        endpoint that redirects is treated as a failure."""
+        from ..services.pinned_fetch import get_pinned
+        from ..services.url_guard import validate_scrape_url_resolved
+
+        headers = kwargs.pop("headers", {})
+        if "User-Agent" not in headers:
+            headers["User-Agent"] = random.choice(USER_AGENTS)
+        time.sleep(random.uniform(0.1, 1.0))
+        response = get_pinned(
+            url,
+            lambda candidate: validate_scrape_url_resolved(candidate, db_session=None),
+            method="POST",
+            timeout=timeout,
+            headers=headers,
+            max_bytes=max_bytes,
+            data=data or {},
+        )
+        if response.is_redirect:
+            raise requests.exceptions.HTTPError(f"Unexpected redirect from {url}", response=response)
+        return response

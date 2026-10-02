@@ -240,6 +240,13 @@ def fetch_series(url: str) -> SeriesMetadata:
         raise AnimePlanetError("Anime-Planet could not be reached. Try again in a moment.") from exc
     if response.status_code == 404:
         raise AnimePlanetError("Anime-Planet has no manga at that address.")
+    from ..scrapers.base_scraper import is_bot_challenge
+
+    if is_bot_challenge(response.status_code, response.content):
+        raise AnimePlanetError(
+            "Anime-Planet answered with a bot check (Cloudflare) instead of the page. "
+            "Use a MangaUpdates link for this series instead."
+        )
     if response.status_code in (403, 429, 503):
         raise AnimePlanetError(
             f"Anime-Planet refused the request (HTTP {response.status_code}); it may be rate limiting or "

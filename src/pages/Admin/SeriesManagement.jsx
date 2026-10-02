@@ -716,6 +716,9 @@ export default function SeriesManagement() {
                 <p className="text-xs text-[#8b93a3]">
                   Paste a series page (best) or the site address. Known layouts and moved domains are matched automatically; otherwise the Scraper AI writes and tests the rules.
                 </p>
+                <p className="text-[11px] text-[#6b7383] mt-1">
+                  Best results: open one series in your browser, copy the address of the page that lists its chapters, and paste it here. Use a series with at least two chapters.
+                </p>
               </div>
             </div>
             <button type="button" onClick={() => setParserOpen(false)} className="text-gray-400 hover:text-white">✕</button>
@@ -748,6 +751,26 @@ export default function SeriesManagement() {
                   {parserResult.parser?.source ? ` · ${parserResult.parser.source}` : ""}
                   {parserResult.parser?.status ? ` · ${parserResult.parser.status}` : ""}
                 </div>
+              )}
+              {!parserResult.ok && Array.isArray(parserResult.next_steps) && parserResult.next_steps.length > 0 && (
+                <div className="pt-1">
+                  <div className="font-semibold opacity-90">What to do next</div>
+                  <ol className="list-decimal ml-4 space-y-0.5 opacity-90">
+                    {parserResult.next_steps.map((step) => (
+                      <li key={step}>{step}</li>
+                    ))}
+                  </ol>
+                </div>
+              )}
+              {!parserResult.ok && Array.isArray(parserResult.site_signals) && parserResult.site_signals.length > 0 && (
+                <details className="pt-1 opacity-80">
+                  <summary className="cursor-pointer">What the scraper saw on the page</summary>
+                  <ul className="list-disc ml-4 space-y-0.5 font-mono text-[11px]">
+                    {parserResult.site_signals.map((line) => (
+                      <li key={line}>{line}</li>
+                    ))}
+                  </ul>
+                </details>
               )}
               {parserResult.sample?.title && (
                 <div className="opacity-80">
