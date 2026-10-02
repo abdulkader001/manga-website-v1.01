@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 
+from . import bubble_shape
 from . import reading_order as reading_order_mod
 from . import region_classifier
 from . import script_registry
@@ -89,6 +90,12 @@ def build_normalized_output(
     )
 
     regions: List[Dict[str, Any]] = []
+    gray = None
+    if image is not None:
+        try:
+            gray = image if image.mode == "L" else image.convert("L")
+        except Exception:  # pragma: no cover - styling is optional
+            gray = None
     for idx, raw in enumerate(raw_regions):
         box = coordinate_regions[idx]["coordinates"]
         confidence = float(
@@ -108,7 +115,14 @@ def build_normalized_output(
         styling = region_classifier.sample_background(image, box)
         if styling:
             region.update(styling)
+            # Text lettered straight onto the art has no plain fill or no
+            # closed outline around it, so it keeps its plain box and spot.
+            if styling.get("background_clean"):
+                bubble = bubble_shape.detect_bubble(gray, box, styling.get("background"))
+                if bubble:
+                    region["bubble"] = bubble
         regions.append(region)
+    bubble_shape.drop_shared_bubbles(regions)
 
     # Present regions in reading order -- the natural iteration order for
     # every downstream consumer (translation context, overlap resolution).
