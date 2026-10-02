@@ -42,7 +42,7 @@ Contents
 ### People and roles
 
 - **Main admin**: one owner. Proves it **once** at `/admin-login` with e-mail, a **one-time** password from `.env` and an authenticator code. After that the page is gone (404, no link anywhere), the owner signs in like readers, and every admin page asks for the authenticator code. A new password hash in `.env` (server access) re-opens the page once, for recovery. Signing in with the owner's e-mail alone never grants admin.
-- **Sub-admin**: a user with per-person permission toggles (Role Management). Can never get the Secret Vault, Admin Settings (not even read), **API Management** (OCR / translation / AI providers), branding, **Role Management** (permissions, presets, appointing/removing sub-admins, any role change), or the **Scraper AI** (its API key and Custom Parser; `core/permissions.py` `MAIN_ADMIN_ONLY`). Previews, imports and re-scrapes a sub-admin starts use built-in and detected parsers only, never the AI.
+- **Sub-admin**: a user with per-person permission toggles (Role Management). Sees only **their own** rows in the admin audit log unless granted *See the full audit log* (`view_full_audit`); without *See the audit log for their own actions* (`view_scope_audit`) the log is closed to them. Can never get the Secret Vault, Admin Settings (not even read), **API Management** (OCR / translation / AI providers), branding, **Role Management** (permissions, presets, appointing/removing sub-admins, any role change), or the **Scraper AI** (its API key and Custom Parser; `core/permissions.py` `MAIN_ADMIN_ONLY`). Previews, imports and re-scrapes a sub-admin starts use built-in and detected parsers only, never the AI.
 - **User (reader)**: signs in with a magic link, Google or Microsoft. **No passwords.** One inbox gives one account for life.
 
 ### Data that is deliberately *not* on the server
@@ -79,6 +79,7 @@ back what the upgrade removed, so restore a backup instead.
 | `20261009_login_required` | #27 | `system_settings.login_required` (default off) | Drops it, so the site is open to guests |
 | `20261010_email_identity` | #27 | Unique `users.email_identity_hash` (one inbox, one account), backfilled | Drops it. Gmail-alias duplicates become possible again |
 | `20261011_admin_password_single_use` | #27 | `system_settings.admin_setup_password_used` | Drops it, so the **current admin password works again** |
+| `20261012_overlay_text_scale` | #33 | `user_processing_settings.overlay_font_size` becomes the 1-100 slider (pixels converted: 20 px → 28.5); new `overlay_outline_color`, `overlay_match_bubble` | **Lossy**: sizes go back to pixels rounded and capped at 10-40 px (a reader on 100 = 70 px gets 40 px); outline colour and bubble switch are dropped |
 
 Check where a server is: `docker compose exec backend alembic current`.
 
@@ -120,9 +121,34 @@ exceptions; for those, restore the database backup taken before the update.
 
 ## Change entries
 
-### 2026-10-02 — Test: Admin Settings destructive actions are main-admin only
+### 2026-10-02 — PR #33: all 13 audit findings fixed; bubble-shaped translations, colour pickers, 1-100 text size
 
-Branch `claude/great-faraday-nh2dwx`. Commit `19c2d3b` (pushed just after PR #31 was merged, so it ships separately). PR number and merge SHA: fill in when known.
+Branch `claude/great-faraday-nh2dwx`. Commits `4a92b2e` … `c310edf` (see below). PR number and merge SHA: fill in when known.
+
+| Change | Why | Main files |
+| --- | --- | --- |
+| **F-89 (critical)** Public `GET /config/providers` (all aliases) now returns only which services exist and the built-in OCR flags. Every provider payload, the main admin's included, lists custom **header names only**, never values | Anyone could read a provider's header key, endpoint and key ending without signing in | `app/services/provider_registry.py`, `app/api/routers/config.py` (`55464cd`) |
+| **F-91 (high)** Sub-admins see only their own audit-log rows (count and pages too) unless granted `view_full_audit`; 403 without `view_scope_audit` | Default sub-admins read the main admin's full trail with IPs | `app/api/routers/admin.py` (`275cde2`) |
+| **F-93 (high)** Page OCR + translation runs in its own small thread pool (`PAGE_PROCESSING_CONCURRENCY`, default 2), not on the API worker's event loop | One page translation froze that API worker for everyone | `app/api/routers/processing.py`, `app/utils/bounded_threadpool.py`, `routers/ocr.py` (`40741cb`) |
+| **F-94** Database work in 40 `async` handlers moved to the DB thread pool (or the handler made a plain `def`); an AST test keeps new ones out | Each query stalled the event loop | `app/api/routers/*` (`bd21281`) |
+| **F-92** Library batch checks rights for the whole list in one pass; a taken-down series no longer fails the whole list with 451 | 12 queries for 3 series, ~400 for 200 | `app/services/content_rights.py`, `routers/manga.py` (`2476f9f`) |
+| **F-96** `docker-compose.small.yml` for ~1 GB servers (2 workers instead of 8, solo pools, small DB pools, Postgres/Redis caps); API and background workers recycle after N requests/jobs or 400 MB; Redis eviction never touches queues | ~2.5 GB RAM at idle, no recycling | `docker-compose*.yml`, `deployment/gunicorn.conf.py`, `app/core/celery_app.py`, `scripts/start_celery_worker.sh` (`f900f43`) |
+| **F-95** All 13 admin screens load on demand: reader bundle 680 kB → 449 kB | Every visitor downloaded the admin console | `src/app.js` (`2f17637`) |
+| **F-97** Admin hub tiles match the routes: a sub-admin sees Health / Chapter reports only with the permission that opens them, and never main-admin tiles | Tiles bounced sub-admins back | `src/constants/adminFeatures.js`, `src/components/AuthGuard.js`, `src/app.js` (`a5375f9`) |
+| **F-86, F-87, F-90** Background cache refreshes are kept alive and logged on failure; `ALGORITHM` must be HS256/384/512; `/system/stats` is main-admin only | Lost refreshes; unsafe JWT algorithms; metrics public | `app/utils/swr_cache.py`, `app/core/settings.py`, `routers/system_stats.py` (`4a92b2e`) |
+| **Translation fills the bubble's own shape.** The server finds the closed speech bubble around each text (round, square or any outline) and the reader fills that shape and sets the text inside it. Text drawn straight on the art (no plain fill or no closed outline) keeps its own box and spot. Readers can switch it off (*Match the bubble's shape*) | Owner asked for translations drawn inside the exact bubble | `app/services/bubble_shape.py`, `app/services/ocr_normalize.py`, `src/components/OverlayBox.js`, `src/components/ReaderOverlay.js` (`5ff8754`) |
+| **Colour pickers and outline colour.** Text, outline and box colours each get a picker: a square from white/grey to full colour to black, and a rainbow bar under it (plus hex, black and white buttons, keyboard) | Only black/white text was practical | `src/components/ColorPicker.js`, `src/settings/ReadingSettings.tsx` (`f655ab5`) |
+| **Text size 1-100 in half steps** (100 = 70 px, was 10-40 px), in Settings and in the reader's quick control (slider and +/-; resizes at once, saved after a pause). Only the translated text on manga pages changes | Owner asked for bigger and finer sizes | `src/utils/overlayText.js`, `src/components/OverlayScaleControl.js`, `app/models/processing_settings.py` (`f655ab5`) |
+
+- **Database:** `20261012_overlay_text_scale` (added to §2; downgrade is lossy for sizes above 40 px).
+- **Settings:** new optional `.env` tuning knobs `PAGE_PROCESSING_CONCURRENCY`, `GUNICORN_MAX_REQUESTS`, `GUNICORN_MAX_REQUESTS_JITTER`, `CELERY_MAX_TASKS_PER_CHILD`, `CELERY_MAX_MEMORY_PER_CHILD_KB` (documented in `.env.example`). They sit beside `GUNICORN_WORKERS`/`CELERY_CONCURRENCY` because Gunicorn and Celery read them when the process starts, before the Secret Vault is loaded; none is a secret and all have defaults. New reader settings `overlay_outline_color`, `overlay_match_bubble`. API: `/config/providers` is smaller; audit-log endpoints are scoped for sub-admins.
+- **Action after deploying:** rotate any provider key that was saved in a **custom header** (F-89).
+- **Check:** `pytest backend_fastapi/tests/test_provider_secrets_not_public.py test_audit_log_search.py test_bubble_shape.py test_processing_settings.py test_overlay_text_scale_migration.py`; anonymous `curl https://<site>/api/v1/config/providers` shows only `availableServices` and `local`; open a chapter with translation on: round and square bubbles are filled in their own shape. Pages translated before this update keep plain boxes until their cached result is cleared (Admin Settings → cache) or re-processed.
+- **Undo:** `alembic downgrade 20261011_admin_password_single_use` first (lossy for sizes above 40 px), then `git revert` the merge commit. Reverting brings the public provider details back: don't, without keeping the F-89 change.
+
+### 2026-10-02 — PR #32: Test: Admin Settings destructive actions are main-admin only
+
+PR #32, merge `3b91c35`. Commits `19c2d3b`, `77a197a`.
 
 - **What:** a regression test proving a sub-admin holding every grantable toggle gets 403 on clear site cache, delete all manga, purge / mirror all images, cache clear / refresh / priority and saving settings, and that nothing is deleted. `CLAUDE.md` house rule names Admin Settings' cache purge and delete-all actions explicitly.
 - **Why:** the owner asked that only the main admin can reach these destructive actions; the server already enforced it, now a test keeps it that way.
@@ -288,6 +314,7 @@ PRs #1–#22 predate this log. Their summaries are in the merge commits
 
 ## 5. Open items and known limits
 
+- **Bubble shapes** are found with a light heuristic (Pillow, no AI): tested on synthetic pages with round, square, freeform, dark and open bubbles. A bubble whose outline has a gap, touches the page edge, or holds two separately-read text lines falls back to the plain box. Report pages where the shape looks wrong.
 - **Per-site scraper settings** (baozimh page templates, mkzhan image API, senmanga page URLs, Madara AJAX) follow each site's public structure and were tested on synthetic pages only; the build sandbox could not reach the sites. Run Custom Parser on one real series per site.
 - **Anime-Planet parser** was tested on synthetic pages only (the build sandbox couldn't reach the site). Check a real link in the import preview.
 - **Domain "is this site" check** asks `/healthz`, which any copy of this software answers. It confirms the domain reaches *a* MangaWorld server, not necessarily yours.

@@ -13,23 +13,32 @@ Management are main-admin only); everything else is open. Fix
 instructions for an agent: `fix-guide-2026-10-02.md`. Lint, 1069 backend tests, type
 check, 30 frontend tests and the build are green.
 
+**Status update (same day):** all 13 findings are fixed on this branch, from
+low to critical; the ledger names the commit for each. Every fix except F-95
+has a regression test that fails on the old code. F-95 (admin screens split
+out of the reader bundle) shows in the build output: the main bundle went
+from 680 kB to 449 kB. After deploying the F-89 fix, **rotate any
+provider key that was saved in a custom header** (for example an Azure
+`api-key`): it was readable by anyone until then. After the fixes: lint, 1109 backend
+tests, type check, 41 frontend tests and the build are green.
+
 ## Findings ledger
 
 | ID | Sev | Location | Defect | Pass |
 | --- | --- | --- | --- | --- |
-| F-89 | CRITICAL | `backend_fastapi/app/services/provider_registry.py:109` (served by `routers/config.py:25`) | Anonymous `GET /api/v1/config/providers` returns every platform provider's custom header **values** (e.g. an `api-key`), its endpoint URL and the last 4 key characters | 3 |
-| F-91 | HIGH | `GET /api/v1/admin/audit/logs`, `/admin/audit/logs/search` (`admin.py`) | A sub-admin on defaults (`view_full_audit` = off) reads the main admin's full audit trail, with IPs and metadata | 3 |
-| F-93 | HIGH | `backend_fastapi/app/api/routers/processing.py:295` | `async def process_chapter_page` runs the whole OCR + translation pipeline (`cps.process_page`) synchronously on the event loop, freezing that API worker for every other request until it finishes | 6 |
-| F-92 | MEDIUM | `backend_fastapi/app/api/routers/manga.py` (`get_manga_batch` → `_enforce_series_hostable`) | Library batch endpoint checks rights one series at a time (own session + thread hop each): 12 queries for 3 series, 66 for 30, up to ~400 for the 200-id cap | 5 |
-| F-94 | MEDIUM | 49 `async def` handlers, e.g. `manga.py get_chapter_content`, `get_chapter_list`, `reader.py`, `comments.py`, `auth.py` | Blocking SQLAlchemy calls made directly inside `async` handlers, so each query stalls the worker's event loop | 6 |
+| F-89 | CRITICAL | **fixed in `55464cd`** · `backend_fastapi/app/services/provider_registry.py:109` (served by `routers/config.py:25`) | Anonymous `GET /api/v1/config/providers` returns every platform provider's custom header **values** (e.g. an `api-key`), its endpoint URL and the last 4 key characters | 3 |
+| F-91 | HIGH | **fixed in `275cde2`** · `GET /api/v1/admin/audit/logs`, `/admin/audit/logs/search` (`admin.py`) | A sub-admin on defaults (`view_full_audit` = off) reads the main admin's full audit trail, with IPs and metadata | 3 |
+| F-93 | HIGH | **fixed in `40741cb`** · `backend_fastapi/app/api/routers/processing.py:295` | `async def process_chapter_page` runs the whole OCR + translation pipeline (`cps.process_page`) synchronously on the event loop, freezing that API worker for every other request until it finishes | 6 |
+| F-92 | MEDIUM | **fixed in `2476f9f`** · `backend_fastapi/app/api/routers/manga.py` (`get_manga_batch` → `_enforce_series_hostable`) | Library batch endpoint checks rights one series at a time (own session + thread hop each): 12 queries for 3 series, 66 for 30, up to ~400 for the 200-id cap | 5 |
+| F-94 | MEDIUM | **fixed in `bd21281`** · 49 `async def` handlers, e.g. `manga.py get_chapter_content`, `get_chapter_list`, `reader.py`, `comments.py`, `auth.py` | Blocking SQLAlchemy calls made directly inside `async` handlers, so each query stalls the worker's event loop | 6 |
 | F-88 | MEDIUM | **fixed on this branch** · `GET /api/v1/admin/settings`, `/admin/config/session`, `/admin/validate-ocr-providers`, `/config` (`admin.py`, `management.py`) | Guarded by `require_admin_user`, which admits sub-admins: Admin Settings and provider status are readable by every sub-admin, against the main-admin-only rule | 3 |
-| F-95 | MEDIUM | `src/app.js` (12 eager `import`s of `pages/Admin/*`) | The whole admin console ships in the reader bundle: one 680 kB JS file (178 kB gzip) for every visitor; only `AdminLogin` is lazy | 7 |
-| F-96 | MEDIUM | `docker-compose.yml:279-345`, `backend_fastapi/deployment/gunicorn.conf.py:27`, `backend_fastapi/app/core/celery_app.py` | Default stack runs ~20 Python processes (~120 MB each measured) and sets no `worker_max_memory_per_child`/`max_tasks_per_child`: ~2.5 GB RAM before Postgres, with no recycling of leaking image/OCR workers | 8 |
-| F-97 | MEDIUM | `src/constants/adminFeatures.js` vs `src/app.js:146-230` | Admin hub shows sub-admins the Users, Health, Ads and Chapter-reports tiles (by permission), but those routes are main-admin only in the router, so the tiles bounce them back | 7 |
+| F-95 | MEDIUM | **fixed in `2f17637`** · `src/app.js` (12 eager `import`s of `pages/Admin/*`) | The whole admin console ships in the reader bundle: one 680 kB JS file (178 kB gzip) for every visitor; only `AdminLogin` is lazy | 7 |
+| F-96 | MEDIUM | **fixed in `f900f43`** · `docker-compose.yml:279-345`, `backend_fastapi/deployment/gunicorn.conf.py:27`, `backend_fastapi/app/core/celery_app.py` | Default stack runs ~20 Python processes (~120 MB each measured) and sets no `worker_max_memory_per_child`/`max_tasks_per_child`: ~2.5 GB RAM before Postgres, with no recycling of leaking image/OCR workers | 8 |
+| F-97 | MEDIUM | **fixed in `a5375f9`** · `src/constants/adminFeatures.js` vs `src/app.js:146-230` | Admin hub shows sub-admins the Users, Health, Ads and Chapter-reports tiles (by permission), but those routes are main-admin only in the router, so the tiles bounce them back | 7 |
 | F-98 | LOW | **fixed on this branch** · `backend_fastapi/app/core/permissions.py:54-59` | `view_providers`, `configure_ocr`, `configure_translation`, `configure_ai`, `set_provider_priority` are toggles on Role Management (4 on by default for sub-admins) that no route checks; API Management is main-admin only in code, so the toggles promise access that does not exist | 7 |
-| F-90 | LOW | `backend_fastapi/app/api/routers/system_stats.py` | `GET /api/v1/system/stats` serves the Prometheus metrics to anyone (nginx proxies all of `/api/`) | 3 |
-| F-86 | LOW | `backend_fastapi/app/utils/swr_cache.py:112` | Stale-cache refreshes are started with `asyncio.create_task(...)` and no reference is kept, so the event loop may garbage-collect them before they finish | 1 |
-| F-87 | LOW | `backend_fastapi/app/core/settings.py:260` | `ALGORITHM` is taken from the environment with no allowlist; the `ecdsa` CVE waiver in `requirements.txt` assumes HS256 only | 2 |
+| F-90 | LOW | **fixed in `4a92b2e`** · `backend_fastapi/app/api/routers/system_stats.py` | `GET /api/v1/system/stats` serves the Prometheus metrics to anyone (nginx proxies all of `/api/`) | 3 |
+| F-86 | LOW | **fixed in `4a92b2e`** · `backend_fastapi/app/utils/swr_cache.py:112` | Stale-cache refreshes are started with `asyncio.create_task(...)` and no reference is kept, so the event loop may garbage-collect them before they finish | 1 |
+| F-87 | LOW | **fixed in `4a92b2e`** · `backend_fastapi/app/core/settings.py:260` | `ALGORITHM` is taken from the environment with no allowlist; the `ecdsa` CVE waiver in `requirements.txt` assumes HS256 only | 2 |
 
 ## Findings
 

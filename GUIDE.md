@@ -338,6 +338,10 @@ creep up over days. Tune with `GUNICORN_MAX_REQUESTS`,
 `CELERY_MAX_TASKS_PER_CHILD`, `CELERY_MAX_MEMORY_PER_CHILD_KB` in `.env`
 (0 turns a limit off).
 
+Each API worker translates at most `PAGE_PROCESSING_CONCURRENCY` pages at the
+same time (default 2); the rest wait their turn while the site keeps answering
+other visitors. Raise it on a server with more CPU cores.
+
 ---
 
 ## 5. Alternative: run without Docker for the app (developer setup)
@@ -577,7 +581,7 @@ sub-admin's preview says "ask the main admin", add the site as below.
 | --- | --- |
 | Browse, search, ratings, bookmarks, comments | API + DB (works out of the box) |
 | Magic-link / Google / Microsoft login | E-mail or OAuth variables (Section 3.5) + `celery_worker_email` |
-| Page translation overlay | Vault: *Server OCR enabled*; a translator (reader's own AI key in *Settings → AI & OCR Engines*, or a site default in Admin → API Management). Readers switch it on once in *Settings → Reading & Translation*. |
+| Page translation overlay | Vault: *Server OCR enabled*; a translator (reader's own AI key in *Settings → AI & OCR Engines*, or a site default in Admin → API Management). Readers switch it on once in *Settings → Reading & Translation*. There each reader also picks text, outline and box colours (colour pickers), the text size (1-100, half steps, 100 = 70 px; also the quick control in the reader) and *Match the bubble's shape*: round, square and other bubbles are filled in their own shape; text drawn straight on the art stays where it was. |
 | Translated chapter names | Same translator as the overlay. Source names like `522 원준 522화 2024-11-07` show as `Chapter 522`; real subtitles are translated and cached. |
 | Notifications, storage alerts | `celery_worker_notifications`, `celery_worker_maintenance`, beat |
 | Ads, branding, announcements, maintenance mode | Admin → Site settings |
@@ -716,6 +720,9 @@ procedure: `backend_fastapi/deployment/backups.md` and `deployment/runbook.md`.
 | Sub-admin gets "forbidden" on Admin Settings / API Management / Role Management, or the API and "appoint/remove sub-admins" toggles are gone from Role Management | Intended: all three are main-admin only, including read access. Only the main admin appoints or removes sub-admins. |
 | `$argon2id...` value turns into garbage | Wrap values containing `$` in single quotes in `.env`. Admin hash lines made by `make_admin_hash.py` start with `a2:` and have no `$`. |
 | Translation/OCR overlay does nothing | Reader: *Settings → Reading & Translation* must be on. Server: vault *Server OCR enabled* = true and restarted (4.1). |
+| Translation is a plain box instead of the bubble's shape | Expected for text drawn on the art, bubbles with a gap in the outline, bubbles cut by the page edge, or two separately-read lines in one bubble. Also check the reader's *Match the bubble's shape* switch. Pages translated before the update keep boxes until their cached result is cleared (Admin Settings → cache) |
+| Translated text too small or too big | Reader: *Settings → Reading & Translation → Text size* (1-100) or the size control in the reader. Long lines still shrink to fit their bubble |
+| Sub-admin sees only their own entries in the audit log | Intended. Give them *See the full audit log* in Role Management |
 | Reader says "Text was found but not translated" | OCR works but nothing translates: add an AI key in *Settings → AI & OCR Engines* (press **Test connection**), or a site default in Admin → API Management. |
 | `tesseract: not found` / OCR "engine not available" | The backend image is old: rebuild it (Section 4.1) and check `docker compose exec backend tesseract --list-langs`. |
 | Korean/Chinese pages read as garbage | Set the series' *Text language on pages* (Series → layout) to the language actually printed on the pages. |
@@ -747,6 +754,7 @@ procedure: `backend_fastapi/deployment/backups.md` and `deployment/runbook.md`.
 - [ ] OCR, e-mail and sign-in settings entered in **Admin → Secret Vault**
 - [ ] Sign-in required on/off chosen (Admin Settings); donation links added if wanted
 - [ ] First series imported; new chapters arrive via beat
+- [ ] Updating from before PR #33: provider keys that were saved in a **custom header** (e.g. Azure `api-key`) were publicly readable; rotate them at the provider and save the new key in Admin → API Management
 - [ ] Scraper AI key tested (Admin → Series → Scraper AI API) before adding new source sites with Custom Parser (main admin only)
 - [ ] Domain + HTTPS in front (production)
 - [ ] `.env` and backups stored safely off the server
