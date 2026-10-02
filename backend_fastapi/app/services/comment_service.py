@@ -215,6 +215,13 @@ def moderator_remove_comment(
     if comment is None:
         raise ApiError(ErrorCode.NOT_FOUND, "Comment not found.")
 
+    # Chain of command: nobody removes the comment of someone of their own tier or above.
+    author = db.get(User, comment.user_id) if comment.user_id else None
+    if author is not None:
+        from .permissions_service import assert_may_act_on
+
+        assert_may_act_on(moderator, author, "remove the comment of", allow_self=True)
+
     comment.removed_at = datetime.utcnow()
     comment.removed_by_id = moderator.id
     comment.removed_reason = reason

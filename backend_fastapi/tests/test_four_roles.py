@@ -552,3 +552,18 @@ def test_admin_pages_record_daily_activity(fastapi_client):
         reader = _user(UserRole.USER)
         admin_succession.record_activity(session, session.get(User, reader))
         assert session.query(AdminActivityDay).filter_by(user_id=reader).count() == 0
+
+
+def test_community_moderation_follows_the_chain_of_command(fastapi_client):
+    boss, a, other, s, reader = owner(), admin(), admin(), sub(), _user(UserRole.USER)
+    block = lambda who, target: fastapi_client.post(  # noqa: E731
+        f"/api/v1/community/users/{target}/block", json={"reason": "spam"}, headers=_h(who)
+    ).status_code
+    timeout = lambda who, target: fastapi_client.post(  # noqa: E731
+        f"/api/v1/community/users/{target}/timeout", json={"hours": 1, "reason": "spam"}, headers=_h(who)
+    ).status_code
+    assert block(s, reader) == 200 and timeout(s, reader) == 200
+    assert block(s, a) == 403 and block(s, boss) == 403 and timeout(s, a) == 403
+    assert block(a, s) == 200 and block(a, reader) == 200
+    assert block(a, other) == 403 and block(a, boss) == 403
+    assert block(boss, a) == 200
