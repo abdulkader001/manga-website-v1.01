@@ -36,7 +36,15 @@ def approved_domain_for_url(db_session, url: str):
     hostname = _host_of(url)
     if not hostname:
         return None
-    for entry in db_session.query(ApprovedSourceDomain).all():
+    return _match_domain(db_session.query(ApprovedSourceDomain).all(), hostname)
+
+
+def _match_domain(entries, hostname: str):
+    """The approved website among ``entries`` that covers ``hostname``."""
+
+    if not hostname:
+        return None
+    for entry in entries:
         domain = (entry.domain or "").strip().lower()
         if not domain:
             continue
@@ -62,9 +70,15 @@ def resolve_series_rights(db_session, manga) -> dict:
     taken-down series is denied both host and translate regardless of flags.
     """
 
-    site_host, site_translate, site_attribution = _website_defaults(
-        approved_domain_for_url(db_session, getattr(manga, "source_url", None))
+    return _rights_for(
+        manga, approved_domain_for_url(db_session, getattr(manga, "source_url", None))
     )
+
+
+def _rights_for(manga, website) -> dict:
+    """Effective rights of ``manga`` given its (already looked-up) website."""
+
+    site_host, site_translate, site_attribution = _website_defaults(website)
 
     series_host = True if manga.may_host is None else bool(manga.may_host)
     series_translate = (
@@ -103,6 +117,23 @@ def assert_may_host_url(db_session, url: str) -> None:
             field="manga_url",
             details={"url": url},
         )
+
+
+def hostable_manga_ids(db_session, mangas) -> set:
+    """Ids of ``mangas`` that may be hosted (not taken down, licensed).
+
+    Same rules as ``assert_series_hostable``, for a whole list at once: the
+    approved websites are read once instead of once per series (F-92).
+    """
+
+    from ..models import ApprovedSourceDomain
+
+    entries = db_session.query(ApprovedSourceDomain).all()
+    return {
+        manga.id
+        for manga in mangas
+        if _rights_for(manga, _match_domain(entries, _host_of(getattr(manga, "source_url", None))))["may_host"]
+    }
 
 
 def assert_series_hostable(db_session, manga) -> None:
