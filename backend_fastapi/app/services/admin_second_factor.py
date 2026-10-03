@@ -5,8 +5,9 @@ or Google account would own the site. This adds a TOTP check (RFC 6238, the
 codes an authenticator app shows) on top of that:
 
 * An admin enrols an authenticator app (``setup`` then ``enable``).
-* From then on, admin routes also need a short-lived *step-up* cookie, which
-  the admin gets by entering a current code (``verify``).
+* From then on, admin routes also need a *step-up* cookie, which the admin
+  gets by entering a current code (``verify``). It lasts
+  ``ADMIN_CODE_VALID_HOURS`` (12 hours unless set), see ``step_up_seconds``.
 * It is mandatory for the main admin once the owner e-mail is set up
   (``MAIN_ADMIN_EMAIL_HASH``). The owner enrols from the admin area right after
   the first Google sign-in; admin features stay shut until they have.
@@ -38,7 +39,9 @@ DIGITS = 6
 WINDOW = 1
 STEP_UP_COOKIE = "admin_stepup_cookie"
 STEP_UP_TOKEN_TYPE = "stepup"
-STEP_UP_MINUTES = 30
+DEFAULT_STEP_UP_HOURS = 12
+# A week at most: past that the code stops meaning "the admin is here".
+MAX_STEP_UP_HOURS = 24 * 7
 ISSUER = "Manga Site"
 
 
@@ -136,8 +139,26 @@ def disable(db: Session, user: User) -> None:
     db.commit()
 
 
+def step_up_hours() -> int:
+    """How many hours an entered code keeps the admin area open (1 to 168)."""
+
+    from ..core.settings import settings
+
+    try:
+        hours = int(getattr(settings, "admin_code_valid_hours", DEFAULT_STEP_UP_HOURS))
+    except (TypeError, ValueError):
+        return DEFAULT_STEP_UP_HOURS
+    if hours <= 0:
+        return DEFAULT_STEP_UP_HOURS
+    return min(hours, MAX_STEP_UP_HOURS)
+
+
+def step_up_seconds() -> int:
+    return step_up_hours() * 3600
+
+
 def create_step_up_token(user: User) -> str:
-    return _create_token(str(user.id), STEP_UP_TOKEN_TYPE, timedelta(minutes=STEP_UP_MINUTES))
+    return _create_token(str(user.id), STEP_UP_TOKEN_TYPE, timedelta(seconds=step_up_seconds()))
 
 
 def step_up_valid(user: User, token: str | None) -> bool:

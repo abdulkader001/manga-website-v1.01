@@ -209,6 +209,13 @@ SPECS = (
         kind="int",
         help="How long a login token lasts before it is silently refreshed.",
     ),
+    SecretSpec(
+        "ADMIN_CODE_VALID_HOURS",
+        _G_SEC,
+        "Authenticator code lasts (hours)",
+        kind="int",
+        help="After entering an authenticator code, admin pages stay open this long (1-168, default 12).",
+    ),
     SecretSpec("CLAMAV_HOST", _G_SEC, "ClamAV host", help="Virus scanning of uploads. Leave unset to disable."),
     SecretSpec("CLAMAV_PORT", _G_SEC, "ClamAV port", kind="int"),
     # Storage & backups (set from Admin -> Storage & Backups)

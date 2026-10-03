@@ -3,8 +3,8 @@
 The owner (main admin) always passes. A sub-admin passes when they hold
 ``key`` (``permissions_service.has_permission``). For a site-owner power
 (``OWNER_POWERS``) they must also have an authenticator and have entered a
-code recently (the admin step-up, same 30-minute window the owner uses), so a
-stolen sign-in alone can't reach them.
+code recently (the admin step-up, same ``ADMIN_CODE_VALID_HOURS`` window the
+owner uses), so a stolen sign-in alone can't reach them.
 """
 
 from __future__ import annotations

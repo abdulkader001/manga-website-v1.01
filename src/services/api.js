@@ -61,9 +61,8 @@ function buildAuthUrl(path = "") {
 
 // ---- Optional token helpers (cookies are primary auth; these are passthroughs) ----
 // C6: the server issues a double-submit `csrf_token` cookie and validates the
-// `X-CSRF-Token` header against it. Prefer the cookie value so the header always
-// matches what the server compares against; fall back to localStorage for
-// backwards compatibility with older sessions.
+// `X-CSRF-Token` header against it. The cookie is the only source: no token of
+// any kind is kept in localStorage, where any injected script could read it.
 function getCsrfFromCookie() {
   try {
     const match = document.cookie.match(/(?:^|;\s*)csrf_token=([^;]+)/);
@@ -73,13 +72,14 @@ function getCsrfFromCookie() {
   }
 }
 function getCsrf() {
-  const fromCookie = getCsrfFromCookie();
-  if (fromCookie) return fromCookie;
-  try {
-    return localStorage.getItem("csrf_token");
-  } catch {
-    return null;
-  }
+  return getCsrfFromCookie();
+}
+
+// Older builds kept a copy in localStorage; clear it out.
+try {
+  localStorage.removeItem("csrf_token");
+} catch {
+  /* storage blocked */
 }
 
 // ---- F-39: global session-expiry handling ----
@@ -107,9 +107,6 @@ export function setSessionActive(value) {
 }
 
 function handleSessionExpired() {
-  try {
-    localStorage.removeItem("csrf_token");
-  } catch {}
   if (
     typeof window !== "undefined" &&
     window.location &&

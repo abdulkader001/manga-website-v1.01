@@ -305,19 +305,29 @@ def resolve_cors_configuration(settings) -> tuple[list[str], bool]:
     else:
         allowed_origins = sanitize_origins(allowed_origins)
 
+    production = bool(getattr(settings, "force_https_redirects", False))
+
     if not allowed_origins:
+        if production:
+            # The site and its API share one address behind the proxy, so no
+            # other website needs to call it from a browser.
+            logger.info("No CORS origins configured; only the site's own address may call the API")
+            return [], False
         logger.info(
             "No CORS origins configured; defaulting to wildcard '*' (credentials disabled)"
         )
         return ["*"], False
 
-    if allowed_origins == ["*"]:
-        return allowed_origins, False
-
     if "*" in allowed_origins:
-        logger.warning(
-            "CORS origin list contains '*' alongside specific origins; treating as wildcard"
-        )
+        specific = [origin for origin in allowed_origins if origin != "*"]
+        if production:
+            # A live site never answers every website: keep the named ones only.
+            logger.warning("CORS origin '*' ignored in production; keeping the named origins only")
+            return specific, bool(specific)
+        if specific:
+            logger.warning(
+                "CORS origin list contains '*' alongside specific origins; treating as wildcard"
+            )
         return ["*"], False
 
     return allowed_origins, True
@@ -473,8 +483,8 @@ def configure_middleware(app: FastAPI, settings) -> list[str]:
         LiveCORSMiddleware,
         allow_origins=allowed_origins,
         allow_credentials=allow_credentials,
-        allow_methods=["*"],
-        allow_headers=["*"],
+        allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+        allow_headers=["Accept", "Accept-Language", "Authorization", "Content-Type", "X-CSRF-Token", "X-Requested-With"],
     )
 
     return allowed_origins

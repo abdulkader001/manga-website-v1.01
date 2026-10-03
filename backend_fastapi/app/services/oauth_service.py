@@ -82,6 +82,11 @@ def ensure_google_user(db: Session, profile: dict[str, Any]) -> User:
         user = db.query(User).filter(User.google_sub == google_sub).first()
 
     if user is None:
+        # Only an address Google has verified can open (or create) an account
+        # by e-mail: otherwise anyone could add a victim's address to a Google
+        # account and sign in as them. Matching by Google's own id is fine.
+        if not email_is_verified:
+            raise OAuthUserError("email_unverified")
         user = get_user_by_email(db, email)
 
     # Disposable-email rule (SRS 1D.2): reject NEW signups on temporary

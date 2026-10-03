@@ -48,7 +48,7 @@ export default function AdminSecurity() {
       {status && status.enabled && (
         <div className="space-y-3">
           <p className="text-xs text-emerald-400">
-            On. Admin pages ask for an authenticator code every 30 minutes.
+            On. Admin pages ask for an authenticator code every {status.valid_hours || 12} hours.
           </p>
           {status.required ? (
             <p className="text-xs text-[#8b93a3]">

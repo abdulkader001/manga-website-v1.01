@@ -1,107 +1,208 @@
-import React, { useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { handleMangaContextMenu } from "../utils/mangaLinkMenu";
 
 /**
- * AntiTamperGuard Component
- * Professional client-side guardrail system to protect site architecture,
- * core working logic, and prevent unauthorized DevTools inspection / DOM cobbling.
+ * AntiTamperGuard
+ *
+ * Makes casual inspection harder: blocks the browser's right-click menu (its
+ * "Inspect" entry) and the developer-tools / view-source shortcuts.
+ *
+ * This is a speed bump, not security. Anyone can still open the developer
+ * tools from the browser's own menu or switch JavaScript off. What actually
+ * keeps the site safe is on the server: every API and admin route checks the
+ * sign-in, the role and the authenticator code, and no secret is ever sent
+ * to the browser.
+ *
+ * Text boxes used to get the browser menu (so readers could paste), which put
+ * "Inspect" one click away. They now get a small menu of our own with Cut,
+ * Copy, Paste and Select all. On touch screens the phone's own text tools are
+ * left alone: they have no "Inspect" entry, and blocking them breaks pasting.
  */
-export default function AntiTamperGuard({ children }) {
-  const [toastNotice, setToastNotice] = useState(null);
+
+// Ctrl/Cmd + Shift/Option + one of these opens a developer tool in some
+// browser: I (inspector), J (console), C (element picker), K (Firefox
+// console), M (responsive mode), E (Firefox network).
+const DEVTOOLS_KEYS = new Set(["KeyI", "KeyJ", "KeyC", "KeyK", "KeyM", "KeyE"]);
+
+function isTextField(el) {
+  if (!el || el.nodeType !== 1) return false;
+  if (el.isContentEditable) return true;
+  const tag = el.tagName;
+  if (tag === "TEXTAREA") return !el.disabled;
+  if (tag !== "INPUT") return false;
+  const type = (el.getAttribute("type") || "text").toLowerCase();
+  return !el.disabled && ["text", "search", "email", "url", "tel", "number", "password"].includes(type);
+}
+
+function isTouchPress(e) {
+  if (e.pointerType) return e.pointerType === "touch" || e.pointerType === "pen";
+  if (e.sourceCapabilities && e.sourceCapabilities.firesTouchEvents) return true;
+  try {
+    return window.matchMedia("(pointer: coarse)").matches && !window.matchMedia("(any-pointer: fine)").matches;
+  } catch {
+    return false;
+  }
+}
+
+export function isDevtoolsShortcut(e) {
+  if (e.key === "F12" || e.code === "F12") return "inspect";
+  const code = e.code || (e.key && e.key.length === 1 ? `Key${e.key.toUpperCase()}` : "");
+  // Windows / Linux use Ctrl+Shift, a Mac uses Cmd+Option (or Cmd+Shift).
+  // Ctrl+Alt is left alone: it is AltGr on many keyboards (AltGr+E types €).
+  const pcCombo = e.ctrlKey && e.shiftKey && !e.altKey;
+  const macCombo = e.metaKey && (e.altKey || e.shiftKey);
+  if ((pcCombo || macCombo) && DEVTOOLS_KEYS.has(code)) return "inspect";
+  const plain = (e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey;
+  // View source: Ctrl+U, and Cmd+Option+U on a Mac.
+  if (code === "KeyU" && (plain || (e.metaKey && e.altKey))) return "source";
+  if (code === "KeyS" && plain) return "save";
+  return null;
+}
+
+function TextFieldMenu({ menu, onClose }) {
+  const ref = useRef(null);
 
   useEffect(() => {
-    // 1. Console security banner (Anti-Self-XSS & Code Tampering Shield)
+    const close = (e) => {
+      if (ref.current && ref.current.contains(e.target)) return;
+      onClose();
+    };
+    const onKey = (e) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("mousedown", close, true);
+    window.addEventListener("scroll", onClose, true);
+    window.addEventListener("resize", onClose);
+    window.addEventListener("keydown", onKey, true);
+    return () => {
+      window.removeEventListener("mousedown", close, true);
+      window.removeEventListener("scroll", onClose, true);
+      window.removeEventListener("resize", onClose);
+      window.removeEventListener("keydown", onKey, true);
+    };
+  }, [onClose]);
+
+  const field = menu.field;
+  const run = async (action) => {
+    onClose();
     try {
-      console.log(
-        "%c🛡️ CORE SYSTEM SECURITY SHIELD ACTIVE",
-        "color: #00AEF0; font-size: 20px; font-weight: bold; background: #15171c; padding: 6px 12px; border-radius: 6px;"
-      );
-      console.log(
-        "%cWARNING: This application is protected by tamper-prevention guardrails. Attempting to inject scripts, inspect sensitive state, or manipulate DOM roles is monitored and will terminate the active session.",
-        "color: #f87171; font-size: 12px; font-weight: bold;"
-      );
-    } catch {}
-
-    // 2. Keystroke Guard: Intercept DevTools & Source Inspection shortcuts
-    const handleKeyDown = (e) => {
-      // F12 key
-      if (e.key === "F12") {
-        e.preventDefault();
-        showNotice("🛡️ Developer inspection tools are restricted by system guardrails.");
-        return false;
+      field.focus();
+      if (action === "selectAll") {
+        if (typeof field.select === "function") field.select();
+        else document.execCommand("selectAll");
+        return;
       }
-
-      // Ctrl+Shift+I, Ctrl+Shift+J, Ctrl+Shift+C (Windows/Linux)
-      // Cmd+Option+I, Cmd+Option+J, Cmd+Option+C (Mac)
-      const isCmdOrCtrl = e.ctrlKey || e.metaKey;
-      if (isCmdOrCtrl && e.shiftKey && (e.key === "I" || e.key === "i" || e.key === "J" || e.key === "j" || e.key === "C" || e.key === "c")) {
-        e.preventDefault();
-        showNotice("🛡️ Source inspection is protected to safeguard core architecture.");
-        return false;
+      if (action === "paste") {
+        let text = "";
+        try {
+          text = navigator.clipboard ? await navigator.clipboard.readText() : "";
+        } catch {
+          text = "";
+        }
+        if (text) document.execCommand("insertText", false, text);
+        return;
       }
+      document.execCommand(action);
+    } catch {
+      /* the keyboard shortcuts still work */
+    }
+  };
 
-      // Ctrl+U / Cmd+U (View Source)
-      if (isCmdOrCtrl && (e.key === "u" || e.key === "U")) {
-        e.preventDefault();
-        showNotice("🛡️ Source viewing is protected.");
-        return false;
-      }
+  const item = "block w-full text-left px-3 py-1.5 hover:bg-[#262a33] rounded-lg";
+  const left = Math.min(menu.x, (window.innerWidth || 1024) - 170);
+  const top = Math.min(menu.y, (window.innerHeight || 768) - 170);
+  return (
+    <div
+      ref={ref}
+      role="menu"
+      className="fixed z-[10000] w-40 p-1 bg-[#15171c] border border-[#262a33] rounded-xl shadow-2xl text-xs text-white"
+      style={{ left, top }}
+      onContextMenu={(e) => e.preventDefault()}
+    >
+      <button type="button" role="menuitem" className={item} onClick={() => run("cut")} disabled={menu.readOnly}>
+        Cut
+      </button>
+      <button type="button" role="menuitem" className={item} onClick={() => run("copy")}>
+        Copy
+      </button>
+      <button type="button" role="menuitem" className={item} onClick={() => run("paste")} disabled={menu.readOnly}>
+        Paste
+      </button>
+      <button type="button" role="menuitem" className={item} onClick={() => run("selectAll")}>
+        Select all
+      </button>
+    </div>
+  );
+}
 
-      // Ctrl+S / Cmd+S (Save Page)
-      if (isCmdOrCtrl && (e.key === "s" || e.key === "S")) {
-        e.preventDefault();
-        return false;
-      }
+export default function AntiTamperGuard({ children }) {
+  const [toastNotice, setToastNotice] = useState(null);
+  const [fieldMenu, setFieldMenu] = useState(null);
+  const toastTimer = useRef(null);
+  const closeFieldMenu = useCallback(() => setFieldMenu(null), []);
+
+  useEffect(() => {
+    const showNotice = (msg) => {
+      setToastNotice(msg);
+      clearTimeout(toastTimer.current);
+      toastTimer.current = setTimeout(() => setToastNotice(null), 3500);
     };
 
-    // 3. Context Menu Guard (Right Click Inspect protection)
+    // Warn people who are told to paste something into the console (self-XSS).
+    try {
+      console.log(
+        "%cStop!",
+        "color: #f87171; font-size: 28px; font-weight: bold;"
+      );
+      console.log(
+        "%cThis is a browser feature for developers. If someone told you to paste something here, it is a scam that can give them your account.",
+        "font-size: 13px;"
+      );
+    } catch {
+      /* no console */
+    }
+
+    const handleKeyDown = (e) => {
+      const hit = isDevtoolsShortcut(e);
+      if (!hit) return;
+      e.preventDefault();
+      e.stopPropagation();
+      if (hit === "inspect") showNotice("Developer tools are turned off on this site.");
+      else if (hit === "source") showNotice("Viewing the page source is turned off.");
+    };
+
     const handleContextMenu = (e) => {
-      // Allow right-click on standard links and inputs, but intercept on canvas/body
-      if (e.target && (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA")) {
+      const target = e.target;
+      if (isTextField(target)) {
+        if (isTouchPress(e)) return;
+        e.preventDefault();
+        setFieldMenu({
+          x: e.clientX,
+          y: e.clientY,
+          field: target,
+          readOnly: Boolean(target.readOnly),
+        });
         return;
       }
       // Manga cards: right-click opens the manga in a new tab (Shift/Win +
       // right-click: a new window) instead of the browser menu.
       if (handleMangaContextMenu(e)) return;
       e.preventDefault();
-      showNotice("🛡️ Right-click inspection is disabled by Anti-Tamper Security.");
+      showNotice("Right-click is turned off on this site.");
     };
-
-    // 4. Mutation Observer to detect client-side DOM tampering
-    let observer = null;
-    try {
-      observer = new MutationObserver((mutations) => {
-        for (const mutation of mutations) {
-          if (mutation.type === "attributes") {
-            const target = mutation.target;
-            // Prevent tampering with session or role flags
-            if (target && target.hasAttribute && target.hasAttribute("data-tampered")) {
-              target.removeAttribute("data-tampered");
-            }
-          }
-        }
-      });
-      observer.observe(document.body, { attributes: true, subtree: true, attributeFilter: ["data-role", "data-admin"] });
-    } catch {}
 
     window.addEventListener("keydown", handleKeyDown, true);
     window.addEventListener("contextmenu", handleContextMenu, true);
 
     return () => {
+      clearTimeout(toastTimer.current);
       window.removeEventListener("keydown", handleKeyDown, true);
       window.removeEventListener("contextmenu", handleContextMenu, true);
-      if (observer) observer.disconnect();
     };
   }, []);
 
-  const showNotice = (msg) => {
-    setToastNotice(msg);
-    setTimeout(() => setToastNotice(null), 3500);
-  };
-
   return (
     <>
-      {/* Toast Notice when inspection or tampering is blocked */}
       {toastNotice && (
         <div className="fixed top-5 right-5 z-[9999] bg-[#15171c]/95 border border-purple-500/50 text-white px-4 py-3 rounded-2xl shadow-2xl flex items-center gap-2.5 text-xs backdrop-blur-md animate-in fade-in slide-in-from-top-3">
           <div className="w-6 h-6 rounded-full bg-purple-500/20 text-purple-400 flex items-center justify-center flex-shrink-0 text-xs">
@@ -117,6 +218,7 @@ export default function AntiTamperGuard({ children }) {
           </button>
         </div>
       )}
+      {fieldMenu && <TextFieldMenu menu={fieldMenu} onClose={closeFieldMenu} />}
       {children}
     </>
   );

@@ -62,6 +62,7 @@ STAFF_ONLY = {
 }
 OWN_SESSION = {
     "/admin/permissions/me",  # answers a person whose powers are off, to say so
+    "/admin/2fa/asset-access",  # nginx asks it before serving the admin screens' code
     "/admin/2fa/status", "/admin/2fa/setup", "/admin/2fa/enable", "/admin/2fa/verify", "/admin/2fa/disable",
 }
 
@@ -195,6 +196,9 @@ PUBLIC = {
     # Readers' browsers report their script errors to Admin -> Error Report,
     # guests included; rate-limited, and nothing identifying is stored.
     ("POST", "/errors/report"),
+    # nginx's yes/no before serving the admin screens' code: it reads the
+    # sign-in cookies itself and answers only 204/401/403, never any data.
+    ("GET", "/admin/2fa/asset-access"),
 }
 SIGNED_IN = {"get_current_user", "get_optional_user", "require_admin_user", "require_main_admin_user", "require_processing_user"}
 
