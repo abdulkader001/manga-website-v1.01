@@ -62,8 +62,11 @@
 - Visitors' IP addresses are for the owner only (Site Functions -> Privacy and
   security): never return an IP address from an API to anyone but the owner, and
   never write one to a log line.
-- Bookmarks and reading history stay in the reader's browser, not on the
-  server.
+- Reading history stays in the reader's browser, never on the server.
+  Bookmarks are kept in the browser too; for a **signed-in** reader the server
+  also keeps the bookmarked series ids (nothing else) under their account, so
+  new-chapter alerts reach everyone who bookmarked a series and the list
+  follows them to other devices. Guests' bookmarks stay in their browser only.
 - Never hard-code admin credentials or e-mails in source.
 - Translation runs on the server through API providers (no in-browser
   models).

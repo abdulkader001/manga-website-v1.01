@@ -50,6 +50,8 @@ _DEFAULT_BRANDING: Dict[str, Any] = {
     "socialLinks": {},
     "name": "",
     "tagline": "",
+    "homepage_title": "",
+    "homepage_subtitle": "",
 }
 
 _SAFE_FILENAME_RE = re.compile(r"[^A-Za-z0-9_.-]+")
@@ -87,14 +89,19 @@ def _load_branding(db: Session) -> Dict[str, Any]:
         }
     else:
         sanitized = {}
-    name = payload.get("name") if isinstance(payload.get("name"), str) else ""
-    tagline = payload.get("tagline") if isinstance(payload.get("tagline"), str) else ""
+    def text(key: str) -> str:
+        value = payload.get(key)
+        return value if isinstance(value, str) else ""
+
     return {
         "logo": logo,
         "logo_url": logo,
         "socialLinks": sanitized,
-        "name": name,
-        "tagline": tagline,
+        "name": text("name"),
+        "tagline": text("tagline"),
+        # The homepage's heading, same for every visitor.
+        "homepage_title": text("homepage_title"),
+        "homepage_subtitle": text("homepage_subtitle"),
     }
 
 
@@ -120,7 +127,12 @@ def _store_branding(db: Session, payload: Dict[str, Any]) -> Dict[str, Any]:
     if logo is not None:
         branding["logo"] = _clean_logo(logo)
     branding.pop("logo_url", None)
-    for key, limit in (("name", 60), ("tagline", 160)):
+    for key, limit in (
+        ("name", 60),
+        ("tagline", 160),
+        ("homepage_title", 120),
+        ("homepage_subtitle", 300),
+    ):
         value = payload.get(key)
         if isinstance(value, str):
             branding[key] = strip_all_html(value).strip()[:limit]

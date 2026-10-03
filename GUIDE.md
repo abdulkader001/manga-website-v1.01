@@ -905,8 +905,11 @@ Other server-side tools:
 
 **The site starts open.** Guests can browse, read and keep bookmarks without an
 account. Bookmarks and reading history are saved by series ID in the visitor's
-own browser (never on the server), so they work for guests and readers alike;
-**Bookmarks → Export / Import** moves them to another device. A brand-new site
+own browser, so they work for guests too; **Bookmarks → Export / Import** moves
+them to another device. When a reader signs in, their bookmarked series (only
+the series ids, never the reading history) are also kept on their account: they
+follow the reader to other devices, and the reader gets an alert in the bell
+when a bookmarked series has a new chapter. A brand-new site
 and an updated one both start with the switch **off** (migration
 `20261017_login_required_default_off`, Section 12).
 
@@ -1534,6 +1537,9 @@ command and the machine, not a broken site.
 | Visitors are sent to the login page | *Sign-in required* is on: you (or an earlier version of the site) switched it on. It starts **off** (Section 6.2). Switch it in **Admin → Site Functions**. |
 | Guests can read without signing in | Intended: *Sign-in required* starts off (Section 6.2). Switch it on in **Admin → Site Functions** when you want logins first. |
 | My site name or footer links don't show for visitors | Save them in Admin (Admin Settings / the footer editor) while signed in as the owner: the server copy is what visitors see. Older versions kept edits in the admin's own browser only. |
+| A visitor sees a pencil next to the logo, or their own logo | Old version: anyone could "edit" the logo and see it in their own browser. Update (Section 12): the pencil now shows only to you (and an Admin holding the branding power), saves on the server for everyone, and old browser copies are cleared. The homepage heading works the same way. |
+| Readers have to sign in again every hour | Old version: the page didn't renew the one-hour sign-in on opening the site. Update (Section 12); the sign-in then lasts as long as the refresh cookie (two weeks of not visiting). |
+| Readers don't get "new chapter" alerts | Alerts go to **signed-in** readers who bookmarked the series (guests' bookmarks stay in their browser only). Check that *Notifications* is on in **Admin → Site Functions**, and that the reader bookmarked while signed in or has signed in since (their bookmarks are then sent to their account). |
 | A feature says "… is switched off on this site" | You (the owner) switched that function off in **Admin → Site Functions** (Section 6.4). Switch it on again, or run `cli_bootstrap functions-reset` on the server. |
 | The Site Functions tab or Tab access is missing for an Admin | Intended: only the owner can open them, and nobody can be given them (Sections 6.4 and 6.5). |
 | An Admin or sub-admin says "your admin powers are switched off" | You used **Switch all powers off** in Role Management → Tab access (Section 6.5). Press *Switch powers back on*. |
@@ -1569,6 +1575,7 @@ command and the machine, not a broken site.
 - [ ] `make_admin_hash.py --write .env`, Google client in `.env`, `up -d --force-recreate`, `admin-status` says `Owner: not claimed yet`; first Google sign-in done, authenticator set up in **Admin**; `admin-status` now says `Owner: claimed`
 - [ ] OCR, e-mail and sign-in settings entered in **Admin → Secret Vault**
 - [ ] Sign-in required left off (default: guests read) or switched on once your Admins are set up (Admin → Site Functions, Section 6.2); the other Site Functions looked over (Section 6.4); donation links added if wanted
+- [ ] Site name, logo, homepage heading and footer links saved as the owner (the pencil next to the logo, Admin Settings); a private window shows them, and shows no pencil
 - [ ] Tab access set for each Admin and sub-admin (Role Management, Section 6.5); the server's real IP hidden behind a CDN or tunnel and the bare-IP test run (Section 8)
 - [ ] First series imported; new chapters arrive via beat
 - [ ] Updating from before PR #33: provider keys that were saved in a **custom header** (e.g. Azure `api-key`) were publicly readable; rotate them at the provider and save the new key in Admin → API Management

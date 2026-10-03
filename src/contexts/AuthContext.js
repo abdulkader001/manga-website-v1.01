@@ -1,5 +1,39 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from "react";
-import api, { setSessionActive } from "../services/api";
+import api, { refreshSession, setSessionActive } from "../services/api";
+
+// Set while someone is signed in on this browser. The access token lasts an
+// hour, the refresh cookie much longer: when the page opens with an expired
+// access token, this says it is worth renewing it instead of showing the
+// person as signed out. Guests never have it, so they never try.
+const HAD_SESSION_KEY = "mw_had_session";
+
+function hadSession() {
+  try {
+    return localStorage.getItem(HAD_SESSION_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function rememberSession(on) {
+  try {
+    if (on) localStorage.setItem(HAD_SESSION_KEY, "1");
+    else localStorage.removeItem(HAD_SESSION_KEY);
+  } catch {
+    // storage blocked: the page just won't renew on its own
+  }
+}
+
+async function loadMe() {
+  try {
+    return await api.auth.me();
+  } catch (err) {
+    if (err?.status === 401 && hadSession() && (await refreshSession())) {
+      return api.auth.me();
+    }
+    throw err;
+  }
+}
 
 const AuthContext = createContext(null);
 
@@ -9,11 +43,12 @@ export function AuthProvider({ children }) {
 
   const fetchUser = useCallback(async () => {
     try {
-      const data = await api.auth.me();
+      const data = await loadMe();
       const profile = data && data.user ? data.user : data;
       if (profile && profile.id) {
         setUser(profile);
         setSessionActive(true);
+        rememberSession(true);
       } else {
         setUser(null);
         setSessionActive(false);
@@ -21,6 +56,8 @@ export function AuthProvider({ children }) {
     } catch (err) {
       setUser(null);
       setSessionActive(false);
+      // Signed out for real (refresh refused too): stop trying on every load.
+      if (err?.status === 401) rememberSession(false);
     } finally {
       setIsLoading(false);
     }
@@ -40,6 +77,7 @@ export function AuthProvider({ children }) {
     } catch (err) {
       console.warn("Logout error:", err);
     } finally {
+      rememberSession(false);
       setUser(null);
       window.location.href = "/";
     }

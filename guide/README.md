@@ -31,7 +31,8 @@ detailed commands in [`../GUIDE.md`](../GUIDE.md).
 | Who can see it | only you | everyone |
 
 Both start with *Sign-in required* **off**: guests can browse and read, and
-bookmarks are kept in each visitor's browser. The owner switches it on in
+bookmarks are kept in each visitor's browser (signed-in readers also get an
+alert when a bookmarked series has a new chapter). The owner switches it on in
 **Admin → Site Functions** when ready.
 
 ---

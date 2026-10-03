@@ -20,6 +20,8 @@ class BrandingUpdateRequest(BaseModel):
     name: Optional[str] = None
     tagline: Optional[str] = None
     logo_url: Optional[str] = None
+    homepage_title: Optional[str] = None
+    homepage_subtitle: Optional[str] = None
 
 
 class FooterUpdateRequest(BaseModel):

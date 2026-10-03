@@ -206,7 +206,7 @@ def test_the_routes_a_guest_can_call_are_exactly_the_listed_ones():
     )
 
 
-@pytest.mark.parametrize("module", ["manga", "reader", "comments", "community", "bookmarks", "history", "glossary", "ads"])
+@pytest.mark.parametrize("module", ["manga", "reader", "comments", "community", "bookmarks", "glossary", "ads"])
 def test_reading_routes_sit_behind_sign_in_required(module):
     routes = [r for r in TABLE if r.module == module]
     assert routes, module

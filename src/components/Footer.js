@@ -1,13 +1,13 @@
 import React, { useEffect, useState } from "react";
-import api, { apiFetch } from "../services/api";
-import { updateFavicon } from "../utils/favicon";
+import api from "../services/api";
 import SupportLinks from "./SupportLinks";
 import FunctionGate from "./FunctionGate";
 import CONFIG from "../config";
+import useAuth from "../hooks/useAuth";
+import useBranding, { DEFAULT_LOGO, DEFAULT_TAGLINE } from "../hooks/useBranding";
+import useStaffPermissions from "../hooks/useStaffPermissions";
 
-// What visitors see until the owner saves the site's branding and footer
-// (Admin). The server's values always win: the browser copy is only a cache.
-const DEFAULT_TAGLINE = "Read manga, manhwa and manhua online";
+// What visitors see until the owner saves the footer (Admin).
 const defaultCopyright = (name) => `© ${new Date().getFullYear()} ${name}. All rights reserved.`;
 
 const PRESET_LOGOS = [
@@ -29,15 +29,17 @@ const PRESET_LOGOS = [
 ];
 
 export default function Footer() {
-  const [brandName, setBrandName] = useState(() => {
-    return localStorage.getItem("mgeko_custom_brand") || CONFIG.BRAND_NAME;
-  });
-  const [brandLogo, setBrandLogo] = useState(() => {
-    return localStorage.getItem("mgeko_custom_logo") || "🦎";
-  });
-  const [brandTagline, setBrandTagline] = useState(() => {
-    return localStorage.getItem("mgeko_custom_tagline") || DEFAULT_TAGLINE;
-  });
+  // The site's name, logo and tagline as the owner saved them (same for
+  // everyone); only the branding power sees the pencil to change them.
+  const { user } = useAuth();
+  const branding = useBranding();
+  const brandName = branding.name;
+  const brandLogo = branding.logo;
+  const brandTagline = branding.tagline;
+  const { can } = useStaffPermissions();
+  const canEditBranding = Boolean(user) && can("configure_branding");
+  const [brandError, setBrandError] = useState("");
+  const [brandSaving, setBrandSaving] = useState(false);
 
   const [footerData, setFooterData] = useState({
     copyright: "",
@@ -68,10 +70,6 @@ export default function Footer() {
             disclaimer: data.disclaimer || "Disclaimer: All manga content are property of their respective creators.",
             social_links: Array.isArray(data.social_links) ? data.social_links : [],
           });
-          // The saved branding is the site's, so it beats this browser's copy.
-          if (data.site_name) setBrandName(data.site_name);
-          if (data.tagline) setBrandTagline(data.tagline);
-          if (data.logo_url) setBrandLogo(data.logo_url);
         }
       })
       .catch(() => {});
@@ -88,20 +86,10 @@ export default function Footer() {
       }
     };
 
-    const handleBrandingUpdated = (e) => {
-      if (e?.detail) {
-        if (e.detail.name) setBrandName(e.detail.name);
-        if (e.detail.logo) setBrandLogo(e.detail.logo);
-        if (e.detail.tagline) setBrandTagline(e.detail.tagline);
-      }
-    };
-
     window.addEventListener("mgeko_footer_updated", handleFooterUpdated);
-    window.addEventListener("mgeko_branding_updated", handleBrandingUpdated);
 
     return () => {
       window.removeEventListener("mgeko_footer_updated", handleFooterUpdated);
-      window.removeEventListener("mgeko_branding_updated", handleBrandingUpdated);
     };
   }, []);
 
@@ -115,43 +103,30 @@ export default function Footer() {
     setTempBrandLogo(brandLogo);
     setTempBrandTagline(brandTagline);
     setCustomLogoUrl(isImageUrl(brandLogo) ? brandLogo : "");
+    setBrandError("");
     setEditBrandModalOpen(true);
   };
 
   const handleSaveBrand = async (e) => {
     e?.preventDefault();
     const finalName = tempBrandName.trim() || CONFIG.BRAND_NAME;
-    const finalLogo = tempBrandLogo.trim() || "🦎";
+    const finalLogo = tempBrandLogo.trim() || DEFAULT_LOGO;
     const finalTagline = tempBrandTagline.trim() || DEFAULT_TAGLINE;
-
-    setBrandName(finalName);
-    setBrandLogo(finalLogo);
-    setBrandTagline(finalTagline);
-
-    localStorage.setItem("mgeko_custom_brand", finalName);
-    localStorage.setItem("mgeko_custom_logo", finalLogo);
-    localStorage.setItem("mgeko_custom_tagline", finalTagline);
-
-    updateFavicon(finalLogo);
-    document.title = `${finalName} - Manga Updates & Browse`;
-
+    // Saved on the server for every visitor, or not at all.
+    setBrandSaving(true);
+    setBrandError("");
     try {
-      window.dispatchEvent(
-        new CustomEvent("mgeko_branding_updated", {
-          detail: { name: finalName, logo: finalLogo, tagline: finalTagline },
-        })
+      await branding.save({ name: finalName, logo_url: finalLogo, tagline: finalTagline });
+      setEditBrandModalOpen(false);
+    } catch (err) {
+      setBrandError(
+        err?.code === "REVERIFICATION_REQUIRED"
+          ? "Enter your authenticator code in the admin area first, then save again."
+          : err?.message || "The change could not be saved."
       );
-    } catch {}
-
-    setEditBrandModalOpen(false);
-
-    try {
-      await apiFetch("/api/v1/branding", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: finalName, logo_url: finalLogo, tagline: finalTagline }),
-      });
-    } catch {}
+    } finally {
+      setBrandSaving(false);
+    }
   };
 
   const activeSocials = (footerData.social_links || []).filter((l) => l.enabled !== false);
@@ -178,17 +153,19 @@ export default function Footer() {
               <div>
                 <div className="flex items-center gap-2">
                   <span className="text-white font-extrabold text-base tracking-wide uppercase">{brandName}</span>
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleOpenBrandModal();
-                    }}
-                    className="opacity-0 group-hover:opacity-100 text-gray-400 hover:text-[#00AEF0] transition p-1 text-xs rounded hover:bg-[#1f2330]"
-                    title="Edit brand name, logo, and tagline"
-                  >
-                    <i className="fas fa-pencil-alt text-[10px]"></i>
-                  </button>
+                  {canEditBranding && (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleOpenBrandModal();
+                      }}
+                      className="opacity-0 group-hover:opacity-100 text-gray-400 hover:text-[#00AEF0] transition p-1 text-xs rounded hover:bg-[#1f2330]"
+                      title="Edit brand name, logo, and tagline"
+                    >
+                      <i className="fas fa-pencil-alt text-[10px]"></i>
+                    </button>
+                  )}
                 </div>
                 <p className="text-xs text-[#8b93a3]">{brandTagline}</p>
               </div>
@@ -262,7 +239,7 @@ export default function Footer() {
                 {isImageUrl(tempBrandLogo) ? (
                   <img src={tempBrandLogo} alt="Preview" className="w-6 h-6 object-contain rounded" />
                 ) : (
-                  <span className="text-xl leading-none">{tempBrandLogo || "🦎"}</span>
+                  <span className="text-xl leading-none">{tempBrandLogo || DEFAULT_LOGO}</span>
                 )}
                 <div>
                   <div className="font-extrabold text-white text-xs uppercase">{tempBrandName || CONFIG.BRAND_NAME}</div>
@@ -334,13 +311,19 @@ export default function Footer() {
                   if (e.target.value.trim()) {
                     setTempBrandLogo(e.target.value.trim());
                   } else {
-                    setTempBrandLogo("🦎");
+                    setTempBrandLogo(DEFAULT_LOGO);
                   }
                 }}
                 placeholder="https://example.com/logo.png"
                 className="w-full bg-[#1f2330] border border-[#374151] rounded-lg p-2.5 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-[#00AEF0] font-mono"
               />
             </div>
+
+            {brandError && (
+              <p role="alert" className="text-[11px] text-red-400">
+                {brandError}
+              </p>
+            )}
 
             {/* Modal Actions */}
             <div className="flex items-center justify-end gap-2 pt-2 border-t border-[#262a33]">
@@ -353,10 +336,11 @@ export default function Footer() {
               </button>
               <button
                 type="submit"
-                className="px-4 py-1.5 rounded-lg bg-[#00AEF0] text-white text-xs font-bold hover:bg-[#0F5065] transition shadow-md flex items-center gap-1.5"
+                disabled={brandSaving}
+                className="px-4 py-1.5 rounded-lg bg-[#00AEF0] text-white text-xs font-bold hover:bg-[#0F5065] transition shadow-md flex items-center gap-1.5 disabled:opacity-50"
               >
                 <i className="fas fa-check text-xs"></i>
-                <span>Save Changes</span>
+                <span>{brandSaving ? "Saving…" : "Save Changes"}</span>
               </button>
             </div>
           </form>

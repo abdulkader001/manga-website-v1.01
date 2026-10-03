@@ -1,16 +1,20 @@
 import { useSyncExternalStore } from "react";
 
 // The reader's library -- bookmarks, which chapters they have read, and where
-// they stopped -- lives in THEIR browser, not on our server. Nothing here is
-// ever sent anywhere; export/import (Library pages) moves it between devices.
+// they stopped -- lives in THEIR browser. Reading history never leaves it.
+// Bookmarks of a signed-in reader are also kept on the server as series ids
+// (components/BookmarkSync.jsx), so new-chapter alerts reach them and their
+// bookmarks follow them to other devices. A guest's bookmarks stay here only.
+// Export/import (Library page) still moves everything between devices.
 //
 // Shape (localStorage "mw_library_v1"):
 //   bookmarks: { [mangaId]: addedAtIso }
 //   read:      { [mangaId]: { [chapterId]: readAtIso } }   // only chapters actually opened
 //   last:      { [mangaId]: { chapterId, number, at } }    // most recent chapter per series
+//   pending:   { [mangaId]: "add" | "remove" }             // bookmark changes made while signed out
 
 const KEY = "mw_library_v1";
-const EMPTY = { bookmarks: {}, read: {}, last: {} };
+const EMPTY = { bookmarks: {}, read: {}, last: {}, pending: {} };
 let cache = null;
 const listeners = new Set();
 
@@ -61,20 +65,66 @@ export function isBookmarked(lib, mangaId) {
   return Boolean(lib.bookmarks[String(mangaId)]);
 }
 
+// Set by BookmarkSync while someone is signed in: it sends each bookmark
+// change to the server. With nobody signed in, changes wait in `pending`.
+let bookmarkSink = null;
+
+/** Register the function that sends a bookmark change to the server. */
+export function onBookmarkChange(fn) {
+  bookmarkSink = fn;
+  return () => {
+    if (bookmarkSink === fn) bookmarkSink = null;
+  };
+}
+
+function withChange(lib, id, on) {
+  if (bookmarkSink) {
+    bookmarkSink(id, on);
+    return lib.pending || {};
+  }
+  return { ...(lib.pending || {}), [id]: on ? "add" : "remove" };
+}
+
 export function toggleBookmark(mangaId) {
   const lib = load();
   const id = String(mangaId);
   const bookmarks = { ...lib.bookmarks };
   if (bookmarks[id]) delete bookmarks[id];
   else bookmarks[id] = now();
-  commit({ ...lib, bookmarks });
-  return Boolean(bookmarks[id]);
+  const on = Boolean(bookmarks[id]);
+  commit({ ...lib, bookmarks, pending: withChange(lib, id, on) });
+  return on;
 }
 
 export function removeBookmark(mangaId) {
   const lib = load();
+  const id = String(mangaId);
   const bookmarks = { ...lib.bookmarks };
-  delete bookmarks[String(mangaId)];
+  delete bookmarks[id];
+  commit({ ...lib, bookmarks, pending: withChange(lib, id, false) });
+}
+
+export function bookmarkIds() {
+  return Object.keys(load().bookmarks);
+}
+
+export function pendingBookmarkChanges() {
+  return { ...(load().pending || {}) };
+}
+
+/** After the pending changes reached the server. */
+export function clearPendingBookmarks() {
+  commit({ ...load(), pending: {} });
+}
+
+/** Make the bookmarks exactly the server's list (keeping when each was added). */
+export function setBookmarks(ids) {
+  const lib = load();
+  const bookmarks = {};
+  for (const raw of ids) {
+    const id = String(raw);
+    bookmarks[id] = lib.bookmarks[id] || now();
+  }
   commit({ ...lib, bookmarks });
 }
 
@@ -110,14 +160,20 @@ export function clearHistory() {
 }
 
 export function exportLibrary() {
-  return JSON.stringify({ version: 1, exportedAt: now(), ...load() }, null, 2);
+  const { pending: _pending, ...library } = load(); // eslint-disable-line no-unused-vars
+  return JSON.stringify({ version: 1, exportedAt: now(), ...library }, null, 2);
 }
 
 export function importLibrary(text) {
   const data = JSON.parse(text);
   if (!data || typeof data !== "object") throw new Error("Not a library file.");
   const lib = load();
+  let pending = lib.pending || {};
+  for (const id of Object.keys(data.bookmarks || {})) {
+    if (!lib.bookmarks[id]) pending = withChange({ pending }, id, true);
+  }
   commit({
+    pending,
     bookmarks: { ...lib.bookmarks, ...(data.bookmarks || {}) },
     read: Object.keys(data.read || {}).reduce(
       (acc, k) => ({ ...acc, [k]: { ...(lib.read[k] || {}), ...data.read[k] } }),

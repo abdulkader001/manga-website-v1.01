@@ -6,6 +6,7 @@ import AdSection from "./GlobalAds";
 import useAuth from "../hooks/useAuth";
 import useStaffPermissions from "../hooks/useStaffPermissions";
 import { formatTimeAgo, formatGstTime, parseUtc } from "../utils/gstTime";
+import useBranding from "../hooks/useBranding";
 
 export default function Homepage() {
   const { user, isAdmin, isSecondaryAdmin } = useAuth();
@@ -13,21 +14,18 @@ export default function Homepage() {
   const canBroadcast = can("broadcast"); // main admin, or a sub-admin with the toggle on
   const isUserAdmin = canBroadcast || isAdmin; // header editing below is main-admin only
 
-  // Header and Notice configuration
-  const [headerTitle, setHeaderTitle] = useState(() => {
-    return localStorage.getItem("mgeko_header_title") || "Recently Updated Manga Chapters";
-  });
-  const [headerSubtitle, setHeaderSubtitle] = useState(() => {
-    return localStorage.getItem("mgeko_header_subtitle") || "New chapters are immediately updated on our website as soon as they are translated.";
-  });
+  // The homepage heading is saved with the site's branding: the same for
+  // every visitor, changed only by the branding power.
+  const branding = useBranding();
+  const headerTitle = branding.homepageTitle;
+  const headerSubtitle = branding.homepageSubtitle;
+  const canEditHeader = Boolean(user) && can("configure_branding");
+  const [headerError, setHeaderError] = useState("");
 
   // Notification types: 'fix', 'solve', 'alert', 'issue', 'popup'
-  const [notifications, setNotifications] = useState([
-    { id: 1, type: "fix", text: "Fix applied: Fast OCR Machine Translation engine upgraded across all chapters", enabled: true },
-    { id: 2, type: "solve", text: "Solved: High-capacity CDN image servers active worldwide", enabled: true },
-    { id: 3, type: "alert", text: "If images are not loading, use VPN or change dns to 1.1.1.1", enabled: true },
-    { id: 4, type: "issue", text: "We are fixing server issue,, thanks", enabled: true },
-  ]);
+  // Only the notices the admin posted (loaded below). There used to be four
+  // made-up ones here that every visitor saw until the real list arrived.
+  const [notifications, setNotifications] = useState([]);
 
   // Active Global Modal Pop-up state
   const [activePopup, setActivePopup] = useState(null);
@@ -284,13 +282,22 @@ export default function Homepage() {
   };
 
   // Save Header edits
-  const handleSaveHeader = (e) => {
+  const handleSaveHeader = async (e) => {
     e.preventDefault();
-    setHeaderTitle(tempHeaderTitle);
-    setHeaderSubtitle(tempHeaderSubtitle);
-    localStorage.setItem("mgeko_header_title", tempHeaderTitle);
-    localStorage.setItem("mgeko_header_subtitle", tempHeaderSubtitle);
-    setEditHeaderModalOpen(false);
+    setHeaderError("");
+    try {
+      await branding.save({
+        homepage_title: tempHeaderTitle.trim(),
+        homepage_subtitle: tempHeaderSubtitle.trim(),
+      });
+      setEditHeaderModalOpen(false);
+    } catch (err) {
+      setHeaderError(
+        err?.code === "REVERIFICATION_REQUIRED"
+          ? "Enter your authenticator code in the admin area first, then save again."
+          : err?.message || "The change could not be saved."
+      );
+    }
   };
 
   const totalPages = Math.max(1, Math.ceil(totalManga / 50));
@@ -349,12 +356,13 @@ export default function Homepage() {
               <span className="hidden sm:inline">Broadcast</span>
             </button>
             )}
-            {isAdmin && (
+            {canEditHeader && (
             <button
               type="button"
               onClick={() => {
                 setTempHeaderTitle(headerTitle);
                 setTempHeaderSubtitle(headerSubtitle);
+                setHeaderError("");
                 setEditHeaderModalOpen(true);
               }}
               className="bg-gray-800 hover:bg-gray-700 text-gray-300 text-[10px] sm:text-xs font-medium px-2 py-1 sm:px-2.5 sm:py-1.5 rounded-lg border border-gray-700 transition"
@@ -613,6 +621,11 @@ export default function Homepage() {
               </div>
             </div>
 
+            {headerError && (
+              <p role="alert" className="text-[11px] text-red-400">
+                {headerError}
+              </p>
+            )}
             <div className="flex justify-end gap-2 pt-3 border-t border-[#262a33]">
               <button
                 type="button"

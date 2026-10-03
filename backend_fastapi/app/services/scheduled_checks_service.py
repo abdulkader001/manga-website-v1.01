@@ -316,27 +316,9 @@ def run_check(db: Session, manga: Manga) -> Dict[str, Any]:
     for chapter_id in created_ids:
         process_chapter_scrape.delay(chapter_id)
 
-    from .notification_service import notify_async
-    from ..models import Bookmark
+    from .series_alerts import notify_followers_of_new_chapters
 
-    followers = {
-        row[0] for row in db.query(Bookmark.user_id).filter_by(manga_id=manga.id).all()
-    }
-    latest = max(float(r["chapter_number"]) for r in rows)
-    for user_id in followers:
-        # dedup_key scopes batching to this series: several new-chapter
-        # events for the same series within the batch window collapse into
-        # one notification (1I.5.3), while different series stay distinct.
-        notify_async(
-            type="chapter.new",
-            title=f"Chapter {latest} of {manga.title} is available",
-            body=f"Chapter {latest} of {manga.title} is available",
-            user_id=user_id,
-            data={"series_id": manga.id, "chapter_number": latest},
-            target_type="series",
-            target_id=manga.id,
-            dedup_key=f"chapter.new:{manga.id}",
-        )
+    notify_followers_of_new_chapters(db, manga, (r["chapter_number"] for r in rows))
     _record_stat(db, "new_chapters_found")
     db.commit()
     return {"status": "new_chapters_found", "count": len(rows)}

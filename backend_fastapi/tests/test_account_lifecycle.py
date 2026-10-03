@@ -130,29 +130,6 @@ def test_rank_and_role_not_user_editable(fastapi_client):
         session.close()
 
 
-def test_clearing_history_preserves_bookmarks(fastapi_client):
-    """SRS 1E.3.3 / 1E.4.3: history and bookmarks are independent."""
-    session = SessionLocal()
-    try:
-        uid = _make_user(session)
-        manga_id = _seed_manga(session)
-        session.add(ReadHistory(user_id=uid, manga_id=manga_id))
-        session.add(Bookmark(user_id=uid, manga_id=manga_id))
-        session.commit()
-    finally:
-        session.close()
-
-    cleared = fastapi_client.delete("/api/history/clear/all", headers=_headers(uid))
-    assert cleared.status_code == 200
-
-    session = SessionLocal()
-    try:
-        assert session.query(ReadHistory).filter_by(user_id=uid).count() == 0
-        assert session.query(Bookmark).filter_by(user_id=uid).count() == 1
-    finally:
-        session.close()
-
-
 def test_account_data_restored_on_a_fresh_device(fastapi_client):
     """SRS 1E.1A: data is account-keyed, not device-keyed.
 
