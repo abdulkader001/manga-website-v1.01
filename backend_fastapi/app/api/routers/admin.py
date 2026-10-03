@@ -2646,13 +2646,18 @@ def delete_series(
 ) -> AdminActionResponse:
     """Delete a manga series and all of its chapters."""
 
-    from ...services.series_delete import delete_series as delete_series_rows
-
-    deleted_chapters = delete_series_rows(db, manga_id)
-    if deleted_chapters is None:
+    manga = db.get(Manga, manga_id)
+    if manga is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Manga not found"
         )
+
+    deleted_chapters = db.query(Chapter).filter(Chapter.manga_id == manga.id).delete()
+    db.delete(manga)
+    db.commit()
+    from ...services import page_image_service
+
+    page_image_service.delete_series_files(manga_id)
 
     log_admin_action(
         db,

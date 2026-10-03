@@ -473,13 +473,23 @@ __all__ = [
 @celery_app.task(name="backend_fastapi.app.tasks.scraper_tasks.bulk_delete_series_task")
 def bulk_delete_series_task(unique_ids: list[int]):
     from ..core.db import SessionLocal
-    from ..services.series_delete import delete_many
+    from ..models import Manga, Chapter
     import structlog
 
     logger = structlog.get_logger("bulk_delete_task")
     db = SessionLocal()
     try:
-        count, deleted_chapters_total = delete_many(db, unique_ids)
+        mangas = db.query(Manga).filter(Manga.id.in_(unique_ids)).all()
+        count = 0
+        deleted_chapters_total = 0
+        for manga in mangas:
+            deleted_chapters = (
+                db.query(Chapter).filter(Chapter.manga_id == manga.id).delete()
+            )
+            db.delete(manga)
+            count += 1
+            deleted_chapters_total += deleted_chapters
+        db.commit()
         logger.info(
             "Bulk delete complete",
             extra={"deleted_series": count, "deleted_chapters": deleted_chapters_total},
