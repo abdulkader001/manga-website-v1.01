@@ -50,7 +50,7 @@ class OcrCache(Base):
     )
 
     id = Column(Integer, primary_key=True)
-    chapter_id = Column(Integer, ForeignKey("chapters.id"), nullable=False)
+    chapter_id = Column(Integer, ForeignKey("chapters.id", ondelete="CASCADE"), nullable=False)
     page_index = Column(Integer, nullable=False)
     # Bare string array, one entry per detected text box/line, reading order.
     # Kept for backward compatibility; ``regions`` (below) is the 2B.6
@@ -108,10 +108,10 @@ class TranslationCache(Base):
     )
 
     id = Column(Integer, primary_key=True)
-    chapter_id = Column(Integer, ForeignKey("chapters.id"), nullable=False)
+    chapter_id = Column(Integer, ForeignKey("chapters.id", ondelete="CASCADE"), nullable=False)
     page_index = Column(Integer, nullable=False)
     target_lang = Column(String(16), nullable=False)
-    ocr_cache_id = Column(Integer, ForeignKey("ocr_cache.id"), nullable=True)
+    ocr_cache_id = Column(Integer, ForeignKey("ocr_cache.id", ondelete="SET NULL"), nullable=True)
     # Bare string array, same length/order as the source OcrCache.text_boxes.
     # Kept for backward compatibility; ``regions`` is the 2B.6-shaped,
     # translated-in-place region list new writes populate.
