@@ -270,7 +270,7 @@ def _probe_domain(domain: str) -> Dict[str, Any]:
     except Exception as exc:
         result["detail"] = (
             "The name resolves, but https://%s did not answer (%s). Point it at this server and "
-            "install an HTTPS certificate (GUIDE.md section 8), then check again." % (domain, type(exc).__name__)
+            "install an HTTPS certificate (GUIDE.md, \"HTTPS with Caddy\"), then check again." % (domain, type(exc).__name__)
         )
         return result
     result["https"] = True

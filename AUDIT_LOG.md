@@ -3,7 +3,8 @@
 This file records every change made to the website: **what** changed, **why**,
 **where** in the code, what it did to the **database and settings**, how to
 **check** it works, and how to **undo** it. It is the history book of the site.
-`GUIDE.md` is the manual for running it.
+`GUIDE.md` is the manual for running it on a server and `TEST_COMPUTER.md` the
+guide for trying it on your own computer.
 
 **Rule:** every change that is merged adds an entry at the top of
 [Change entries](#change-entries), in the same pull request as the change.
@@ -101,7 +102,7 @@ Check where a server is: `docker compose exec backend alembic current`.
 
 ## 3. How to undo a change
 
-Always **back up first** (`GUIDE.md` §12.1 has copy-paste commands). Then pick the smallest undo that works.
+Always **back up first** (`GUIDE.md` §14.1 has copy-paste commands). Then pick the smallest undo that works.
 
 **A. Switch a feature off (no code change)**. Many features have a switch:
 sign-in required and the other Site Functions (Admin → Site Functions, owner only), donations (untick "Shown" or remove),
@@ -134,6 +135,27 @@ exceptions; for those, restore the database backup taken before the update.
 ---
 
 ## Change entries
+
+### 2026-10-03 — Two new guides (server go-live, test on your computer) and a plan
+
+Merge SHA: fill in when known (the next PR fills it in). Branch `claude/relaxed-wozniak-bsnxv1`.
+
+The owner asked to replace `GUIDE.md` with a guide that takes an empty Linux server live (every command, in detail), to add a guide for trying the site on their own computer (written from how the earlier test went: Ubuntu in a VMware VM), and, before any more code is changed, to see the whole site and write a plan to approve. No behaviour of the site changes in this PR.
+
+| Change | Why | Main files |
+| --- | --- | --- |
+| **`GUIDE.md` rewritten** as one linear, command-by-command guide to a live Linux server: prepare the server and firewall, Docker, DNS, `.env`, Google client and owner line, production mode and private ports, start, HTTPS with Caddy, boot test, owner sign-in, first settings, hiding the real IP, backups, updating and rolling back, moving domain, troubleshooting, checklist, start again from zero, and a short admin-area appendix. Every command block comes from the earlier, checked guide; the new ones (SSH login, `unattended-upgrades`, the ports test from another computer, the Google client for a domain) are marked as such in the text. Removed from the guide (still in git history before this PR): developer mode without Docker, the per-OS install steps, and the long admin walk-throughs (kept in short form in the appendix) | The owner wants one guide for going live | `GUIDE.md` |
+| **`TEST_COMPUTER.md` added**: trial on the owner's computer with no domain. Main path Ubuntu in VMware on Windows (the checked setup), with the exact differences for Windows with Docker Desktop, macOS and Linux. Includes the Google client for `localhost`, the owner step, a numbered test list (visitor, import, readers on two windows incl. the new read-history sync, admin pages, backup, translation, e-mail, reboot), what to send when something looks wrong, troubleshooting, start again from zero, and what changes on the live server | The owner wants to test the site fully before going live | `TEST_COMPUTER.md` |
+| **`guide/` folder removed** (five files): its steps now live in the two guides, and its links into the old `GUIDE.md` sections would have broken | One place per procedure, no drifting copies | `guide/*` (deleted), `README.md` |
+| Pointers updated: README, `.env.example` comments, `docker-compose.small.yml` comment, `GOOGLE_LOGIN_SETUP.md`, the PR template, `CLAUDE.md` rule 3 (now names both guides), this file's §3, and three user-facing texts that named old guide sections (Secret Vault domain card, the HTTPS hint of the domain check, `set_site_domain.py`) | No dead references | `README.md`, `.env.example`, `docker-compose.small.yml`, `GOOGLE_LOGIN_SETUP.md`, `.github/pull_request_template.md`, `CLAUDE.md`, `AUDIT_LOG.md`, `src/pages/Admin/SecretVault.jsx`, `backend_fastapi/app/api/routers/secret_vault.py`, `backend_fastapi/scripts/set_site_domain.py` |
+| **`PLAN.md` added**: proposed work in eight phases (safe to put on the internet, survives real traffic, reading experience, search and discovery, Google and link previews, half-built things, quality, day-to-day running), the decisions needed from the owner, and corrections to earlier statements. Based on code re-checked today and the earlier audits; not on a live test | The owner wants to approve a plan before anything else is changed | `PLAN.md`, `audit/ROADMAP.md` (item 42) |
+
+- **Database:** none.
+- **Settings:** none. (`CLAUDE.md` rule 3 now also names `TEST_COMPUTER.md`.)
+- **Check:** every link and anchor in `GUIDE.md`, `TEST_COMPUTER.md`, `GOOGLE_LOGIN_SETUP.md` and `README.md` resolves, and all 83 `bash` blocks pass `bash -n`. The `.env` block of `GUIDE.md` §5 was run on a freshly generated `.env`: it gives the values of the table, and the password check prints `1` and `3`. **Not run:** the Docker steps (no Docker in the build environment), Caddy, Let's Encrypt. `ruff`, `pytest backend_fastapi/tests`, `npx vitest run`, `npx vite build` pass.
+- **Undo:** `git revert -m 1 <merge>` restores the old `GUIDE.md` and the `guide/` folder. Nothing else depends on this change.
+
+---
 
 ### 2026-10-03 — A reader's read chapters follow them to a new phone
 

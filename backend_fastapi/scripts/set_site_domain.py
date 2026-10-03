@@ -45,7 +45,7 @@ def main(argv: list[str] | None = None) -> int:
     print(f"Site domain is now {domain}. Addresses derived from it:")
     for key, value in derived_from_domain(domain).items():
         print(f"  {key} = {value}")
-    print("\nNext: point DNS at this server and make sure HTTPS works for the new domain (GUIDE.md section 8).")
+    print("\nNext: point DNS at this server and make sure HTTPS works for the new domain (GUIDE.md, \"HTTPS with Caddy\").")
     return 0
 
 

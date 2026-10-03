@@ -10,9 +10,11 @@
 2. **Migrations.** Every new Alembic migration gets a row in `AUDIT_LOG.md`
    §2 saying what its downgrade does. Mark it **lossy** if a downgrade can't
    restore the data.
-3. **Guide.** If a change affects how the site is installed, configured,
-   updated, or operated by the admin, update `GUIDE.md` in the same PR (the
-   relevant section, the troubleshooting table, and the quick checklist).
+3. **Guides.** If a change affects how the site is installed, configured,
+   updated, or operated by the admin, update `GUIDE.md` (live Linux server) in
+   the same PR (the relevant section, the troubleshooting table, and the quick
+   checklist), and `TEST_COMPUTER.md` (trial on the owner's own computer) when
+   the steps or the test list there change.
 4. **"How the site is put together"** (`AUDIT_LOG.md` §1) is updated when a
    change moves a setting between `.env`, the Secret Vault and Admin
    Settings, changes roles/permissions, or adds a server-side command.
