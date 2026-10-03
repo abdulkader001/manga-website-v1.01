@@ -237,7 +237,7 @@ const MangaDetail = () => {
                     <button
                       key={star}
                       type="button"
-                      disabled={rateMutation.isLoading}
+                      disabled={rateMutation.isPending}
                       onMouseEnter={() => setHoverRating(star)}
                       onMouseLeave={() => setHoverRating(0)}
                       onClick={() => handleRate(star)}

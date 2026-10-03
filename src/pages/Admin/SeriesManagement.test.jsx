@@ -6,7 +6,7 @@ import { renderAt } from "../../test/render";
 
 const api = vi.hoisted(() => ({
   manga: { browse: vi.fn() },
-  admin: { series: { add: vi.fn() } },
+  admin: { series: { add: vi.fn(), rescrape: vi.fn(), remove: vi.fn() } },
   scraper: { listParsers: vi.fn(), startPreview: vi.fn(), getTask: vi.fn() },
 }));
 vi.mock("../../services/api", () => ({
@@ -75,5 +75,38 @@ describe("Admin series import", () => {
     await user.click(screen.getByRole("button", { name: /Start Auto-Scrape/i }));
 
     expect(await screen.findByText(/Failed to import series: Source site returned 0 chapters/)).toBeInTheDocument();
+  });
+
+  it("re-scrapes a series after its name is typed back (the server requires it)", async () => {
+    api.manga.browse.mockResolvedValue({ items: [{ id: 7, title: "Solo Story", chapters_count: 3 }] });
+    api.admin.series.rescrape.mockReset().mockResolvedValue({ ok: true });
+    const prompt = vi.spyOn(window, "prompt").mockReturnValue("Solo Story");
+    const user = userEvent.setup();
+    renderAt(<SeriesManagement />);
+    await user.click(await screen.findByTitle("Rescrape & sync now"));
+    expect(prompt).toHaveBeenCalled();
+    expect(api.admin.series.rescrape).toHaveBeenCalledWith(7, "Solo Story");
+    expect(await screen.findByText(/Re-scrape of "Solo Story" started/)).toBeInTheDocument();
+    prompt.mockRestore();
+  });
+
+  it("does not re-scrape when the typed name is wrong, and asks before deleting", async () => {
+    api.manga.browse.mockResolvedValue({ items: [{ id: 7, title: "Solo Story", chapters_count: 3 }] });
+    api.admin.series.rescrape.mockReset();
+    api.admin.series.remove.mockReset().mockResolvedValue({ ok: true });
+    const prompt = vi.spyOn(window, "prompt").mockReturnValue("Solo");
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+    const user = userEvent.setup();
+    renderAt(<SeriesManagement />);
+    await user.click(await screen.findByTitle("Rescrape & sync now"));
+    expect(api.admin.series.rescrape).not.toHaveBeenCalled();
+    expect(await screen.findByText(/doesn't match the series name/)).toBeInTheDocument();
+    await user.click(screen.getByTitle("Delete"));
+    expect(api.admin.series.remove).not.toHaveBeenCalled();
+    confirm.mockReturnValue(true);
+    await user.click(screen.getByTitle("Delete"));
+    expect(api.admin.series.remove).toHaveBeenCalledWith(7);
+    prompt.mockRestore();
+    confirm.mockRestore();
   });
 });
