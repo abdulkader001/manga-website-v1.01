@@ -139,6 +139,7 @@ reach. The agent guides and fixes what the checks show.
 | 37 | Remove unused server code (`/bookmarks`, `/history`, `read_history`, `suggestion_service`) and ~60 unused API client functions. | todo | | BT-10 |
 | 38 | Community, comment actions and notification preferences have a backend but no page. | todo | | BT-11 |
 | 39 | Homepage header text saved only in the admin's browser. | todo | | BT-12 |
+| 40 | Move to Tailwind 4, which drops the `braces` chain (GHSA-vfj7-8cjw-p6xm, no fix in Tailwind 3); then remove the advisory from `.github/scripts/npm-audit-gate.mjs`. | todo | | Major upgrade: new config format and PostCSS plugin. The CI gate ignores only that advisory meanwhile. |
 | 33 | The pinned `python:3.11-slim` digest is Debian 13 (trixie), not bookworm as before, so the image's `postgresql-client` is version 17. | todo | | Works with the PostgreSQL 14 server (newer `pg_dump` reads older servers). Check backups once on the server after the first real build. |
 
 ## Done log
