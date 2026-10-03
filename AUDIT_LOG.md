@@ -94,6 +94,7 @@ back what the upgrade removed, so restore a backup instead.
 | `20261015_login_required_default_on` | #41 | `system_settings.login_required` column default becomes **on**, and the existing row is set to on | **Lossy**: only the default goes back to off. The value the owner had before the upgrade is not kept, so existing rows stay on (turn it off in Admin Settings) |
 | `20261016_site_functions_and_tab_access` | #41 | New table `site_functions` (owner's switches) and `users.visible_admin_tabs` / `users.powers_suspended` | **Lossy**: drops them. Every function goes back to its default and every Admin / sub-admin goes back to "follow my permissions", with no powers switched off |
 | `20261017_login_required_default_off` | this PR | `system_settings.login_required` column default becomes **off** again, and the existing row is switched off (guests can read until the owner switches it on) | **Lossy**: only the default goes back to on. The value the owner had before the upgrade is not kept, so existing rows stay off (switch it on in Admin → Site Functions) |
+| `20261018_cascade_series_children` | #48 | PostgreSQL: reading history, bookmarks and the OCR/translation caches are deleted with their chapter or series (`ON DELETE CASCADE`); `scraping_jobs.manga_id` and `translation_cache.ocr_cache_id` become empty instead (`SET NULL`) | Lossless: the rules go back to `NO ACTION`; no row is touched (rows already removed by deletes stay removed) |
 
 Check where a server is: `docker compose exec backend alembic current`.
 
@@ -139,7 +140,7 @@ exceptions; for those, restore the database backup taken before the update.
 
 Merge SHA: fill in when known (the next PR fills it in). Branch `claude/project-thread-hu9r1l`.
 
-The owner reported: importing a wujinmh.com series stored the sidebar's pictures instead of the chapter pages ("covering images"); picture quality was poor; deleting a manga and re-scraping it from *Series & AI Scraper Management* both failed; *Notifications & Chapter Alerts* didn't work; reading a 50-chapter import failed with "Too many requests"; and the scraper sometimes got blocked. The source sites could not be opened from the build sandbox (its network allows no outside sites), so the scraper causes were found in the code and reproduced with saved page shapes in tests. Deleting a series is fixed by PR #48 (`plan.md` P0-3), not here.
+The owner reported: importing a wujinmh.com series stored the sidebar's pictures instead of the chapter pages ("covering images"); picture quality was poor; deleting a manga and re-scraping it from *Series & AI Scraper Management* both failed; *Notifications & Chapter Alerts* didn't work; reading a 50-chapter import failed with "Too many requests"; and the scraper sometimes got blocked. The source sites could not be opened from the build sandbox (its network allows no outside sites), so the scraper causes were found in the code and reproduced with saved page shapes in tests. Deleting a series is PR #48's fix (`plan.md` P0-3), carried here as the same commit so the two PRs don't conflict; see #48's entry.
 
 | Change | Why | Main files |
 | --- | --- | --- |
@@ -153,10 +154,10 @@ The owner reported: importing a wujinmh.com series stored the sidebar's pictures
 | Tests | Prove it | `tests/test_scraper_sidebar_images.py`, `tests/test_page_originals.py`, `tests/test_scraper_fetch_robustness.py`, `tests/test_rate_limiter_image_bucket.py`, `src/pages/NotificationsPage.test.jsx`, `src/pages/Admin/SeriesManagement.test.jsx`; `tests/test_page_mirroring.py` now covers the re-encoding path with `PAGE_KEEP_ORIGINALS=false` |
 | Guide: troubleshooting rows, picture settings, checklist line; `backend_fastapi/README.md` picture section | Keep the docs true | `GUIDE.md` §3, §10, §11, `backend_fastapi/README.md` |
 
-- **Database:** none.
+- **Database:** `20261018_cascade_series_children` from #48 (PostgreSQL only; lossless downgrade, see §2).
 - **Settings:** new vault/`.env` key `PAGE_KEEP_ORIGINALS` (default `true`); `PAGE_MAX_WIDTH` default 2000 (an existing `.env` that says 1440 keeps 1440 until changed).
 - **Check:** press *Rescrape & sync now* and type the name: the re-scrape starts. Re-scrape a wujinmh series and open a chapter: its pages, not covers; the stored files under `storage/pages/<series>/<chapter>/` are mostly `.jpg`/`.png` byte-identical to the source. Read a long chapter that isn't mirrored yet: no "Too many requests". Bookmark a series as a signed-in reader and run its check: the alert shows under *Notifications → Chapter Alerts & Issues*.
-- **Undo:** `git revert -m 1 <merge>`. Pictures stored as `.jpg`/`.png` in the meantime keep working only while this code is deployed; after a revert, re-mirror those series (Admin → Series → compress pictures) or set `PAGE_KEEP_ORIGINALS=false` and re-mirror before reverting.
+- **Undo:** `docker compose exec backend alembic downgrade 20261017_login_required_default_off`, then `git revert -m 1 <merge>`. Pictures stored as `.jpg`/`.png` in the meantime keep working only while this code is deployed; after a revert, re-mirror those series (Admin → Series → compress pictures) or set `PAGE_KEEP_ORIGINALS=false` and re-mirror before reverting.
 - **Not done here:** chapters already stored with sidebar pictures stay wrong until re-scraped. Behind Caddy all visitors still share one rate-limit bucket (`plan.md` P0-2). jymk.cn has no built-in parser; it could not be looked at without network access. Sites behind a Cloudflare "checking your browser" page still need a browser-based fetcher, which this PR does not add.
 ---
 
