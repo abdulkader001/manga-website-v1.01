@@ -11,6 +11,12 @@ import FunctionGate from "./FunctionGate";
 import "../styles/components.css";
 import useAuth from "../hooks/useAuth";
 
+// A chapter's place in reading order; one without a number goes last.
+export const chapterSortKey = (ch) => {
+  const n = ch?.chapter_number;
+  return n === null || n === undefined || n === "" || !Number.isFinite(Number(n)) ? Infinity : Number(n);
+};
+
 const MangaDetail = () => {
   const { mangaId } = useParams();
   const chapterLabel = useChapterTitles(mangaId);
@@ -53,16 +59,15 @@ const MangaDetail = () => {
   // Sort and filter chapters according to user selection
   const sortedChapters = useMemo(() => {
     const list = [...rawChapters].sort((a, b) => {
-      const numA = typeof a.chapter_number === "number" ? a.chapter_number : Number(a.id || 0);
-      const numB = typeof b.chapter_number === "number" ? b.chapter_number : Number(b.id || 0);
-      return chapterSort === "newest" ? numB - numA : numA - numB;
+      const order = chapterSortKey(a) - chapterSortKey(b) || Number(a.id || 0) - Number(b.id || 0);
+      return chapterSort === "newest" ? -order : order;
     });
 
     if (!chapterSearch.trim()) return list;
     const query = chapterSearch.toLowerCase();
     return list.filter(
       (c) =>
-        String(c.chapter_number || "").includes(query) ||
+        String(c.chapter_number ?? "").includes(query) ||
         String(c.title || "").toLowerCase().includes(query)
     );
   }, [rawChapters, chapterSort, chapterSearch]);
@@ -124,13 +129,15 @@ const MangaDetail = () => {
   const ratingCount = manga.rating_count || 0;
   const userRating = manga.user_rating || null;
 
-  // Newest and first chapter for direct links
-  const newestChapter = rawChapters.length > 0
-    ? [...rawChapters].sort((a, b) => (Number(b.chapter_number || b.id || 0) - Number(a.chapter_number || a.id || 0)))[0]
-    : null;
-  const firstChapter = rawChapters.length > 0
-    ? [...rawChapters].sort((a, b) => (Number(a.chapter_number || a.id || 0) - Number(b.chapter_number || b.id || 0)))[0]
-    : null;
+  // Newest and first chapter for direct links: the server's ids when it sent
+  // them, otherwise by chapter number. Chapter 0 is a real chapter (plan.md
+  // P1-8): `chapter_number || id` used to sort it by its database id.
+  const byNumber = [...rawChapters].sort(
+    (a, b) => chapterSortKey(a) - chapterSortKey(b) || Number(a.id || 0) - Number(b.id || 0)
+  );
+  const findChapter = (id) => (id != null ? rawChapters.find((c) => Number(c.id) === Number(id)) : undefined);
+  const newestChapter = findChapter(manga.latest_chapter_id) || byNumber[byNumber.length - 1] || null;
+  const firstChapter = findChapter(manga.first_chapter_id) || byNumber[0] || null;
 
   return (
     <div className="manga-detail p-4 sm:p-6 max-w-6xl mx-auto space-y-8">
@@ -305,7 +312,7 @@ const MangaDetail = () => {
                 className="px-5 py-2.5 rounded-xl font-bold text-xs sm:text-sm bg-[#00AEF0] hover:bg-[#0F5065] text-white flex items-center gap-2 shadow-lg transition"
               >
                 <i className="fas fa-book-open"></i>
-                <span>Read Latest (Ch. {newestChapter.chapter_number || newestChapter.id})</span>
+                <span>Read Latest ({chapterLabel(newestChapter)})</span>
               </Link>
             ) : null}
 

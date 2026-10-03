@@ -1,11 +1,12 @@
-import React, { useCallback, useEffect, useState, useMemo } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router";
+import { useQuery } from "@tanstack/react-query";
 import api, { apiFetch } from "../services/api";
 import AdPlacement from "./AdPlacement";
 import AdSection from "./GlobalAds";
 import useAuth from "../hooks/useAuth";
 import useStaffPermissions from "../hooks/useStaffPermissions";
-import { formatTimeAgo, formatGstTime, parseUtc } from "../utils/gstTime";
+import { formatTimeAgo, formatGstTime } from "../utils/gstTime";
 import useBranding from "../hooks/useBranding";
 
 export default function Homepage() {
@@ -189,30 +190,23 @@ export default function Homepage() {
     fetchCatalog();
   }, [fetchCatalog]);
 
-  // Dynamically sorted Most Viewed according to selected period
-  const displayedMostViewed = useMemo(() => {
-    const list = [...mangaList];
-    if (mostViewedPeriod === "1d") {
-      list.sort((a, b) => (b.daily_views || 0) - (a.daily_views || 0));
-    } else if (mostViewedPeriod === "1w") {
-      list.sort((a, b) => (b.weekly_views || 0) - (a.weekly_views || 0));
-    } else {
-      list.sort((a, b) => (b.monthly_views || 0) - (a.monthly_views || 0));
-    }
-    return list.slice(0, 15);
-  }, [mangaList, mostViewedPeriod]);
+  // "Most viewed" and "New" each ask the server for their own ranking over the
+  // whole catalogue (plan.md P1-7); before, they re-sorted the 50 most
+  // recently updated series, so an older popular series never showed.
+  const mostViewedSort = { "1d": "views_today", "1w": "views_week" }[mostViewedPeriod] || "views_month";
+  const { data: mostViewedData } = useQuery({
+    queryKey: ["home", "mostViewed", mostViewedSort],
+    queryFn: () => api.manga.browse({ sort: mostViewedSort, page: 1, per_page: 15 }),
+    staleTime: 60_000,
+  });
+  const displayedMostViewed = Array.isArray(mostViewedData?.items) ? mostViewedData.items : [];
 
-  // Dynamically sorted New Releases (newly added first, stable tie-breaker)
-  const displayedNewManga = useMemo(() => {
-    return [...mangaList]
-      .sort((a, b) => {
-        const timeB = parseUtc(b.created_at || b.updated_at || 0).getTime();
-        const timeA = parseUtc(a.created_at || a.updated_at || 0).getTime();
-        if (timeB !== timeA) return timeB - timeA;
-        return Number(b.id || 0) - Number(a.id || 0);
-      })
-      .slice(0, 15);
-  }, [mangaList]);
+  const { data: newMangaData } = useQuery({
+    queryKey: ["home", "new"],
+    queryFn: () => api.manga.browse({ sort: "new", page: 1, per_page: 15 }),
+    staleTime: 60_000,
+  });
+  const displayedNewManga = Array.isArray(newMangaData?.items) ? newMangaData.items : [];
 
   const filteredUpdates = mangaList.filter((m) => {
     if (filterType !== "All" && m.type?.toLowerCase() !== filterType.toLowerCase()) {
