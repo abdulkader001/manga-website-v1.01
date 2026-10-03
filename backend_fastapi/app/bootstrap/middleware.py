@@ -16,7 +16,7 @@ import structlog
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.middleware.httpsredirect import HTTPSRedirectMiddleware
 
-from ..utils.client_ip import resolve_client_ip
+from ..utils.client_ip import _is_trusted_peer, resolve_client_ip
 from ..utils.rate_limiter import RateLimitMiddleware
 from ..utils.structured_logging import bind_request_context, clear_request_context
 from ..utils.csrf_middleware import CSRFMiddleware
@@ -193,6 +193,13 @@ class ForwardedHeadersMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):  # type: ignore[override]
         scope = request.scope
         headers = request.headers
+
+        # Scheme, host and port are believed only from our own proxy, like
+        # the client address: anyone else reaching the backend port could
+        # otherwise claim https or another host (plan.md P2-2).
+        peer_ip = scope["client"][0] if scope.get("client") else None
+        if not _is_trusted_peer(peer_ip):
+            return await call_next(request)
 
         forwarded_proto = headers.get("x-forwarded-proto")
         if forwarded_proto:

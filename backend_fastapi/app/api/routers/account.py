@@ -31,7 +31,7 @@ from ...services import site_functions
 from ...services.auth_service import issue_tokens_for_user
 from ...utils.endpoint_limiter import async_endpoint_limiter
 from ...utils.sanitizer import strip_all_html
-from .auth import _set_auth_cookies
+from .auth import _limit_login_attempts, _set_auth_cookies
 
 logger = structlog.get_logger("backend_fastapi.account")
 
@@ -266,7 +266,7 @@ def _login_redirect(error_key: str) -> RedirectResponse:
     return response
 
 
-@router.get("/microsoft")
+@router.get("/microsoft", dependencies=[Depends(_limit_login_attempts)])
 def microsoft_login(request: Request, db: Session = Depends(get_db)) -> RedirectResponse:
     if not site_functions.is_enabled(db, "sign_in_microsoft"):
         return _login_redirect("provider_disabled")
@@ -300,7 +300,11 @@ def microsoft_login(request: Request, db: Session = Depends(get_db)) -> Redirect
     return response
 
 
-@router.get("/microsoft/callback", name=microsoft_oauth.MICROSOFT_CALLBACK_ROUTE_NAME)
+@router.get(
+    "/microsoft/callback",
+    name=microsoft_oauth.MICROSOFT_CALLBACK_ROUTE_NAME,
+    dependencies=[Depends(_limit_login_attempts)],
+)
 def microsoft_callback(
     request: Request,
     code: str | None = Query(None),

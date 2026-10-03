@@ -1,4 +1,4 @@
-"""Roadmap item 6: per-IP cap on the Google login entry points."""
+"""Roadmap item 6: per-IP cap on the Google and Microsoft login entry points."""
 
 from __future__ import annotations
 
@@ -31,5 +31,18 @@ def test_google_callback_shares_the_same_budget(fastapi_client, limiter_active) 
         fastapi_client.get("/auth/google/callback", follow_redirects=False)
     assert (
         fastapi_client.get("/auth/google/callback", follow_redirects=False).status_code
+        == 429
+    )
+
+
+def test_microsoft_login_and_callback_share_the_same_budget(fastapi_client, limiter_active) -> None:
+    # plan.md P2-3: Microsoft sign-in had no per-address limit at all.
+    statuses = [
+        fastapi_client.get("/auth/microsoft", follow_redirects=False).status_code
+        for _ in range(30)
+    ]
+    assert 429 not in statuses
+    assert (
+        fastapi_client.get("/auth/microsoft/callback", follow_redirects=False).status_code
         == 429
     )

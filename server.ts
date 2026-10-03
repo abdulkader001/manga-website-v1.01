@@ -36,6 +36,18 @@ function isProxiedPath(url: string): boolean {
   return PROXIED_PREFIXES.some((prefix) => url === prefix.replace(/\/$/, '') || url.startsWith(prefix));
 }
 
+// Loopback and private ranges: the same list the web nginx and the backend
+// (TRUSTED_PROXY_CIDRS default) trust to forward a visitor's address.
+function isPrivateAddress(address: string): boolean {
+  const ip = address.replace(/^::ffff:/i, '');
+  if (ip === '::1') return true;
+  if (/^f[cd][0-9a-f]{2}:/i.test(ip)) return true;
+  const parts = ip.split('.').map((part) => Number(part));
+  if (parts.length !== 4 || parts.some((part) => !Number.isInteger(part) || part < 0 || part > 255)) return false;
+  const [a, b] = parts;
+  return a === 127 || a === 10 || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168);
+}
+
 function proxyToBackend(req: Request, res: Response): void {
   const headers: http.OutgoingHttpHeaders = {};
   for (const [name, value] of Object.entries(req.headers)) {
@@ -44,13 +56,20 @@ function proxyToBackend(req: Request, res: Response): void {
     }
   }
 
-  // Append (never replace) the peer address, exactly like nginx's
-  // $proxy_add_x_forwarded_for: the backend trusts only the LAST hop, and only
-  // when the immediate peer (this gateway) is an internal address.
+  // The visitor's address and scheme, worked out like the web nginx does
+  // (deployment/nginx/nginx.conf): a TLS proxy on this machine or a private
+  // network (Caddy) may tell us both; anyone else is taken as they connect.
+  // The backend then trusts this gateway's single X-Forwarded-For value.
   const peer = req.socket.remoteAddress || '';
-  const prior = req.headers['x-forwarded-for'];
-  headers['x-forwarded-for'] = prior ? `${prior}, ${peer}` : peer;
-  headers['x-forwarded-proto'] = (req.socket as { encrypted?: boolean }).encrypted ? 'https' : 'http';
+  const fromProxy = isPrivateAddress(peer);
+  const priorHops = String(req.headers['x-forwarded-for'] || '')
+    .split(',')
+    .map((hop) => hop.trim())
+    .filter(Boolean);
+  headers['x-forwarded-for'] = fromProxy && priorHops.length ? priorHops[priorHops.length - 1] : peer;
+  const ownScheme = (req.socket as { encrypted?: boolean }).encrypted ? 'https' : 'http';
+  const priorProto = String(req.headers['x-forwarded-proto'] || '').split(',')[0].trim().toLowerCase();
+  headers['x-forwarded-proto'] = fromProxy && (priorProto === 'https' || priorProto === 'http') ? priorProto : ownScheme;
   if (req.headers.host) headers['x-forwarded-host'] = req.headers.host;
 
   const upstream = upstreamAgent.request(

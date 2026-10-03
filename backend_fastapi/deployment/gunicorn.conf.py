@@ -51,9 +51,12 @@ pidfile = os.getenv("GUNICORN_PIDFILE", "/tmp/gunicorn.pid")
 # Allow tweaking the worker class as needed (e.g. gevent). Defaults to sync.
 worker_class = os.getenv("GUNICORN_WORKER_CLASS", "uvicorn.workers.UvicornWorker")
 
-# Forward access/error logs to stdout/stderr unless overridden. Docker captures
-# these by default, making it easier to collect logs centrally.
-accesslog = os.getenv("GUNICORN_ACCESS_LOG", "-")
+# Error log to stderr (Docker collects it). The access log is OFF unless
+# GUNICORN_ACCESS_LOG names a file or "-": every access-log line starts with
+# the visitor's address, and visitors' IP addresses never go into a log line
+# (house rule). Since the web nginx passes the real visitor address on
+# (plan.md P0-2), turning it on would write those addresses.
+accesslog = os.getenv("GUNICORN_ACCESS_LOG") or None
 errorlog = os.getenv("GUNICORN_ERROR_LOG", "-")
 
 # Worker heartbeat ceiling. This must stay ABOVE the application's own
