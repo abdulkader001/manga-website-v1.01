@@ -775,7 +775,7 @@ export default function Homepage() {
         <div className="mgeko-section-header flex items-center justify-between flex-wrap gap-2">
           <div className="flex items-center gap-2">
             <h3>New Releases</h3>
-            <Link to="/browse?sort=recently_added" className="text-xs text-[#00AEF0] hover:underline flex items-center gap-1 font-semibold ml-2">
+            <Link to="/browse?sort=new" className="text-xs text-[#00AEF0] hover:underline flex items-center gap-1 font-semibold ml-2">
               <span>View All</span> <i className="fas fa-chevron-right text-[9px]"></i>
             </Link>
           </div>
