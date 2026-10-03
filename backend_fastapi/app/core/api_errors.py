@@ -31,6 +31,8 @@ class ErrorCode(str, Enum):
     LOGIN_REQUIRED_FOR_PROCESSING = ("LOGIN_REQUIRED_FOR_PROCESSING", 403)
     # The main admin switched the site to members-only.
     LOGIN_REQUIRED = ("LOGIN_REQUIRED", 401)
+    # The owner switched this website function off (Admin -> Site Functions).
+    FUNCTION_DISABLED = ("FUNCTION_DISABLED", 403)
     VALIDATION_FAILED = ("VALIDATION_FAILED", 422)
     NOT_FOUND = ("NOT_FOUND", 404)
     WEBSITE_NOT_APPROVED = ("WEBSITE_NOT_APPROVED", 422)

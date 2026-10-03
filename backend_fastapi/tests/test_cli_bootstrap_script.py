@@ -155,3 +155,19 @@ def test_write_puts_the_line_into_env_keeping_windows_line_endings(tmp_path):
     assert data.count("MAIN_ADMIN_EMAIL_HASH=") == 1
     assert "$old" not in data and "\n" not in data.replace("\r\n", "")
     assert data.startswith("A=1\r\n") and "B=2\r\n" in data
+
+
+def test_functions_reset_puts_every_function_back_to_its_default(fastapi_app):
+    from backend_fastapi.app.core import site_functions as registry
+    from backend_fastapi.app.services import site_functions
+
+    with SessionLocal() as session:
+        site_functions.set_enabled(session, "comments", False, None)
+        site_functions.set_enabled(session, "ads", False, None)
+    result = CliRunner().invoke(cli_bootstrap.cli, ["functions-reset"])
+    assert result.exit_code == 0, result.output
+    with SessionLocal() as session:
+        states = site_functions.states(session)
+        assert all(states[k] == registry.REGISTRY[k].default for k in registry.REGISTRY)
+        # The shared test site is open to guests (tests/conftest.py).
+        site_functions.set_enabled(session, "sign_in_required", False, None)

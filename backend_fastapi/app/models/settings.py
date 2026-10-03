@@ -171,6 +171,22 @@ class AdminBootstrapState(Base):
     last_token_redeemed_at = Column(DateTime, nullable=True)
 
 
+class SiteFunction(Base):
+    """One website function switched off (or on) by the owner.
+
+    Only the owner reads or writes these (Admin -> Site Functions). A function
+    with no row has its registry default (``core.site_functions``); a few
+    functions keep their value in older settings instead (see the registry).
+    """
+
+    __tablename__ = "site_functions"
+
+    key = Column(String(64), primary_key=True)
+    enabled = Column(Boolean, nullable=False, default=True, server_default=sa_true())
+    updated_by = Column(Integer, nullable=True)
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+
 class SystemState(Base):
     __tablename__ = "system_state"
 

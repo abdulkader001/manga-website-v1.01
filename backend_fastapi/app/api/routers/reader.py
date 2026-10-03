@@ -15,6 +15,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from ...core.db import get_db
+from ...dependencies.site_functions import require_function
 from ...dependencies.auth import (
     get_current_user,
     get_optional_user,
@@ -197,7 +198,11 @@ def report_to_dict(report: ChapterReport, db: Session) -> Dict[str, Any]:
     }
 
 
-@router.post("/chapters/{chapter_id}/report", status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/chapters/{chapter_id}/report",
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_function("chapter_reports"))],
+)
 async def report_chapter(
     request: Request,
     chapter_id: int,

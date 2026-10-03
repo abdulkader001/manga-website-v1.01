@@ -39,6 +39,17 @@ def _session_scope() -> Iterator:
         session.close()
 
 
+def _scraper_enabled(session) -> bool:
+    """The owner's "Scraping and importing" switch (Admin -> Site Functions)."""
+
+    from ..services import site_functions
+
+    try:
+        return site_functions.is_enabled(session, "scraper")
+    except Exception:  # an unreadable switch never stops the schedule
+        return True
+
+
 @celery_app.task(
     bind=True,
     time_limit=300,
@@ -381,6 +392,8 @@ def delete_chapter_pages_only(chapter_id: int) -> Dict[str, Any]:
 @celery_app.task(name="backend_fastapi.app.tasks.scraper_tasks.run_scheduled_scrape")
 def run_scheduled_scrape() -> Dict[str, Any]:
     with _session_scope() as session:
+        if not _scraper_enabled(session):
+            return {"status": "skipped", "reason": "function_disabled"}
         from ..repositories import ScrapingJobRepository
 
         repo = ScrapingJobRepository(session)
@@ -576,6 +589,10 @@ def run_scheduled_chapter_checks() -> Dict[str, Any]:
     with user-facing work; anything past the cap is simply due again next run
     (deferred, never dropped).
     """
+
+    with _session_scope() as gate:
+        if not _scraper_enabled(gate):
+            return {"status": "skipped", "reason": "function_disabled"}
 
     from ..services import scheduled_checks_service as svc
 

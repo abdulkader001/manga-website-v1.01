@@ -12,6 +12,8 @@ from sqlalchemy.orm import Session
 from ...core.api_errors import ApiError, ErrorCode
 from ...core.db import get_db
 from ...dependencies.powers import require_power
+from ...dependencies.site_access import require_site_access
+from ...dependencies.site_functions import require_function
 from ...models import User
 from ...services import donation_service as donations
 from ...utils.audit_logger import log_admin_action
@@ -20,7 +22,10 @@ router = APIRouter(tags=["support"])
 logger = structlog.get_logger("backend_fastapi.support")
 
 
-@router.get("/support")
+@router.get(
+    "/support",
+    dependencies=[Depends(require_site_access), Depends(require_function("support_links"))],
+)
 def public_support_links(db: Session = Depends(get_db)) -> Dict[str, Any]:
     return {"links": donations.get_links(db, only_enabled=True)}
 

@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from "react";
 import { auditUrlSecurity } from "../utils/urlValidator";
 import { apiFetch } from "../services/api";
+import FunctionGate from "./FunctionGate";
 
-export default function AdPlacement({ placement, className = "" }) {
+function AdPlacementInner({ placement, className = "" }) {
   const [ad, setAd] = useState(null);
   const [dismissed, setDismissed] = useState(() => {
     try {
@@ -98,5 +99,14 @@ export default function AdPlacement({ placement, className = "" }) {
         )}
       </a>
     </div>
+  );
+}
+
+// The owner can switch ads off for the whole site (Admin -> Site Functions).
+export default function AdPlacement(props) {
+  return (
+    <FunctionGate name="ads">
+      <AdPlacementInner {...props} />
+    </FunctionGate>
   );
 }

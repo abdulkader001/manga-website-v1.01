@@ -20,7 +20,11 @@ export default function useStaffPermissions() {
     /** the Admin tier (not the owner): changes sub-admins, keeps a succession line */
     isAdminTier: !isAdmin && data?.role === "admin",
     isLoading: staff && !isAdmin && isLoading,
+    /** the owner switched all this person's powers off: they keep the seat, nothing opens */
+    suspended: !isAdmin && Boolean(data?.suspended),
+    /** the owner's tab list for this person (null = follow the permissions) */
+    tabs: data?.tabs ?? null,
     /** true for the main admin, or when the sub-admin has this toggle on */
-    can: (key) => Boolean(isAdmin) || (staff && granted.has(key)),
+    can: (key) => Boolean(isAdmin) || (staff && !data?.suspended && granted.has(key)),
   };
 }

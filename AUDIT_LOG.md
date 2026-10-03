@@ -37,7 +37,8 @@ Contents
 | --- | --- | --- | --- |
 | `.env` on the server | Foundation only: database/Redis, signing and encryption keys, `INTEGRATIONS_SECRET`, admin identity (`MAIN_ADMIN_EMAIL_HASH` only), the Google sign-in client (`GOOGLE_OAUTH_CLIENT_ID` / `_SECRET`, needed before the owner can open the vault; may be moved into it afterwards), starting site address | Whoever has the server | Edit the file and recreate the containers |
 | **Secret Vault** (Admin → Secret Vault) | Everything else: Google/Microsoft sign-in, SMTP/magic links, OCR/translation, API keys, limits, Sentry, **website domain**, the **backup** schedule, password and storage keys (`BACKUP_*`, set from Storage & Backups) and **Geolock** (`GEOLOCK_*`, set from Geolock) | Main admin only, with an authenticator code and a 10-minute unlock | Remove the value and it falls back to `.env`. `VAULT_PRELOAD_DISABLED=true` skips the vault if a bad value stops start-up |
-| **Admin Settings** (database) | Site name/logo/footer, sign-in required switch, donations, maintenance, session policy | Main admin (sub-admins get only the toggles granted to them) | Change it back in the page |
+| **Admin Settings** (database) | Site name/logo/footer, donations, session policy, the default reader mode | Main admin (an Admin only if the owner switched Admin Settings on) | Change it back in the page |
+| **Site Functions** (database, Admin → Site Functions) | The on/off switch of every main website function: sign-in required, maintenance, new accounts, each sign-in method, comments, community, reports, notifications, OCR, translation, ads, support links, sitemap/RSS, scraping, and the two IP-privacy switches. **Owner only, never delegable** (no permission opens it) | The owner | Switch it back, or `cli_bootstrap functions-reset` |
 
 ### People and roles
 
@@ -46,6 +47,8 @@ Contents
 - **Admin** (`UserRole.CO_ADMIN`; at most **two**, `MAX_ADMINS`): the owner's right hand. Holds every power except Admin Settings, the cache and "delete all manga" (`ADMIN_OFF_BY_DEFAULT`) until the owner switches them on; only the owner changes an Admin's toggles (switching a site-owner power on needs the owner's authenticator code). Has power over sub-admins and users only (`permissions_service.assert_may_act_on`, `authorize_change`): never over another Admin, themselves or the owner. Sees sub-admins' and users' e-mail, never an Admin's or the owner's. Needs an authenticator and a fresh code to use site-owner powers (`dependencies/powers.py`). Appoints sub-admins from a shared pool of **50** seats (`SUB_ADMIN_POOL`; an equal share unless the owner sets it). Keeps a **succession line** of up to two sub-admins (`admin_successors`); only the owner makes, removes or hands over an Admin seat (`services/admin_roles.py`, `api/routers/roles_admins.py`). `UserRole.ADMIN` is only the old name of the owner tier.
 - **Sub-admin**: per-person toggles set by an Admin or the owner, never above the owner's **ceiling** (`system_settings.sub_admin_blocked_permissions`) and never a site-owner power. Power over users only. Custom roles (presets) are created by the owner only.
 - **Automatic succession** (owner only, off by default, owner's code to change): an Admin idle longer than the chosen days (default 60) becomes a user and the first eligible sub-admin in their line (still a sub-admin, active, with an authenticator) takes the seat as it is: the owner's restrictions, the seats and the appointees (`services/admin_succession.py`, daily job). The owner can hand a seat over at once. Ownership never passes to anyone; `/admin/demote-main` stays owner-only.
+- **Owner-only pages, not delegable** (no permission opens them): **Site Functions** (the website's on/off switches) and Role Management → **Tab access** (which admin tabs each Admin / sub-admin sees, and "switch all powers off": the person keeps the title and the seat but nothing in the admin area answers them). An Admin can't see either, even one holding Role Management.
+- **Visitors' IP addresses are for the owner only** (Site Functions → *Visitor IP addresses are for the owner only*, on by default): the audit log shows them to the owner alone; the legacy admin-token list is owner only; the ad-click log line no longer prints one. *Record visitor IP addresses* (on by default) can stop new entries storing one.
 - **User (reader)**: signs in with a magic link, Google or Microsoft. **No passwords.** One inbox gives one account for life.
 
 ### Data that is deliberately *not* on the server
@@ -61,6 +64,7 @@ Contents
 | `cli_bootstrap admin-status` | Can the server see the owner line, is Google sign-in set up, and is the owner seat claimed |
 | `cli_bootstrap admin-hashes` | Same as `make_admin_hash.py` (prints the line) |
 | `cli_bootstrap reset-2fa --email …` | Removes a lost authenticator |
+| `cli_bootstrap functions-reset` | Puts every Site Function back to its default (a switch locked you out) |
 | `cli_bootstrap geolock-off` | Switches Geolock off (you blocked the country you are in) |
 | `cli_bootstrap login-link --email …` | Prints a one-time sign-in link (no e-mail sent) |
 | `set_site_domain new-domain.com` / `--clear` | Moves the site to a new domain when the admin page can't be reached |
@@ -86,7 +90,8 @@ back what the upgrade removed, so restore a backup instead.
 | `20261012_overlay_text_scale` | #33 | `user_processing_settings.overlay_font_size` becomes the 1-100 slider (pixels converted: 20 px → 28.5); new `overlay_outline_color`, `overlay_match_bubble` | **Lossy**: sizes go back to pixels rounded and capped at 10-40 px (a reader on 100 = 70 px gets 40 px); outline colour and bubble switch are dropped |
 | `20261013_admin_succession` | #34 | `admin_activity_days` table (one row per admin per active day) and `system_settings.succession_enabled` / `succession_inactive_days` / `succession_enabled_at` | Drops them. **Lossy**: the activity history and the succession switch are gone (succession is off again) |
 | `20261014_four_roles` | this PR | Adds role `CO_ADMIN` (Postgres enum value if native), `users.appointed_by` / `sub_admin_quota` / `admin_since`, `admin_successors`, `system_settings.sub_admin_blocked_permissions`; deletes site-owner overrides held by sub-admins (they can no longer hold them) | **Lossy**: Admins go back to sub-admins, and the new columns, succession lines and ceiling are dropped. The deleted overrides do not come back (re-promote in Role Management) |
-| `20261015_login_required_default_on` | this PR | `system_settings.login_required` column default becomes **on**, and the existing row is set to on | **Lossy**: only the default goes back to off. The value the owner had before the upgrade is not kept, so existing rows stay on (turn it off in Admin Settings) |
+| `20261015_login_required_default_on` | #41 | `system_settings.login_required` column default becomes **on**, and the existing row is set to on | **Lossy**: only the default goes back to off. The value the owner had before the upgrade is not kept, so existing rows stay on (turn it off in Admin Settings) |
+| `20261016_site_functions_and_tab_access` | #41 | New table `site_functions` (owner's switches) and `users.visible_admin_tabs` / `users.powers_suspended` | **Lossy**: drops them. Every function goes back to its default and every Admin / sub-admin goes back to "follow my permissions", with no powers switched off |
 
 Check where a server is: `docker compose exec backend alembic current`.
 
@@ -97,7 +102,7 @@ Check where a server is: `docker compose exec backend alembic current`.
 Always **back up first** (`GUIDE.md` §12.1 has copy-paste commands). Then pick the smallest undo that works.
 
 **A. Switch a feature off (no code change)**. Many features have a switch:
-sign-in required (Admin Settings), donations (untick "Shown" or remove),
+sign-in required and the other Site Functions (Admin → Site Functions, owner only), donations (untick "Shown" or remove),
 domain (Secret Vault → Website domain → *Go back to .env address*), vault
 values (remove → `.env` value).
 
@@ -127,6 +132,29 @@ exceptions; for those, restore the database backup taken before the update.
 ---
 
 ## Change entries
+
+### 2026-10-03 — Site Functions, tab access, IP privacy, route audit and hardening
+
+Merge SHA: fill in when known. Branch `claude/nifty-fermat-53hmly`; this joins PR #41 (still open). Full report: `audit/site-functions-tab-access-and-hardening-2026-10-03.md`.
+
+The owner asked for one page listing every main website function with an on/off switch (owner only), per-person admin tab access (owner only), the owner able to switch an Admin's powers off while the seat stays filled, visitors' IP addresses visible to the owner only, and a check that every route is connected properly.
+
+| Change | Why | Main files |
+| --- | --- | --- |
+| **Admin → Site Functions**: 18 functions (sign-in required, maintenance, new accounts, three sign-in methods, comments, community, chapter reports, notifications, OCR, translation, ads, support links, sitemap/RSS, scraping, two IP-privacy switches), each enforced on the server (`FUNCTION_DISABLED`, 403) and hidden from the pages. **Owner only, no permission opens it.** The last sign-in method can't be switched off. `cli_bootstrap functions-reset` puts everything back | One place for the website's switches, for the owner alone | `core/site_functions.py`, `services/site_functions.py`, `dependencies/site_functions.py`, `api/routers/site_functions.py`, `bootstrap/routers.py`, `src/pages/Admin/SiteFunctions.jsx`, `src/hooks/useSiteFunctions.js`, `src/components/FunctionGate.jsx` |
+| **Role Management → Tab access** (owner only, not delegable): which admin tabs each Admin / sub-admin sees, enforced in `has_permission` so the API refuses a hidden tab too; **Switch all powers off** keeps the title and seat. Seats: promotion resets, hand-over passes them on, leaving the tier clears them | A report moderator must not see the scraper or API tabs; an Admin can be parked without losing the seat | `core/admin_tabs.py`, `services/permissions_service.py`, `dependencies/auth.py`, `api/routers/roles_tabs.py`, `services/admin_roles.py`, `src/pages/Admin/TabAccessPanel.jsx` |
+| **Visitors' IP addresses are for the owner only**: audit log (IP and operator e-mail), legacy admin-token list; the ad-click log line no longer prints an IP; *Record visitor IP addresses* can stop storing them | Hardening against IP exposure | `services/admin_service.py`, `utils/audit_logger.py`, `api/routers/ads.py`, `api/routers/admin.py` |
+| **Route audit** and 12 fixes: System Health permission mismatch, `/admin/series` guard, User Database UI vs API, `/admin/users/all` open to any staff (and exposing the Google id), 11 staff-only routes now need their power, ad/support endpoints behind sign-in required, Admin Settings can no longer change maintenance/registration | "Check all the mismatches" | `tests/test_route_audit.py`, `tests/_support/route_table.py`, `tests/_support/frontend_scan.py`, `api/routers/admin.py`, `src/app.js`, `src/constants/adminFeatures.js` |
+| Hardening guide for hiding the server's real IP, and catch-all nginx blocks for the bare IP | Reverse-IP lookups | `GUIDE.md` §8, `deployment/manga-site.conf` |
+
+- **Database:** `20261016_site_functions_and_tab_access` (added to §2; **lossy** to downgrade).
+- **Settings:** none in `.env`. Maintenance mode, new accounts and sign-in required move from Admin Settings to Site Functions (owner only). `CLAUDE.md` house rules updated.
+- **Behaviour changes to know:** the User Database tab follows the `view_user_list` permission (an Admin sees it); System Health follows `view_system_health` (sub-admins don't have it by default, so they no longer see a tile that errored); a person with "powers off" gets 403 on every admin route.
+- **Not run here:** a real Google sign-in, PostgreSQL locally (CI runs it), a browser, nginx syntax.
+- **Check:** `GUIDE.md` §6.4, §6.5 and the table in the report (§7). `pytest backend_fastapi/tests/test_site_functions.py backend_fastapi/tests/test_tab_access.py backend_fastapi/tests/test_ip_privacy.py backend_fastapi/tests/test_route_audit.py`.
+- **Undo:** Site Functions and Tab access can be reset in the app or with `cli_bootstrap functions-reset`; or `git revert` and `alembic downgrade 20261015_login_required_default_on` (drops the switches and tab lists).
+
+---
 
 ### 2026-10-02 — Sign-in first: nobody sees the site before logging in
 

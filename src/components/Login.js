@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import api from "../services/api";
 import useAuth from "../hooks/useAuth";
+import useSiteFunctions from "../hooks/useSiteFunctions";
 
 export default function Login() {
   const [email, setEmail] = useState("");
@@ -8,6 +9,11 @@ export default function Login() {
   const [sent, setSent] = useState(false);
   const [error, setError] = useState("");
   const { login } = useAuth();
+  // The owner can switch each sign-in method off (Admin -> Site Functions).
+  const { isOn } = useSiteFunctions();
+  const googleOn = isOn("sign_in_google");
+  const microsoftOn = isOn("sign_in_microsoft");
+  const magicOn = isOn("sign_in_magic_link");
 
   const handleMagicLink = async (e) => {
     e.preventDefault();
@@ -50,56 +56,62 @@ export default function Login() {
         <div className="space-y-4">
           {/* OAuth Social Buttons (Google + Microsoft) */}
           <div className="space-y-2.5">
-            <button
-              type="button"
-              onClick={() => login("google")}
-              className="w-full py-2.5 px-4 rounded-xl bg-[#101216] hover:bg-[#1f2330] border border-[#262a33] hover:border-[#00AEF0] text-white font-semibold text-xs transition flex items-center justify-center gap-2.5 shadow-sm"
-            >
-              <svg className="w-4 h-4 flex-shrink-0" viewBox="0 0 24 24">
-                <path
-                  fill="#EA4335"
-                  d="M12 5c1.6 0 3 .6 4.1 1.7l3.1-3.1C17.3 1.8 14.8 1 12 1 7.5 1 3.7 3.6 1.9 7.3l3.7 2.9C6.5 7.4 9 5 12 5z"
-                />
-                <path
-                  fill="#4285F4"
-                  d="M23.5 12.3c0-.8-.1-1.7-.2-2.3H12v4.6h6.5c-.3 1.5-1.1 2.8-2.4 3.7l3.7 2.9c2.2-2 3.7-5 3.7-8.9z"
-                />
-                <path
-                  fill="#FBBC05"
-                  d="M5.6 14.8c-.2-.7-.4-1.5-.4-2.3 0-.8.2-1.6.4-2.3L1.9 7.3C.7 9.7 0 12.3 0 15.1c0 2.8.7 5.4 1.9 7.8l3.7-2.9z"
-                />
-                <path
-                  fill="#34A853"
-                  d="M12 23.5c3.2 0 6-1.1 8-3l-3.7-2.9c-1.1.7-2.5 1.2-4.3 1.2-3 0-5.5-2.4-6.4-5.2L1.9 16.5C3.7 20.2 7.5 23.5 12 23.5z"
-                />
-              </svg>
-              <span>Continue with Google</span>
-            </button>
+            {googleOn && (
+              <button
+                type="button"
+                onClick={() => login("google")}
+                className="w-full py-2.5 px-4 rounded-xl bg-[#101216] hover:bg-[#1f2330] border border-[#262a33] hover:border-[#00AEF0] text-white font-semibold text-xs transition flex items-center justify-center gap-2.5 shadow-sm"
+              >
+                <svg className="w-4 h-4 flex-shrink-0" viewBox="0 0 24 24">
+                  <path
+                    fill="#EA4335"
+                    d="M12 5c1.6 0 3 .6 4.1 1.7l3.1-3.1C17.3 1.8 14.8 1 12 1 7.5 1 3.7 3.6 1.9 7.3l3.7 2.9C6.5 7.4 9 5 12 5z"
+                  />
+                  <path
+                    fill="#4285F4"
+                    d="M23.5 12.3c0-.8-.1-1.7-.2-2.3H12v4.6h6.5c-.3 1.5-1.1 2.8-2.4 3.7l3.7 2.9c2.2-2 3.7-5 3.7-8.9z"
+                  />
+                  <path
+                    fill="#FBBC05"
+                    d="M5.6 14.8c-.2-.7-.4-1.5-.4-2.3 0-.8.2-1.6.4-2.3L1.9 7.3C.7 9.7 0 12.3 0 15.1c0 2.8.7 5.4 1.9 7.8l3.7-2.9z"
+                  />
+                  <path
+                    fill="#34A853"
+                    d="M12 23.5c3.2 0 6-1.1 8-3l-3.7-2.9c-1.1.7-2.5 1.2-4.3 1.2-3 0-5.5-2.4-6.4-5.2L1.9 16.5C3.7 20.2 7.5 23.5 12 23.5z"
+                  />
+                </svg>
+                <span>Continue with Google</span>
+              </button>
+            )}
 
-            <button
-              type="button"
-              onClick={handleMicrosoftLogin}
-              className="w-full py-2.5 px-4 rounded-xl bg-[#101216] hover:bg-[#1f2330] border border-[#262a33] hover:border-[#00AEF0] text-white font-semibold text-xs transition flex items-center justify-center gap-2.5 shadow-sm"
-            >
-              <svg className="w-4 h-4 flex-shrink-0" viewBox="0 0 21 21">
-                <rect x="1" y="1" width="9" height="9" fill="#F25022" />
-                <rect x="11" y="1" width="9" height="9" fill="#7FBA00" />
-                <rect x="1" y="11" width="9" height="9" fill="#00A4EF" />
-                <rect x="11" y="11" width="9" height="9" fill="#FFB900" />
-              </svg>
-              <span>Continue with Microsoft</span>
-            </button>
+            {microsoftOn && (
+              <button
+                type="button"
+                onClick={handleMicrosoftLogin}
+                className="w-full py-2.5 px-4 rounded-xl bg-[#101216] hover:bg-[#1f2330] border border-[#262a33] hover:border-[#00AEF0] text-white font-semibold text-xs transition flex items-center justify-center gap-2.5 shadow-sm"
+              >
+                <svg className="w-4 h-4 flex-shrink-0" viewBox="0 0 21 21">
+                  <rect x="1" y="1" width="9" height="9" fill="#F25022" />
+                  <rect x="11" y="1" width="9" height="9" fill="#7FBA00" />
+                  <rect x="1" y="11" width="9" height="9" fill="#00A4EF" />
+                  <rect x="11" y="11" width="9" height="9" fill="#FFB900" />
+                </svg>
+                <span>Continue with Microsoft</span>
+              </button>
+            )}
           </div>
 
-          <div className="relative flex py-1 items-center">
-            <div className="flex-grow border-t border-[#262a33]"></div>
-            <span className="flex-shrink mx-3 text-[10px] uppercase tracking-wider text-[#8b93a3] font-bold">
-              Or with Email
-            </span>
-            <div className="flex-grow border-t border-[#262a33]"></div>
-          </div>
+          {magicOn && (googleOn || microsoftOn) && (
+            <div className="relative flex py-1 items-center">
+              <div className="flex-grow border-t border-[#262a33]"></div>
+              <span className="flex-shrink mx-3 text-[10px] uppercase tracking-wider text-[#8b93a3] font-bold">
+                Or with Email
+              </span>
+              <div className="flex-grow border-t border-[#262a33]"></div>
+            </div>
+          )}
 
-          {sent ? (
+          {!magicOn ? null : sent ? (
               <div className="p-4 bg-emerald-500/15 border border-emerald-500/30 rounded-xl text-center space-y-2">
                 <i className="fas fa-paper-plane text-emerald-400 text-xl"></i>
                 <h3 className="text-sm font-bold text-white">Sign-in Link Sent!</h3>

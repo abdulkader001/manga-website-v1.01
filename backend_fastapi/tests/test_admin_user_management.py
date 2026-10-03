@@ -66,7 +66,7 @@ def test_users_all_alias_returns_full_listing(fastapi_client):
     member_headers = {"Authorization": f"Bearer {member_token}"}
     forbidden = fastapi_client.get("/api/admin/users/all", headers=member_headers)
     assert forbidden.status_code == 403
-    assert forbidden.json()["error"]["message"] == "Admin privileges required"
+    assert forbidden.json()["error"]["message"] == "You do not have permission to perform this action."
 
 
 def test_list_users_supports_pagination_and_search(fastapi_client):

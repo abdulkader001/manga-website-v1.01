@@ -35,13 +35,17 @@ from ...core.db import get_db
 from ...core.pagination import MAX_PAGE
 from ...core.api_errors import ApiError, ErrorCode
 from ...dependencies.auth import (
+    enforce_admin_second_factor,
     get_current_user,
     is_main_admin,
+    is_secondary_or_higher,
     require_admin_user,
     require_main_admin_user,
     require_permission,
 )
 from ...dependencies.powers import require_power
+from ...dependencies.site_functions import require_function
+from ...services import site_functions
 from ...utils.endpoint_limiter import async_endpoint_limiter
 from ...utils.client_ip import resolve_client_ip
 from ...utils.audit_logger import log_admin_action
@@ -726,7 +730,7 @@ def _normalize_domain_payload(
 
 
 @router.get(
-    "/ads", response_model=AdsConfigResponse, dependencies=[Depends(require_admin_user)]
+    "/ads", response_model=AdsConfigResponse, dependencies=[Depends(require_permission("manage_ads"))]
 )
 def get_ads_config() -> AdsConfigResponse:
     """Return the current ads configuration for admin editing."""
@@ -750,7 +754,7 @@ def update_ads_config(
 @router.get(
     "/approved-domains",
     response_model=List[AdminDomainResponse],
-    dependencies=[Depends(require_admin_user)],
+    dependencies=[Depends(require_permission("view_websites"))],
 )
 def list_approved_domains(
     db: Session = Depends(get_db),
@@ -917,7 +921,7 @@ class ParserCandidatePayload(BaseModel):
 
 @router.get(
     "/parsers/{domain}",
-    dependencies=[Depends(require_admin_user)],
+    dependencies=[Depends(require_permission("view_websites"))],
 )
 def list_parser_versions(
     domain: str,
@@ -1126,8 +1130,8 @@ class WebsiteCheckSettingsPayload(BaseModel):
 @router.put(
     "/approved-domains/{domain_id}/check-settings",
     response_model=AdminDomainResponse,
-    # 1G.12A.4: Permanent Administrator and Secondary Administrators only.
-    dependencies=[Depends(require_admin_user)],
+    # 1G.12A.4: needs the "modify a website" power, not just any staff seat.
+    dependencies=[Depends(require_permission("modify_website"))],
 )
 def update_website_check_settings(
     domain_id: int,
@@ -1168,7 +1172,7 @@ class SeriesCheckOverridePayload(BaseModel):
 
 @router.put(
     "/series/{manga_id}/check-override",
-    dependencies=[Depends(require_admin_user)],
+    dependencies=[Depends(require_permission("edit_series"))],
 )
 def set_series_check_override(
     manga_id: int,
@@ -1216,7 +1220,7 @@ def set_series_check_override(
 
 @router.get(
     "/scrapers/scheduled-checks/dashboard",
-    dependencies=[Depends(require_admin_user)],
+    dependencies=[Depends(require_permission("view_scraper_health"))],
 )
 def scheduled_checks_dashboard(db: Session = Depends(get_db)) -> Dict[str, Any]:
     """1G.12A.8 visibility: checks run / new chapters / failures over the last
@@ -1236,7 +1240,7 @@ def scheduled_checks_dashboard(db: Session = Depends(get_db)) -> Dict[str, Any]:
     }
 
 
-@router.get("/scrapers/health", dependencies=[Depends(require_admin_user)])
+@router.get("/scrapers/health", dependencies=[Depends(require_permission("view_scraper_health"))])
 def scrapers_health(db: Session = Depends(get_db)) -> Dict[str, Any]:
     """Website & Source Management dashboard rows (1G.7.5 / 1G.8.6): per-site
     status, health state, parser version, last success, and the Repair /
@@ -1248,7 +1252,7 @@ def scrapers_health(db: Session = Depends(get_db)) -> Dict[str, Any]:
 
 @router.get(
     "/users/flagged",
-    dependencies=[Depends(require_admin_user)],
+    dependencies=[Depends(require_permission("view_user_list"))],
 )
 def list_flagged_users(
     db: Session = Depends(get_db),
@@ -1284,7 +1288,7 @@ class FlagReviewPayload(BaseModel):
 
 @router.post(
     "/users/{user_id}/flag-review",
-    dependencies=[Depends(require_admin_user)],
+    dependencies=[Depends(require_permission("ban_account"))],
 )
 def review_flagged_user(
     user_id: int,
@@ -1469,7 +1473,7 @@ def update_domain_rights(
 
 @router.get(
     "/series/{manga_id}/rights",
-    dependencies=[Depends(require_admin_user)],
+    dependencies=[Depends(require_permission("edit_series"))],
 )
 def get_series_rights(
     manga_id: int,
@@ -1619,7 +1623,7 @@ class SiteAccessPayload(BaseModel):
 @router.get("/config/access")
 def get_site_access(
     db: Session = Depends(get_db),
-    _: User = Depends(require_power("manage_admin_settings")),
+    _: User = Depends(require_main_admin_user),
 ) -> Dict[str, Any]:
     row = get_or_create_system_settings(db)
     return {"login_required": bool(row.login_required)}
@@ -1630,10 +1634,11 @@ def update_site_access(
     payload: SiteAccessPayload,
     request: Request,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_power("manage_admin_settings")),
+    current_user: User = Depends(require_main_admin_user),
 ) -> Dict[str, Any]:
-    """Turn "readers must sign in" on or off. Sign-in pages and admin routes
-    are never gated, so turning it on can't lock the admin out."""
+    """Turn "readers must sign in" on or off. Owner only (it is one of the Site
+    Functions). Sign-in pages and admin routes are never gated, so turning it on
+    can't lock the admin out."""
 
     row = get_or_create_system_settings(db)
     row.login_required = bool(payload.login_required)
@@ -1677,14 +1682,34 @@ def _guard_role_change(db: Session, actor: User, target: User, grants: List[str]
 
 @router.get("/permissions/me")
 def my_permissions(
-    current_user: User = Depends(require_admin_user),
+    request: Request,
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> Dict[str, Any]:
-    """What the signed-in owner / Admin / sub-admin may do, so the UI only offers it."""
+    """What the signed-in owner / Admin / sub-admin may do, so the UI only offers it.
+
+    Answers a person whose powers the owner switched off too (``suspended``),
+    so the page can say so instead of showing an error."""
 
     from ...core.permissions import ALL_PERMISSIONS, OWNER_POWERS, role_label
     from ...services.admin_succession import record_activity
 
+    if not is_secondary_or_higher(current_user):
+        raise ApiError(ErrorCode.FORBIDDEN, "Admin privileges required")
+    suspended = bool(getattr(current_user, "powers_suspended", False))
+    if suspended and not is_main_admin(current_user):
+        return {
+            "user_id": current_user.id,
+            "role": role_label(current_user),
+            "is_main_admin": False,
+            "is_admin": role_label(current_user) == "admin",
+            "authenticator": bool(getattr(current_user, "totp_enabled", False)),
+            "permissions": [],
+            "owner_powers": [],
+            "suspended": True,
+            "tabs": [],
+        }
+    enforce_admin_second_factor(request, current_user)
     # Every admin page asks this: it is the "was active today" signal that
     # automatic succession reads (recorded server-side, once a day).
     record_activity(db, current_user)
@@ -1697,6 +1722,9 @@ def my_permissions(
         "authenticator": bool(getattr(current_user, "totp_enabled", False)),
         "permissions": held,
         "owner_powers": [key for key in held if key in OWNER_POWERS],
+        "suspended": False,
+        # None = follow the permissions; a list = only these tabs (owner's choice).
+        "tabs": getattr(current_user, "visible_admin_tabs", None),
     }
 
 
@@ -1951,7 +1979,7 @@ def list_managed_permissions(
     }
 
 
-@router.post("/series/scrape", dependencies=[Depends(require_admin_user)])
+@router.post("/series/scrape", dependencies=[Depends(require_permission("submit_manga_url"))])
 def preview_series_scrape(
     payload: SeriesUrlPayload,
 ) -> Dict[str, Any]:
@@ -1982,7 +2010,7 @@ def preview_series_scrape(
     status_code=status.HTTP_201_CREATED,
     # SRS 1F.7: submitting a manga URL for an approved site is a catalogue
     # permission (moderators hold it by default).
-    dependencies=[Depends(require_permission("submit_manga_url"))],
+    dependencies=[Depends(require_permission("submit_manga_url")), Depends(require_function("scraper"))],
 )
 async def create_series_by_url(
     request: Request,
@@ -2159,7 +2187,7 @@ def list_users(
 
 
 @router.get(
-    "/users/all", dependencies=[Depends(require_admin_user)]
+    "/users/all", dependencies=[Depends(require_permission("view_user_list"))]
 )
 def list_users_legacy_alias(
     db: Session = Depends(get_db),
@@ -2485,9 +2513,12 @@ def list_audit_logs(
     # reveal_user_email's gate -- a Secondary Admin (require_admin_user
     # already let them in) gets user_email_masked instead.
     viewer_is_main_admin = is_main_admin(current_user)
+    show_ip = site_functions.ip_visible_to(db, current_user)
     return [
         AdminAuditLogEntry(
-            **audit_entry_to_dict(entry, viewer_is_main_admin=viewer_is_main_admin)
+            **audit_entry_to_dict(
+                entry, viewer_is_main_admin=viewer_is_main_admin, show_ip=show_ip
+            )
         )
         for entry in rows
     ]
@@ -2550,11 +2581,12 @@ def search_audit_logs(
     # reveal_user_email's gate -- a Secondary Admin (require_admin_user
     # already let them in) gets user_email_masked instead.
     viewer_is_main_admin = is_main_admin(current_user)
+    show_ip = site_functions.ip_visible_to(db, current_user)
     return AdminAuditLogPage(
         items=[
             AdminAuditLogEntry(
                 **audit_entry_to_dict(
-                    entry, viewer_is_main_admin=viewer_is_main_admin
+                    entry, viewer_is_main_admin=viewer_is_main_admin, show_ip=show_ip
                 )
             )
             for entry in rows
@@ -2690,7 +2722,7 @@ def bulk_delete_series(
 @router.get(
     "/scraping-jobs",
     response_model=List[AdminScrapingJobBase],
-    dependencies=[Depends(require_admin_user)],
+    dependencies=[Depends(require_permission("view_scraper_health"))],
 )
 def list_scraping_jobs(
     limit: int = Query(50, ge=1, le=500),
@@ -2712,7 +2744,7 @@ def list_scraping_jobs(
 @router.get(
     "/admin-tokens",
     response_model=List[AdminTokenBase],
-    dependencies=[Depends(require_admin_user)],
+    dependencies=[Depends(require_main_admin_user)],
 )
 def list_admin_tokens(
     limit: int = Query(100, ge=1, le=500),
@@ -2728,7 +2760,7 @@ def list_admin_tokens(
         .limit(limit)
         .all()
     )
-    return [AdminTokenBase(**token_to_dict(token)) for token in tokens]
+    return [AdminTokenBase(**token_to_dict(token, viewer_is_main_admin=True)) for token in tokens]
 
 
 class SeriesRescrapePayload(BaseModel):
@@ -2741,6 +2773,7 @@ class SeriesRescrapePayload(BaseModel):
 @router.post(
     "/series/{manga_id}/rescrape",
     response_model=RescrapeResponse,
+    dependencies=[Depends(require_function("scraper"))],
 )
 def rescrape_series(
     manga_id: int,
@@ -2846,6 +2879,7 @@ def rollback_series_rescrape(
 @router.post(
     "/chapters/{chapter_id}/rescrape",
     response_model=RescrapeResponse,
+    dependencies=[Depends(require_function("scraper"))],
 )
 def rescrape_chapter(
     chapter_id: int,

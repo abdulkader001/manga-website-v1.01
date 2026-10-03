@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import api, { apiFetch } from "../services/api";
 import { updateFavicon } from "../utils/favicon";
 import SupportLinks from "./SupportLinks";
+import FunctionGate from "./FunctionGate";
 
 const PRESET_LOGOS = [
   { icon: "🦎", name: "Gecko / Lizard" },
@@ -220,7 +221,9 @@ export default function Footer() {
             )}
           </div>
 
-          <SupportLinks />
+          <FunctionGate name="support_links">
+            <SupportLinks />
+          </FunctionGate>
 
           {/* Disclaimer & Copyright */}
           <div className="flex flex-col md:flex-row items-center justify-between gap-4 text-xs text-[#8b93a3] text-center md:text-left">

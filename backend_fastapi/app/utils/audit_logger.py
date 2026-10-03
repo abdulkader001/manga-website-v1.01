@@ -27,6 +27,10 @@ def log_admin_action(
     client_ip = resolve_client_ip(request)
     if client_ip == "unknown":
         client_ip = None
+    from ..services import site_functions
+
+    if client_ip is not None and not site_functions.record_ips(db):
+        client_ip = None  # the owner switched address recording off
 
     admin_role = (
         admin_user.role.value

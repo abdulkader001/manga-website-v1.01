@@ -15,6 +15,8 @@ from ..api.routers import (
     ads_router,
     admin_router,
     admin_2fa_router,
+    site_functions_router,
+    roles_tabs_router,
     support_router,
     auth_router,
     backup_router,
@@ -48,10 +50,18 @@ from ..api.routers import (
 )
 
 from ..dependencies.site_access import require_site_access
+from ..dependencies.site_functions import require_function
 
 # Reading routes follow the main admin's "sign-in required" switch; auth,
 # config, health and admin routes never do.
 _members_only = [Depends(require_site_access)]
+
+
+def _function(key: str) -> list:
+    """Route dependencies for a function the owner can switch off."""
+
+    return [Depends(require_function(key))]
+
 
 
 def build_api_router() -> APIRouter:
@@ -63,9 +73,11 @@ def build_api_router() -> APIRouter:
     api_router.include_router(account_router)
     api_router.include_router(admin_router)
     api_router.include_router(admin_2fa_router)
+    api_router.include_router(site_functions_router)
+    api_router.include_router(roles_tabs_router)
     api_router.include_router(support_router)
     api_router.include_router(ad_slots_router)
-    api_router.include_router(ads_router)
+    api_router.include_router(ads_router, dependencies=_members_only + _function("ads"))
     api_router.include_router(auth_router)
     api_router.include_router(backup_router)
     api_router.include_router(bookmarks_router, dependencies=_members_only)
@@ -78,21 +90,21 @@ def build_api_router() -> APIRouter:
     api_router.include_router(system_stats_router)
     api_router.include_router(legacy_router, dependencies=_members_only)
     api_router.include_router(management_router)
-    api_router.include_router(comments_router, dependencies=_members_only)
-    api_router.include_router(community_router, dependencies=_members_only)
+    api_router.include_router(comments_router, dependencies=_members_only + _function("comments"))
+    api_router.include_router(community_router, dependencies=_members_only + _function("community"))
     api_router.include_router(manga_router, dependencies=_members_only)
     api_router.include_router(glossary_router, dependencies=_members_only)
-    api_router.include_router(notifications_router)
-    api_router.include_router(ocr_router)
-    api_router.include_router(processing_router)
+    api_router.include_router(notifications_router, dependencies=_function("notifications"))
+    api_router.include_router(ocr_router, dependencies=_function("ocr"))
+    api_router.include_router(processing_router, dependencies=_function("ocr"))
     api_router.include_router(provider_management_router)
     api_router.include_router(system_state_router)
     api_router.include_router(tasks_router)
-    api_router.include_router(translation_router)
+    api_router.include_router(translation_router, dependencies=_function("translation"))
     api_router.include_router(user_settings_router)
     api_router.include_router(reader_router, dependencies=_members_only)
     api_router.include_router(site_admin_router)
-    api_router.include_router(scraper_admin_router)
+    api_router.include_router(scraper_admin_router, dependencies=_function("scraper"))
     api_router.include_router(secret_vault_router)
     api_router.include_router(backups_admin_router)
     api_router.include_router(geolock_admin_router)
@@ -119,7 +131,7 @@ def register_api_routes(app: FastAPI) -> None:
     app.include_router(api_router, prefix="/api/v1")
 
     # sitemap.xml / rss.xml live at the site root, outside the API prefix.
-    app.include_router(seo_router, dependencies=_members_only)
+    app.include_router(seo_router, dependencies=_members_only + _function("sitemap_feeds"))
 
     # Deprecated compatibility aliases (hidden from the schema).
     app.include_router(api_router, include_in_schema=False)

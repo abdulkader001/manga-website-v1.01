@@ -26,6 +26,7 @@ from sqlalchemy.orm import Session
 
 from ...core.db import get_db
 from ...dependencies.auth import get_current_user
+from ...dependencies.site_functions import require_function
 from ...models import User
 from ...services.auth_service import (
     issue_tokens_for_user,
@@ -54,6 +55,7 @@ from ...core.security import (
     get_access_token_expiry_minutes,
 )
 from ...core.settings import settings
+from ...services import site_functions as functions
 from ...services import token_revocation
 from ...utils.client_ip import resolve_client_ip
 from ...utils.endpoint_limiter import async_endpoint_limiter
@@ -264,7 +266,11 @@ def read_me(current_user: User = Depends(get_current_user)) -> UserRead:
     return current_user
 
 
-@router.post("/request-magic-link", response_model=MagicLinkResponse)
+@router.post(
+    "/request-magic-link",
+    response_model=MagicLinkResponse,
+    dependencies=[Depends(require_function("sign_in_magic_link"))],
+)
 async def request_magic_link(
     request: Request, payload: MagicLinkRequest, db: Session = Depends(get_db)
 ) -> MagicLinkResponse:
@@ -329,7 +335,11 @@ async def request_magic_link(
     return await run_in_db_threadpool(_work)
 
 
-@router.post("/magic/request", response_model=MagicLinkResponse)
+@router.post(
+    "/magic/request",
+    response_model=MagicLinkResponse,
+    dependencies=[Depends(require_function("sign_in_magic_link"))],
+)
 async def request_magic_link_v2(
     request: Request, payload: MagicLinkRequest, db: Session = Depends(get_db)
 ) -> MagicLinkResponse:
@@ -467,20 +477,24 @@ def logout(
 
 
 @router.get("/options")
-def auth_options() -> dict[str, Any]:
-    """Return authentication capability metadata for the frontend."""
+def auth_options(db: Session = Depends(get_db)) -> dict[str, Any]:
+    """Return authentication capability metadata for the frontend: the sign-in
+    methods that are set up **and** switched on in Admin -> Site Functions."""
 
-    providers = ["magic_link"]
-    response: dict[str, Any] = {
-        "providers": providers,
-        "magic_link": {
+    from ...services import microsoft_oauth
+
+    providers: list[str] = []
+    response: dict[str, Any] = {"providers": providers}
+
+    if functions.is_enabled(db, "sign_in_magic_link"):
+        providers.append("magic_link")
+        response["magic_link"] = {
             "enabled": True,
             "request_endpoint": "/api/auth/magic/request",
             "verify_endpoint": "/api/auth/magic/verify",
-        },
-    }
+        }
 
-    if google_oauth_configured():
+    if google_oauth_configured() and functions.is_enabled(db, "sign_in_google"):
         providers.append("google")
         response["google"] = {
             "enabled": True,
@@ -488,13 +502,19 @@ def auth_options() -> dict[str, Any]:
             "callback_endpoint": "/api/auth/google/callback",
         }
 
+    if microsoft_oauth.configured() and functions.is_enabled(db, "sign_in_microsoft"):
+        providers.append("microsoft")
+        response["microsoft"] = {"enabled": True, "login_endpoint": "/api/auth/microsoft"}
+
     return response
 
 
 @router.get("/google", dependencies=[Depends(_limit_login_attempts)])
-def google_login(request: Request) -> RedirectResponse:
+def google_login(request: Request, db: Session = Depends(get_db)) -> RedirectResponse:
     """Redirect the user to Google's OAuth 2.0 authorisation endpoint."""
 
+    if not functions.is_enabled(db, "sign_in_google"):
+        return _oauth_status_redirect("provider_disabled")
     if not google_oauth_configured():
         raise HTTPException(
             status_code=status.HTTP_501_NOT_IMPLEMENTED,
@@ -543,7 +563,7 @@ def _handle_google_callback(
     somewhere the existing ``statusCopy`` error UI can render.
     """
 
-    if not google_oauth_configured():
+    if not google_oauth_configured() or not functions.is_enabled(db, "sign_in_google"):
         return _oauth_status_redirect("provider_disabled")
 
     if error or not code:

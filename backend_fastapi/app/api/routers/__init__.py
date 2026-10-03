@@ -12,6 +12,8 @@ from .backups_admin import router as backups_admin_router
 from .geolock_admin import public_router as geo_public_router
 from .geolock_admin import router as geolock_admin_router
 from .roles_succession import router as roles_succession_router
+from .site_functions import router as site_functions_router
+from .roles_tabs import router as roles_tabs_router
 from .roles_admins import router as roles_admins_router
 from .bookmarks import router as bookmarks_router
 from .branding import router as branding_router
@@ -49,6 +51,8 @@ __all__ = [
     "site_admin_router",
     "admin_router",
     "admin_2fa_router",
+    "site_functions_router",
+    "roles_tabs_router",
     "support_router",
     "ad_slots_router",
     "ads_router",

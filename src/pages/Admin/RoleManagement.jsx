@@ -3,6 +3,7 @@ import { Link } from "react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import api from "../../services/api";
 import useStaffPermissions from "../../hooks/useStaffPermissions";
+import TabAccessPanel from "./TabAccessPanel";
 import { maskEmail } from "../../utils/maskEmail";
 import { CodeForm } from "../../components/AdminSecondFactor";
 
@@ -795,6 +796,7 @@ export default function RoleManagement() {
 
       {(isMainAdmin || isAdminTier) && <AdminsPanel isOwner={isMainAdmin} flash={flash} />}
       {isMainAdmin && <LimitsPanel flash={flash} catalogue={catalogueData} />}
+      {isMainAdmin && <TabAccessPanel flash={flash} />}
       {isMainAdmin && <SuccessionPanel flash={flash} />}
 
       {pendingGrant && (

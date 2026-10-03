@@ -27,6 +27,7 @@ from ...core.settings import settings
 from ...dependencies.auth import get_current_user
 from ...models import User
 from ...services import microsoft_oauth
+from ...services import site_functions
 from ...services.auth_service import issue_tokens_for_user
 from ...utils.endpoint_limiter import async_endpoint_limiter
 from ...utils.sanitizer import strip_all_html
@@ -266,7 +267,9 @@ def _login_redirect(error_key: str) -> RedirectResponse:
 
 
 @router.get("/microsoft")
-def microsoft_login(request: Request) -> RedirectResponse:
+def microsoft_login(request: Request, db: Session = Depends(get_db)) -> RedirectResponse:
+    if not site_functions.is_enabled(db, "sign_in_microsoft"):
+        return _login_redirect("provider_disabled")
     if not microsoft_oauth.configured():
         return _login_redirect("microsoft_not_configured")
 
@@ -305,6 +308,8 @@ def microsoft_callback(
     error: str | None = Query(None),
     db: Session = Depends(get_db),
 ) -> RedirectResponse:
+    if not site_functions.is_enabled(db, "sign_in_microsoft"):
+        return _login_redirect("provider_disabled")
     if not microsoft_oauth.configured():
         return _login_redirect("microsoft_not_configured")
     if error or not code:

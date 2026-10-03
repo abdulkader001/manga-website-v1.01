@@ -138,6 +138,25 @@ def reset_2fa(email: str) -> None:
     )
 
 
+@cli.command("functions-reset")
+def functions_reset() -> None:
+    """Put every website function back to its default (Admin -> Site Functions).
+
+    For when a switch locked you out (for example sign-in required with the
+    sign-in methods set wrongly). Having a shell on the server is the proof of
+    ownership. Changes show within a few seconds.
+    """
+
+    from backend_fastapi.app.services import site_functions
+
+    with session_scope() as session:
+        site_functions.reset_all(session)
+    click.echo(
+        "Every function is back to its default (sign-in required on, every sign-in method "
+        "on, maintenance off). It takes effect within a few seconds."
+    )
+
+
 @cli.command("geolock-off")
 def geolock_off() -> None:
     """Switch Geolock off (e.g. you blocked the country you are in)."""

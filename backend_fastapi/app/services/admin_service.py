@@ -115,6 +115,9 @@ def resolve_rescrape_limit() -> RescrapeRateLimiter:
 
 def user_to_dict(user: User) -> dict[str, object | None]:
     data = user.to_dict()
+    # The Google account id is an identifier of the person's Google account, not
+    # something an admin screen needs; nothing in the frontend reads it.
+    data.pop("google_sub", None)
     data["permanent"] = bool(getattr(user, "permanent", False))
     data["is_main_admin"] = bool(getattr(user, "is_main_admin", False))
     data["is_secondary_admin"] = bool(getattr(user, "is_secondary_admin", False))
@@ -211,7 +214,7 @@ def log_role_change(
 
 
 def audit_entry_to_dict(
-    entry: AdminAuditLog, *, viewer_is_main_admin: bool = False
+    entry: AdminAuditLog, *, viewer_is_main_admin: bool = False, show_ip: bool | None = None
 ) -> dict[str, object | None]:
     """Serialize an audit-log row.
 
@@ -225,7 +228,11 @@ def audit_entry_to_dict(
     locks, only one of which was actually locked to the right key.
     ``viewer_is_main_admin`` must be the *caller's* privilege level, not the
     audited actor's; non-main-admin viewers get ``user_email_masked`` only,
-    matching what ``reveal_user_email`` already restricts.
+    matching what ``reveal_user_email`` already restricts. The source IP address
+    is shown to the owner only, by the same rule, unless the owner switched
+    "Visitor IP addresses are for the owner only" off (``show_ip``, decided by the
+    caller with ``site_functions.ip_visible_to``). The ``operator`` column, which
+    can hold the acting admin's e-mail, is masked for everyone but the owner.
     """
 
     timestamp = getattr(entry, "timestamp", None)
@@ -238,12 +245,21 @@ def audit_entry_to_dict(
         # F-78: the argon2id email digest is a lookup key, not audit data.
         # user_id identifies the actor; the masked address labels them.
         "user_email_masked": mask_email(user_email),
-        "operator": entry.operator,
+        "operator": entry.operator if viewer_is_main_admin else _mask_operator(entry.operator),
         "action": entry.action,
         "metadata": entry.metadata_json or {},
-        "source_ip": entry.source_ip,
+        "source_ip": entry.source_ip if (viewer_is_main_admin if show_ip is None else show_ip) else None,
         "timestamp": timestamp.isoformat() if timestamp else None,
     }
+
+
+def _mask_operator(operator: str | None) -> str | None:
+    """``operator`` is a label such as ``admin_router`` or, in older rows, the
+    acting admin's e-mail address: hide the second kind from everyone but the owner."""
+
+    if operator and "@" in operator:
+        return mask_email(operator)
+    return operator
 
 
 def scraping_job_to_dict(job: ScrapingJob) -> dict[str, Any]:
@@ -260,7 +276,7 @@ def scraping_job_to_dict(job: ScrapingJob) -> dict[str, Any]:
     }
 
 
-def token_to_dict(token: AdminPromotionToken) -> dict[str, Any]:
+def token_to_dict(token: AdminPromotionToken, *, viewer_is_main_admin: bool = False) -> dict[str, Any]:
     with allow_email_decryption():
         issued_to_email = token.issued_to_user.email if token.issued_to_user else None
         redeemed_by_email = (
@@ -289,7 +305,7 @@ def token_to_dict(token: AdminPromotionToken) -> dict[str, Any]:
         "redeemed_at": token.redeemed_at.isoformat() if token.redeemed_at else None,
         "redeemed_by_user_id": token.redeemed_by_user_id,
         "redeemed_by_email_masked": mask_email(redeemed_by_email),
-        "redeemed_source_ip": token.redeemed_source_ip,
+        "redeemed_source_ip": token.redeemed_source_ip if viewer_is_main_admin else None,
         "status": status,
     }
 
@@ -374,6 +390,9 @@ def _end_sub_admin(db: Session, user: User, actor: User) -> None:
         user.is_secondary_admin = False
         user.appointed_by = None
         _leave_lines(db, user.id)
+    # Leaving the tier also forgets the owner's tab list and "powers off".
+    user.visible_admin_tabs = None
+    user.powers_suspended = False
     _drop_owner_powers(db, user)
 
 

@@ -909,8 +909,7 @@ the login page and chooses **Google**, **Microsoft** or an **e-mail link**
 load off the site. It is **on by default**, and updating an existing site
 switches it on too (the migration, Section 12).
 
-**Admin → Admin Settings → "Sign-in required"** (the owner, or an Admin you switched
-*Admin Settings* on for, Section 6.3).
+**Admin → Site Functions → "Sign-in required for everyone"** (owner only, Section 6.4).
 
 - **On (default):** visitors must sign in before they can browse or read. The
   server refuses catalogue, reader, community and sitemap requests from guests
@@ -972,6 +971,69 @@ demote or touch you. **Admins** (at most two) are your right hand. **Sub-admins*
   to your notifications and the audit log.
 - Your own e-mail is never written in the code: it is the admin identity in
   `.env` (Section 6). Ownership never passes to anyone.
+
+### 6.4 Site Functions: switch the website's functions on and off (owner only)
+
+**Admin → Site Functions** lists every main function of the website with an
+on/off switch. **Only you can open it, and it can't be given to anyone**: there
+is no permission for it, so not even an Admin you gave every other power sees
+it. Every switch is enforced on the server (a function that is off answers
+"switched off" to anyone, in any way they ask) and the pages hide what is off.
+
+| Group | Functions |
+| --- | --- |
+| Sign-in and access | Sign-in required for everyone, maintenance mode, new accounts, sign in with Google / Microsoft / an e-mail link |
+| Reading and community | Comments, community (emojis and realms), chapter reports, notifications |
+| Translation and OCR | OCR, translation |
+| Site content | Ads, support and donation links, sitemap and RSS |
+| Scraping | Scraping and importing (manual imports, re-scrapes, the Scraper AI and every scheduled scrape) |
+| Privacy and security | Visitor IP addresses are for the owner only; record visitor IP addresses |
+
+- A function with a warning asks you to confirm before you switch it off.
+- **At least one sign-in method must stay on**, or nobody could sign in. The page
+  refuses to switch off the last one.
+- Maintenance mode, new accounts and "Sign-in required" used to sit in Admin
+  Settings, where an Admin could change them. They are here now and only yours;
+  Admin Settings keeps a pointer.
+- **Locked yourself out?** On the server, put every function back to its default:
+
+  ```bash
+  docker compose exec backend python -m backend_fastapi.scripts.cli_bootstrap functions-reset
+  ```
+
+  It takes effect within a few seconds (each server process re-reads the switches
+  every 5 seconds).
+- **Visitors' IP addresses.** *Visitor IP addresses are for the owner only*
+  (on) means only you see an address anywhere in the admin area (the audit log);
+  Admins and sub-admins see it hidden. Switch it off only if you want everyone
+  who can read the audit log to see addresses. *Record visitor IP addresses* (on)
+  stores the address with audit-log entries and ad clicks; switch it off and new
+  entries keep no address at all (rate limiting still works, in memory only).
+
+### 6.5 Tab access and "switch all powers off" (owner only)
+
+**Admin → Role Management → Tab access** (only you see this section; it can't be
+given to anyone). For each Admin and sub-admin you choose which **admin tabs**
+they see. Example: a moderator for chapter reports needs only *Chapter Reports*,
+so you give them just that tab. They don't see the scraper, the API or any other
+tab, **and the server refuses those tabs' actions too**, not only the menu.
+
+- **Follow their permissions** (the default) shows every tab their permissions allow.
+- **Quick picks** (*Reports only*, *Users only*, *Series only*) and **No tabs** fill the list for you.
+- A tab list never *gives* a power: it only takes tabs away. A sub-admin is never
+  offered the site-owner tabs (Secret Vault, Admin Settings, API Management,
+  Storage & Backups, Geolock).
+- Powers used outside the admin panel (removing a comment from the reader,
+  fixing a translation, re-scraping one chapter from the reader) are not tied to a tab, so
+  a tab list doesn't touch them.
+- **Switch all powers off** keeps the person's title and their seat (the seat
+  counts and succession lines stay as they are), but nothing in the admin area
+  answers them: an Admin "by name only". Their admin pages say so. *Switch powers
+  back on* restores everything. Use it to park an Admin without losing the seat.
+- When an Admin hands their seat over (succession), the successor gets the seat
+  **as it is**, including your tab list and "powers off". When someone stops being
+  an Admin or sub-admin, both are cleared.
+- Every change goes to the audit log.
 
 ## 7. Start using the site's functions
 
@@ -1196,6 +1258,51 @@ You don't need it for this guide.
 Open `https://manga.example.com`, sign in with Google as the owner (Section 6), then run an
 import (Section 7).
 
+### Hide the server's real IP address (recommended)
+
+Anyone can look up which websites share an IP address ("reverse IP"), and
+scanners test every address on the internet directly. If your server's real IP
+is known, it can be attacked, bypassing everything in front of it. So keep it out
+of sight:
+
+1. **Put a CDN / proxy in front** (Cloudflare's free plan is enough): point your
+   DNS at it with the proxy switched on (orange cloud). Visitors then see
+   Cloudflare's addresses, never yours. Add `TRUSTED_PROXY_CIDRS` in `.env`
+   with the CDN's ranges so the site still sees the visitor's real address (see
+   "Proxy / client-IP trust boundary" in `.env.example`, and Step 3 above).
+2. **Let only the CDN reach ports 80/443.** With `ufw`, allow 80/443 from the CDN's
+   published ranges only (not from everywhere), keep 22 for yourself, and deny the
+   rest. Better still, use a **tunnel** (`cloudflared`): the server then opens no
+   public port at all.
+3. **Answer nobody who asks for the bare IP or an unknown name.** Typing
+   `https://<server-ip>` must show nothing. With the repo's host nginx config
+   (`deployment/manga-site.conf`) the catch-all server blocks at the top do it. With
+   Caddy, only your domain is served; test it (below).
+4. **Don't leak the address elsewhere:**
+   - no DNS record (including `mail.`, `ftp.`, old test names) that points at the
+     real IP without the proxy;
+   - send e-mail through your mail provider (SMTP in the Secret Vault), not from the
+     server itself: e-mail headers show the sender's IP;
+   - the server's own outbound requests (scraping) are not visible to visitors, but
+     don't put the IP in any public page, repository or screenshot;
+   - **if the real IP was ever public** (it was in DNS before you added the proxy, or in
+     old tools' history), the old address stays known: ask your host for a new one.
+5. **Test it** from another computer (use your real IP and domain):
+
+   ```bash
+   SERVER_IP=203.0.113.10
+   DOMAIN=manga.example.com
+   curl -sS -m 8 -o /dev/null -w "bare IP over http:  %{http_code}\n" "http://$SERVER_IP/" || echo "bare IP over http: no answer (good)"
+   curl -sSk -m 8 -o /dev/null -w "bare IP over https: %{http_code}\n" "https://$SERVER_IP/" || echo "bare IP over https: no answer (good)"
+   curl -sS -m 8 -o /dev/null -w "domain: %{http_code}\n" "https://$DOMAIN/"
+   ```
+
+   The first two should give no answer (or `000`/`444`), and the domain should answer
+   `200`. Also open `https://<server-ip>` in a browser: it must not show your site.
+
+**Visitors' addresses inside the site** are a separate matter: the audit log and
+the ad-click log keep them, and only you can see them (Section 6.4).
+
 ### Updating later
 
 Follow [Section 12](#12-updating-safely-and-rolling-back): back up, read
@@ -1418,7 +1525,12 @@ command and the machine, not a broken site.
 | "Continue with Google" says not configured | `GOOGLE_OAUTH_CLIENT_ID` / `GOOGLE_OAUTH_CLIENT_SECRET` are missing in `.env` (and the vault). See `GOOGLE_LOGIN_SETUP.md`. Until Google works, `cli_bootstrap login-link` signs you in, but you can't claim the owner seat without Google. |
 | Authenticator code refused | The phone's clock is off. Turn on automatic date & time on the phone, then type a fresh code (each lasts 30 seconds). |
 | Lost the phone with the authenticator | `cli_bootstrap reset-2fa --email you@example.com`, then sign in with Google and open **Admin** to set up the new phone (Section 6). |
-| Visitors are sent to the login page | Intended: *Sign-in required* is on by default (Section 6.2). Turn it off in Admin Settings if you want the site open to guests. |
+| Visitors are sent to the login page | Intended: *Sign-in required* is on by default (Section 6.2). Turn it off in **Admin → Site Functions** if you want the site open to guests. |
+| A feature says "… is switched off on this site" | You (the owner) switched that function off in **Admin → Site Functions** (Section 6.4). Switch it on again, or run `cli_bootstrap functions-reset` on the server. |
+| The Site Functions tab or Tab access is missing for an Admin | Intended: only the owner can open them, and nobody can be given them (Sections 6.4 and 6.5). |
+| An Admin or sub-admin says "your admin powers are switched off" | You used **Switch all powers off** in Role Management → Tab access (Section 6.5). Press *Switch powers back on*. |
+| A sub-admin can't see a tab they should | Role Management → Tab access: their tab list leaves it out (or choose *Follow their permissions*). Then check they hold the tab's permission. |
+| Admins can't see visitors' IP addresses in the audit log | Intended: only the owner sees them (Section 6.4). Switch *Visitor IP addresses are for the owner only* off to change that. |
 | Someone can't open a second account with another Gmail spelling | Intended: `john.doe@gmail.com`, `johndoe+x@gmail.com` and `@googlemail.com` are one inbox and one account. |
 | Update cards say "Just now" or show no time | Rebuild (Section 4.1). Old builds misread server times. A card without any chapter shows the series' added time. |
 | Donation link or address refused | Links must be `https://` on the platform's own domain; addresses must match the chosen network. The message names the entry. |
@@ -1448,7 +1560,8 @@ command and the machine, not a broken site.
 - [ ] Production: `ufw` allows only 22/80/443; `docker-compose.override.yml` from Section 8 step 5 in place (production mode, ports on `127.0.0.1`); Caddy serves `https://your-domain`
 - [ ] `make_admin_hash.py --write .env`, Google client in `.env`, `up -d --force-recreate`, `admin-status` says `Owner: not claimed yet`; first Google sign-in done, authenticator set up in **Admin**; `admin-status` now says `Owner: claimed`
 - [ ] OCR, e-mail and sign-in settings entered in **Admin → Secret Vault**
-- [ ] Sign-in required left on (default) or switched off (Admin Settings); donation links added if wanted
+- [ ] Sign-in required left on (default) or switched off (Admin → Site Functions); the other Site Functions looked over (Section 6.4); donation links added if wanted
+- [ ] Tab access set for each Admin and sub-admin (Role Management, Section 6.5); the server's real IP hidden behind a CDN or tunnel and the bare-IP test run (Section 8)
 - [ ] First series imported; new chapters arrive via beat
 - [ ] Updating from before PR #33: provider keys that were saved in a **custom header** (e.g. Azure `api-key`) were publicly readable; rotate them at the provider and save the new key in Admin → API Management
 - [ ] Scraper AI key tested (Admin → Series → Scraper AI API) before adding new source sites with Custom Parser (main admin only)
@@ -1519,7 +1632,7 @@ tracked, so they never block it. Then do the **Check** steps listed in the new
 
 Pick the smallest step that fixes it (details in `AUDIT_LOG.md` §3):
 
-1. **Switch it off**: many features have a switch (Admin Settings, Secret Vault).
+1. **Switch it off**: many features have a switch (Site Functions, Secret Vault).
 2. **Go back to the previous code version** (keeps the database):
 
    In 12.1 `git log -1 --oneline` printed something like

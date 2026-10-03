@@ -19,10 +19,11 @@ from sqlalchemy.orm import Session
 from ...core.api_errors import ApiError, ErrorCode
 from ...core.db import get_db
 from ...dependencies.auth import (
-    require_admin_user,
+    is_main_admin,
     require_permission,
 )
 from ...dependencies.powers import require_power
+from ...dependencies.site_functions import require_function
 from ...models import (
     Announcement,
     Chapter,
@@ -265,7 +266,10 @@ def delete_chapter_report(
     return {"success": True}
 
 
-@router.post("/admin/reports/{report_id}/rescrape-single")
+@router.post(
+    "/admin/reports/{report_id}/rescrape-single",
+    dependencies=[Depends(require_function("scraper"))],
+)
 def rescrape_reported_chapter(
     request: Request,
     report_id: int,
@@ -346,7 +350,7 @@ def _apply_network(provider: GlobalAdProvider, payload: AdNetworkPayload) -> Non
 
 @router.get("/ads/global-networks")
 def list_ad_networks(
-    db: Session = Depends(get_db), _: User = Depends(require_admin_user)
+    db: Session = Depends(get_db), _: User = Depends(require_power("manage_ads"))
 ) -> List[Dict[str, Any]]:
     return [_network_to_dict(p) for p in db.query(GlobalAdProvider).order_by(GlobalAdProvider.id)]
 
@@ -429,6 +433,9 @@ def site_settings_payload(db: Session) -> Dict[str, Any]:
     }
 
 
+OWNER_ONLY_SETTINGS = frozenset({"maintenance_mode", "allow_registration"})
+
+
 @router.post("/admin/settings")
 def update_site_settings(
     request: Request,
@@ -436,6 +443,11 @@ def update_site_settings(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_power("manage_admin_settings")),
 ) -> Dict[str, Any]:
+    if not is_main_admin(current_user):
+        # Maintenance mode and new accounts are Site Functions: the owner's
+        # switches (Admin -> Site Functions), never an Admin's, even one holding
+        # Admin Settings. Everything else in the form still saves.
+        payload = {k: v for k, v in payload.items() if k not in OWNER_ONLY_SETTINGS}
     content.update_site_settings(db, payload)
     if payload.get("session_timeout_days") not in (None, ""):
         try:

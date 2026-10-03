@@ -47,8 +47,19 @@
 - Readers sign in with a magic link, Google or Microsoft only. No reader
   passwords. One inbox gives one account, for life.
 - Nobody sees the site before signing in: "Sign-in required" is on by default
-  (the owner may switch it off in Admin Settings). Sign-in, sign-up and the admin
-  area are never behind it.
+  (the owner may switch it off in Admin -> Site Functions). Sign-in, sign-up and
+  the admin area are never behind it.
+- **Site Functions** (Admin -> Site Functions: the on/off switch of every main
+  website function) and **Tab access** (Role Management: which admin tabs each
+  Admin / sub-admin sees, and "switch all powers off") are for the **owner only and
+  can never be delegated**: no permission opens them, not even for an Admin. Every
+  new main website function gets an entry in `core/site_functions.py` with a real
+  enforcement point, and every new admin tab an entry in `core/admin_tabs.py`
+  (`tests/test_route_audit.py` fails when the frontend, the routes and the tab
+  registry disagree).
+- Visitors' IP addresses are for the owner only (Site Functions -> Privacy and
+  security): never return an IP address from an API to anyone but the owner, and
+  never write one to a log line.
 - Bookmarks and reading history stay in the reader's browser, not on the
   server.
 - Never hard-code admin credentials or e-mails in source.

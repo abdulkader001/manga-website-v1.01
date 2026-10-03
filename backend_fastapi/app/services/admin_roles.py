@@ -208,6 +208,8 @@ def promote_to_admin(db: Session, actor: User, target: User) -> User:
     target.admin_since = datetime.utcnow()
     target.appointed_by = None
     target.sub_admin_quota = None
+    target.visible_admin_tabs = None
+    target.powers_suspended = False
     db.flush()
     _audit(db, actor.id, "roles.admin_promoted", {"target_user_id": target.id})
     return target
@@ -222,6 +224,8 @@ def _release(db: Session, user: User, *, hand_appointees_to: Optional[int]) -> N
     db.query(PermissionOverride).filter(PermissionOverride.user_id == user.id).delete(synchronize_session=False)
     user.sub_admin_quota = None
     user.admin_since = None
+    user.visible_admin_tabs = None
+    user.powers_suspended = False
 
 
 def demote_admin(db: Session, actor: Optional[User], target: User, to: str, *, hand_appointees_to: Optional[int] = None) -> User:
@@ -260,6 +264,8 @@ def hand_over(db: Session, actor: Optional[User], old: User, successor: User, *,
 
     inherited = [(o.permission, o.state) for o in db.query(PermissionOverride).filter(PermissionOverride.user_id == old.id)]
     quota = old.sub_admin_quota
+    tabs = old.visible_admin_tabs  # the owner's tab list and "powers off" pass on too
+    powers_off = bool(old.powers_suspended)
     db.query(PermissionOverride).filter(PermissionOverride.user_id == successor.id).delete(synchronize_session=False)
     _leave_lines(db, successor.id)
     successor.role = UserRole.CO_ADMIN
@@ -267,6 +273,8 @@ def hand_over(db: Session, actor: Optional[User], old: User, successor: User, *,
     successor.admin_since = datetime.utcnow()
     successor.appointed_by = None
     successor.sub_admin_quota = quota
+    successor.visible_admin_tabs = tabs
+    successor.powers_suspended = powers_off
     db.flush()
     for permission, state in inherited:
         db.add(PermissionOverride(user_id=successor.id, permission=permission, state=state, updated_by=getattr(actor, "id", None)))
