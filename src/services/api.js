@@ -535,6 +535,8 @@ const api = {
     series: {
       list: (params) => api.get("/admin/series", { params }),
       add: (payload) => api.post("/admin/series", typeof payload === "string" ? { url: payload } : payload),
+      // Several series addresses at once; each gets its own result line.
+      batch: (urls, options = {}) => api.post("/admin/series/batch", { urls, ...options }),
       remove: (id) => api.del(`/admin/series/${id}`),
       // The server refuses a full re-scrape unless the series name is typed
       // back (confirm_title); without it every click failed with 422.

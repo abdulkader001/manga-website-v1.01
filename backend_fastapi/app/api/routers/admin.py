@@ -2085,6 +2085,87 @@ async def create_series_by_url(
     return await run_in_db_threadpool(_work)
 
 
+BATCH_IMPORT_MAX = 50
+
+
+class SeriesBatchPayload(BaseModel):
+    """Several series addresses at once (one per line in the admin page)."""
+
+    urls: List[str] = Field(..., min_length=1, max_length=BATCH_IMPORT_MAX)
+    chapters_to_scrape: Optional[int] = Field(default=None, ge=1, le=20000)
+
+
+@router.post(
+    "/series/batch",
+    status_code=status.HTTP_202_ACCEPTED,
+    dependencies=[Depends(require_permission("submit_manga_url")), Depends(require_function("scraper"))],
+)
+async def create_series_batch(
+    request: Request,
+    payload: SeriesBatchPayload,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> Dict[str, Any]:
+    """Queue an import for each address (up to 50 per request).
+
+    Every address goes through exactly the checks of a single import
+    (approved website, duplicates, forbidden hosts, parser available) and
+    gets its own result line, so one bad address never stops the others.
+    The jobs run side by side in the scraper queue; each website keeps its
+    own request budget, so addresses from different sites don't wait on
+    each other.
+    """
+
+    await async_endpoint_limiter.check_limit(
+        request, f"create_series_batch:{current_user.id}", limit=30, window_seconds=3600
+    )
+    seen: set = set()
+    urls: List[str] = []
+    for raw in payload.urls:
+        candidate = (raw or "").strip()
+        if candidate and candidate not in seen:
+            seen.add(candidate)
+            urls.append(candidate)
+
+    from ...utils.bounded_threadpool import run_in_db_threadpool
+
+    submitter_id = current_user.id
+    can_approve = await run_in_db_threadpool(has_permission, db, current_user, "approve_website")
+
+    def _queue_all() -> List[Dict[str, Any]]:
+        from backend_fastapi.app.core.db import SessionLocal
+        from ...services import series_import
+
+        results: List[Dict[str, Any]] = []
+        with SessionLocal() as db_session:
+            actor = db_session.get(User, submitter_id)
+            for url in urls:
+                try:
+                    clean = _parse_series_url(url)
+                    item = SeriesUrlPayload(url=clean, source_url=clean, chapters_to_scrape=payload.chapters_to_scrape)
+                    job = series_import.queue_series_import(db_session, actor, clean, item, can_approve=can_approve)
+                    results.append({"url": url, "ok": True, "job": job})
+                except ApiError as exc:
+                    db_session.rollback()
+                    results.append({"url": url, "ok": False, "error": exc.message})
+                except HTTPException as exc:
+                    db_session.rollback()
+                    detail = exc.detail if isinstance(exc.detail, dict) else {"message": str(exc.detail)}
+                    results.append({"url": url, "ok": False, "error": detail.get("message") or "Invalid address"})
+                except Exception:
+                    db_session.rollback()
+                    logger.exception("Failed to queue batch series import", extra={"url": url})
+                    results.append({"url": url, "ok": False, "error": "Could not be queued"})
+        return results
+
+    results = await run_in_db_threadpool(_queue_all)
+    return {
+        "queued": sum(1 for r in results if r["ok"]),
+        "failed": sum(1 for r in results if not r["ok"]),
+        "results": results,
+    }
+
+
 @router.get(
     "/series/{manga_id}/ingestion",
     # Visible to everyone who can submit manga URLs (the submitter watches

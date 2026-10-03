@@ -1143,6 +1143,21 @@ All of this is in the **admin area** once you are logged in as admin.
 5. New chapters are then picked up automatically by **celery_beat** on the
    series' schedule (set per series in the admin panel).
 
+**Many series at once:** Admin → Series → **Import many at once**. Press
+**Paste** (or paste yourself) any text holding up to 50 series links, one per
+line or mixed with other words; the box counts the links it found. **Import
+all** queues each one as its own import and lists any it couldn't add and why.
+Every link box on this page has a **Paste** button.
+
+**Speed:** each source site gets at most `SCRAPER_REQUESTS_PER_MINUTE`
+requests a minute (Secret Vault, default 30) and 6 pictures of a chapter are
+downloaded at once (`PAGE_DOWNLOAD_WORKERS`, 1-12). Raise them only on a
+strong server; a site that slows down or refuses is slowed down for you.
+
+**Fillers:** pictures a site puts beside the chapter (a 猜你喜欢 / "You may
+also like" box of other series, rankings, adverts) are skipped. A chapter
+saved before this update with such covers: re-scrape it.
+
 If the preview finds nothing, the site isn't covered by a built-in parser: use
 **Custom Parser** (below). Details and the list of supported/unsupported
 sources: `backend_fastapi/README.md` and `deployment/runbook.md`. Only import
@@ -1593,6 +1608,8 @@ command and the machine, not a broken site.
 | `password authentication failed` (DB) or Redis `NOAUTH` | Passwords in `DATABASE_URL` / `REDIS_URL` / `CELERY_*` don't match `POSTGRES_PASSWORD` / `REDIS_PASSWORD`. After changing the DB password on an existing volume, run `docker compose down -v` (deletes data) or change it inside Postgres. |
 | `ModuleNotFoundError: psycopg` | `DATABASE_URL` must start `postgresql+psycopg2://`. |
 | Imports stay "queued" forever | Workers or beat not running: `docker compose ps`; for the non-Docker setup, start the worker with **all** queues (Section 5). |
+| A chapter shows other series' covers instead of its pages | Saved before the filler fix: re-scrape the chapter. Still wrong: build the site's parser with Custom Parser so `page_images` names the reader container (Section 7). |
+| Importing many series is slow | Each site gets `SCRAPER_REQUESTS_PER_MINUTE` requests a minute (Secret Vault, default 30). Raise it a little; if the site starts refusing, the scraper slows down on its own. |
 | Chapter has no pictures / slow | Check the compress worker logs (`celery_worker_compress`, small profile: `celery_worker_scrape`); ensure enough disk (`docker system df`, `df -h`). |
 | Build dies with `Killed` / exit code 137 / `npm ci` stops | Out of memory on a small server. Add the swap file (Section 1) and run `docker compose up -d --build` again. |
 | `no space left on device` | `df -h /` and `docker system df`. Free space with `docker image prune -f` (old images) and `docker builder prune -f` (build cache). Cap the logs (Section 1). `docker compose down -v` would delete your data: never use it to free space. |
@@ -1692,7 +1709,7 @@ command and the machine, not a broken site.
 - [ ] Sign-in required left off (default: guests read) or switched on once your Admins are set up (Admin → Site Functions, Section 6.2); the other Site Functions looked over (Section 6.4); donation links added if wanted
 - [ ] Site name, logo, homepage heading and footer links saved as the owner (the pencil next to the logo, Admin Settings); a private window shows them, and shows no pencil
 - [ ] Tab access set for each Admin and sub-admin (Role Management, Section 6.5); the server's real IP hidden behind a CDN or tunnel and the bare-IP test run (Section 8)
-- [ ] First series imported; new chapters arrive via beat; open one chapter and check it shows the pages, not the site's other covers; a reader who bookmarked the series sees the alert under *Notifications → Chapter Alerts & Issues*
+- [ ] First series imported (several at once with *Import many at once*); new chapters arrive via beat; open one chapter and check it shows the pages, not the site's other covers (re-scrape older ones that do); a reader who bookmarked the series sees the alert under *Notifications → Chapter Alerts & Issues*
 - [ ] Reader history follows the account: read a chapter while signed in, sign in as the same reader in another browser or on a phone: that chapter is dimmed and the series shows where they stopped (Section 6.2)
 - [ ] Updating from before PR #33: provider keys that were saved in a **custom header** (e.g. Azure `api-key`) were publicly readable; rotate them at the provider and save the new key in Admin → API Management
 - [ ] Scraper AI key tested (Admin → Series → Scraper AI API) before adding new source sites with Custom Parser (main admin only)

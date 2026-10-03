@@ -232,8 +232,10 @@ def sample_data(db_session):
 def _fresh_site_pacing():
     """Each test starts with no learned per-site delay (scrapers/throttle)."""
 
-    from backend_fastapi.app.scrapers import throttle
+    from backend_fastapi.app.scrapers import concurrency, throttle
 
     throttle.reset()
+    concurrency._local_windows.clear()
     yield
     throttle.reset()
+    concurrency._local_windows.clear()

@@ -6,6 +6,10 @@ import api, { apiFetch } from "../../services/api";
 import { auditUrlSecurity } from "../../utils/urlValidator";
 import useStaffPermissions from "../../hooks/useStaffPermissions";
 import TakedownPanel from "./TakedownPanel";
+import PasteButton from "../../components/PasteButton";
+import { extractLinks } from "../../utils/links";
+
+const BATCH_MAX = 50;
 
 const FREQUENCY_PRESETS = [
   { key: "hourly_6", label: "Every 6 Hours (Fast Hot Release)", freq: "hourly", val: 6, unit: "hours" },
@@ -128,6 +132,11 @@ export default function SeriesManagement() {
 
   // Add / Import Series Form State
   const [importModalOpen, setImportModalOpen] = useState(false);
+  // "Many at once": one series address per line, queued side by side.
+  const [batchOpen, setBatchOpen] = useState(false);
+  const [batchText, setBatchText] = useState("");
+  const [batchBusy, setBatchBusy] = useState(false);
+  const [batchResult, setBatchResult] = useState(null);
   const [mangaupdatesUrl, setMangaupdatesUrl] = useState("");
   const [baseUrl, setBaseUrl] = useState("");
   const [seriesUrl, setSeriesUrl] = useState("");
@@ -366,6 +375,24 @@ export default function SeriesManagement() {
   }, [manga]);
 
   // Handle Add / Full Import Series with Automatic Chapter Detection
+  const batchLinks = useMemo(() => extractLinks(batchText), [batchText]);
+
+  const handleBatchImport = async (e) => {
+    e.preventDefault();
+    if (!batchLinks.length) return;
+    setBatchBusy(true);
+    setBatchResult(null);
+    try {
+      const res = await api.admin.series.batch(batchLinks.slice(0, BATCH_MAX));
+      setBatchResult(res);
+      queryClient.invalidateQueries({ queryKey: ["mangaCatalogAdmin"] });
+    } catch (err) {
+      setBatchResult({ error: err.message || "The addresses could not be sent." });
+    } finally {
+      setBatchBusy(false);
+    }
+  };
+
   const handleAddSeries = async (e) => {
     e.preventDefault();
     if ((!seriesUrl.trim() && !baseUrl.trim()) || adding) return;
@@ -603,6 +630,15 @@ export default function SeriesManagement() {
 
           <button
             type="button"
+            onClick={() => setBatchOpen((open) => !open)}
+            className="px-4 py-2.5 rounded-xl bg-[#1d2027] hover:bg-[#262a33] border border-[#00AEF0]/50 text-[#00AEF0] font-extrabold text-xs transition flex items-center gap-2 shadow-lg"
+          >
+            <i className="fas fa-layer-group"></i>
+            <span>Import many at once</span>
+          </button>
+
+          <button
+            type="button"
             onClick={() => setImportModalOpen(true)}
             className="px-4 py-2.5 rounded-xl bg-[#00AEF0] hover:bg-[#0F5065] text-white font-extrabold text-xs transition flex items-center gap-2 shadow-lg"
           >
@@ -611,6 +647,74 @@ export default function SeriesManagement() {
           </button>
         </div>
       </div>
+
+      {/* Many series at once: paste addresses, one per line */}
+      {batchOpen && (
+        <form
+          onSubmit={handleBatchImport}
+          className="bg-[#15171c] border border-[#00AEF0]/50 p-5 rounded-2xl shadow-2xl space-y-3"
+          aria-label="Import many series at once"
+        >
+          <div className="flex items-center justify-between border-b border-[#262a33] pb-3">
+            <div>
+              <h3 className="text-sm font-bold text-white">Import many series at once</h3>
+              <p className="text-xs text-[#8b93a3]">
+                Paste series page addresses, one per line (up to {BATCH_MAX}). Each is checked like a single import and
+                scraped side by side; series from different websites don&apos;t wait on each other.
+              </p>
+            </div>
+            <button type="button" onClick={() => setBatchOpen(false)} className="text-gray-400 hover:text-white">✕</button>
+          </div>
+          <div className="flex gap-2 items-start">
+            <textarea
+              value={batchText}
+              onChange={(e) => setBatchText(e.target.value)}
+              rows={6}
+              placeholder={"https://site-one.example/manga/series-a\nhttps://site-two.example/comic/12345/"}
+              className="flex-1 min-w-0 px-3.5 py-2.5 rounded-xl bg-[#101216] border border-[#262a33] text-xs text-white placeholder:text-gray-500 focus:outline-none focus:border-[#00AEF0] font-mono"
+            />
+            <PasteButton
+              multiple
+              onPaste={(text) => setBatchText((current) => (current.trim() ? `${current.trim()}\n${text}` : text))}
+            />
+          </div>
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-[11px] text-[#8b93a3]">
+              {batchLinks.length} address{batchLinks.length === 1 ? "" : "es"} found
+              {batchLinks.length > BATCH_MAX ? ` (the first ${BATCH_MAX} are sent)` : ""}
+            </span>
+            <button
+              type="submit"
+              disabled={batchBusy || !batchLinks.length}
+              className="px-5 py-2 rounded-xl bg-[#00AEF0] hover:bg-[#0F5065] disabled:opacity-50 text-white font-bold text-xs flex items-center gap-2"
+            >
+              <i className={batchBusy ? "fas fa-spinner fa-spin" : "fas fa-spider"}></i>
+              <span>{batchBusy ? "Queueing…" : "Import all"}</span>
+            </button>
+          </div>
+          {batchResult && (
+            <div className="text-xs space-y-1" role="status">
+              {batchResult.error ? (
+                <div className="text-red-300">{batchResult.error}</div>
+              ) : (
+                <>
+                  <div className="font-bold text-emerald-300">
+                    {batchResult.queued} queued{batchResult.failed ? `, ${batchResult.failed} not added` : ""}
+                  </div>
+                  <ul className="space-y-0.5 font-mono text-[11px]">
+                    {(batchResult.results || []).map((row) => (
+                      <li key={row.url} className={row.ok ? "text-emerald-300" : "text-red-300"}>
+                        {row.ok ? "✓" : "✕"} {row.url}
+                        {!row.ok && row.error ? ` (${row.error})` : ""}
+                      </li>
+                    ))}
+                  </ul>
+                </>
+              )}
+            </div>
+          )}
+        </form>
+      )}
 
       {/* Dedicated Scraper AI API Box (main admin only) */}
       {canAi && aiConfigOpen && (
@@ -705,13 +809,16 @@ export default function SeriesManagement() {
               <label className="text-xs font-semibold text-gray-300 block">
                 Custom Verified API Endpoint Base URL (Optional / International Proxy)
               </label>
-              <input
-                type="url"
-                value={scraperEndpointUrl}
-                onChange={(e) => setScraperEndpointUrl(e.target.value)}
-                placeholder="e.g. https://api.deepseek.com/v1, https://dashscope.aliyuncs.com/compatible-mode/v1, or https://api.mistral.ai/v1"
-                className="w-full px-3.5 py-2.5 rounded-xl bg-[#101216] border border-[#262a33] text-xs text-white placeholder:text-gray-500 focus:outline-none focus:border-purple-400 font-mono"
-              />
+              <div className="flex gap-2 items-start">
+                <input
+                  type="url"
+                  value={scraperEndpointUrl}
+                  onChange={(e) => setScraperEndpointUrl(e.target.value)}
+                  placeholder="e.g. https://api.deepseek.com/v1, https://dashscope.aliyuncs.com/compatible-mode/v1, or https://api.mistral.ai/v1"
+                  className="flex-1 min-w-0 px-3.5 py-2.5 rounded-xl bg-[#101216] border border-[#262a33] text-xs text-white placeholder:text-gray-500 focus:outline-none focus:border-purple-400 font-mono"
+                />
+                <PasteButton onPaste={setScraperEndpointUrl} />
+              </div>
               <span className="text-[10px] text-gray-400">
                 Supports verified endpoints from Chinese, French, European, or custom enterprise providers.
               </span>
@@ -760,6 +867,7 @@ export default function SeriesManagement() {
               placeholder="https://newsite.example/manga/some-series"
               className="flex-1 px-3.5 py-2.5 rounded-xl bg-[#101216] border border-[#262a33] text-xs text-white placeholder:text-gray-500 focus:outline-none focus:border-cyan-400 font-mono"
             />
+            <PasteButton onPaste={setParserUrl} />
             <button
               type="submit"
               disabled={parserBusy || !parserUrl.trim()}
@@ -1067,13 +1175,16 @@ export default function SeriesManagement() {
                   <span>Metadata link: MangaUpdates or Anime-Planet (metadata only)</span>
                   <span className="text-[10px] text-gray-400">one link per series</span>
                 </label>
-                <input
-                  type="url"
-                  value={mangaupdatesUrl}
-                  onChange={(e) => setMangaupdatesUrl(e.target.value)}
-                  placeholder="https://www.mangaupdates.com/series/… or https://www.anime-planet.com/manga/…"
-                  className="w-full px-3.5 py-2.5 rounded-xl bg-[#101216] border border-purple-500/40 text-xs text-white focus:outline-none focus:border-purple-400 font-mono"
-                />
+                <div className="flex gap-2 items-start">
+                  <input
+                    type="url"
+                    value={mangaupdatesUrl}
+                    onChange={(e) => setMangaupdatesUrl(e.target.value)}
+                    placeholder="https://www.mangaupdates.com/series/… or https://www.anime-planet.com/manga/…"
+                    className="flex-1 min-w-0 px-3.5 py-2.5 rounded-xl bg-[#101216] border border-purple-500/40 text-xs text-white focus:outline-none focus:border-purple-400 font-mono"
+                  />
+                  <PasteButton onPaste={setMangaupdatesUrl} />
+                </div>
               </div>
 
               {/* 2. Target Website Base URL */}
@@ -1081,14 +1192,17 @@ export default function SeriesManagement() {
                 <label className="font-semibold text-gray-300 block mb-1">
                   Target Source Base URL <span className="text-[#00AEF0]">*</span>
                 </label>
-                <input
-                  type="url"
-                  required
-                  value={baseUrl}
-                  onChange={(e) => setBaseUrl(e.target.value)}
-                  placeholder="e.g. https://baozimh.com or https://rawkuma.com"
-                  className="w-full px-3.5 py-2.5 rounded-xl bg-[#101216] border border-[#262a33] text-xs text-white focus:outline-none focus:border-[#00AEF0] font-mono"
-                />
+                <div className="flex gap-2 items-start">
+                  <input
+                    type="url"
+                    required
+                    value={baseUrl}
+                    onChange={(e) => setBaseUrl(e.target.value)}
+                    placeholder="e.g. https://baozimh.com or https://rawkuma.com"
+                    className="flex-1 min-w-0 px-3.5 py-2.5 rounded-xl bg-[#101216] border border-[#262a33] text-xs text-white focus:outline-none focus:border-[#00AEF0] font-mono"
+                  />
+                  <PasteButton onPaste={setBaseUrl} />
+                </div>
               </div>
 
               {/* 2. Manga / Series URL */}
@@ -1107,14 +1221,17 @@ export default function SeriesManagement() {
                     <span>{isPreviewing ? "Analyzing…" : "Test & Live Preview Extraction"}</span>
                   </button>
                 </div>
-                <input
-                  type="url"
-                  required
-                  value={seriesUrl}
-                  onChange={(e) => setSeriesUrl(e.target.value)}
-                  placeholder="e.g. https://asuracomic.net/series/solo-leveling-abc or https://mangadex.org/title/..."
-                  className="w-full px-3.5 py-2.5 rounded-xl bg-[#101216] border border-[#262a33] text-xs text-white focus:outline-none focus:border-[#00AEF0] font-mono"
-                />
+                <div className="flex gap-2 items-start">
+                  <input
+                    type="url"
+                    required
+                    value={seriesUrl}
+                    onChange={(e) => setSeriesUrl(e.target.value)}
+                    placeholder="e.g. https://asuracomic.net/series/solo-leveling-abc or https://mangadex.org/title/..."
+                    className="flex-1 min-w-0 px-3.5 py-2.5 rounded-xl bg-[#101216] border border-[#262a33] text-xs text-white focus:outline-none focus:border-[#00AEF0] font-mono"
+                  />
+                  <PasteButton onPaste={setSeriesUrl} />
+                </div>
               </div>
 
               {/* Live Preview Extraction Box */}

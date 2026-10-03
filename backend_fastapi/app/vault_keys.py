@@ -179,6 +179,13 @@ SPECS = (
         "RATE_LIMIT_STRIKE_DECAY_SECONDS", _G_LIMITS, "Forget offences after (s)", kind="int",
         restart_required=True,
     ),
+    SecretSpec(
+        "SCRAPER_REQUESTS_PER_MINUTE",
+        _G_LIMITS,
+        "Page requests per minute to one source site (default 30)",
+        kind="int",
+        help="A site's parser can set its own value. Sites that answer slowly or say 'too many requests' are slowed down automatically.",
+    ),
     SecretSpec("RESCRAPE_RATE_LIMIT_COUNT", _G_LIMITS, "Re-scrapes allowed per window", kind="int"),
     SecretSpec("RESCRAPE_RATE_LIMIT_WINDOW", _G_LIMITS, "Re-scrape window (s)", kind="int"),
     SecretSpec("REQUEST_TIMEOUT_SECONDS", _G_LIMITS, "Request timeout (s)", kind="number", restart_required=True),
@@ -197,6 +204,7 @@ SPECS = (
     SecretSpec(
         "PAGE_KEEP_ORIGINALS", _G_IMG, "Keep source pictures unchanged when possible (full quality)", kind="bool"
     ),
+    SecretSpec("PAGE_DOWNLOAD_WORKERS", _G_IMG, "Pictures of one chapter downloaded at once (1-12)", kind="int"),
     SecretSpec("STORAGE_ALERT_PERCENT", _G_IMG, "Disk-full warning at (%)", kind="number"),
     SecretSpec("STORAGE_ALERT_BYTES", _G_IMG, "Storage warning above (bytes)", kind="number"),
     SecretSpec("PROFILE_IMAGE_MAX_BYTES", _G_IMG, "Max avatar upload (bytes)", kind="number"),
