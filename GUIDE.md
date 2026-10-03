@@ -394,7 +394,7 @@ The result should match this table (edit by hand with `nano .env` if not):
 | `BACKEND_URL` / `BACKEND_ORIGIN` | `http://backend:8000` (inside Docker) |
 | `ALLOWED_ORIGINS` | `https://manga.example.com` |
 | `CORS_ALLOWED_ORIGINS` | `["https://manga.example.com"]` |
-| `MAGIC_LINK_REDIRECT_URL` | `https://manga.example.com/auth/magic-complete` |
+| `MAGIC_LINK_REDIRECT_URL` | `https://manga.example.com/` |
 | `GOOGLE_OAUTH_REDIRECT_URI` | `https://manga.example.com/api/auth/google/callback` |
 | `MICROSOFT_OAUTH_REDIRECT_URI` | `https://manga.example.com/api/v1/auth/microsoft/callback` |
 | `REACT_APP_FRONTEND_URL` | `https://manga.example.com` |

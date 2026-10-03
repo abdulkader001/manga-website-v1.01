@@ -1,5 +1,5 @@
 import React, { Suspense } from "react";
-import { BrowserRouter as Router, Routes, Route, useLocation, Outlet } from "react-router";
+import { BrowserRouter as Router, Routes, Route, useLocation, Outlet, Navigate } from "react-router";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 import Navbar from "./components/Navbar";
@@ -86,7 +86,7 @@ function AppShell({ children }) {
   );
 }
 
-function AppRoutes() {
+export function AppRoutes() {
   return (
     <Suspense fallback={<PageLoading />}>
     <Routes>
@@ -95,6 +95,10 @@ function AppRoutes() {
       <Route path="/magic-link/:token" element={<MagicLinkConsume />} />
       <Route path="/login/magic/:token" element={<MagicLinkConsume />} />
       <Route path="/complete-profile" element={<CompleteProfile />} />
+      {/* Where Google / Microsoft sign-in used to land (plan.md P0-4): older
+          .env files and vaults still hold MAGIC_LINK_REDIRECT_URL=.../auth/magic-complete,
+          which had no page and showed the 404. The cookies are already set. */}
+      <Route path="/auth/magic-complete" element={<Navigate to="/" replace />} />
 
       {/* Reading pages: open to guests unless the owner turned on "Sign-in
           required" (Admin -> Site Functions; it starts off). Signed-in users
