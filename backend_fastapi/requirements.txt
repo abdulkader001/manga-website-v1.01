@@ -3,19 +3,19 @@
 # committed as requirements.lock; regenerate it with:
 #   pip-compile --output-file=requirements.lock requirements.txt
 # Dependabot (.github/dependabot.yml) opens PRs when newer versions are available.
-fastapi==0.139.0
-uvicorn[standard]==0.51.0
-gunicorn==26.0.0
+fastapi==0.141.1
+uvicorn[standard]==0.54.0
+gunicorn==26.2.0
 celery==5.6.3
-redis==8.0.1
-psycopg2-binary==2.9.12
-SQLAlchemy==2.0.51
-alembic==1.18.5
-python-dotenv==1.2.2
+redis==8.1.0
+psycopg2-binary==2.9.13
+SQLAlchemy==2.1.1
+alembic==1.20.0
+python-dotenv==1.2.3
 psutil==7.2.2
 httpx==0.28.1
-pydantic[email]==2.13.4
-pydantic-settings==2.14.2
+pydantic[email]==2.13.5
+pydantic-settings==2.15.0
 email-validator==2.3.0
 python-multipart==0.0.32
 python-jose[cryptography]==3.5.0
@@ -33,19 +33,19 @@ ecdsa==0.19.2
 # this app uses Fernet (email/env encryption) and Argon2id (identity digests),
 # and signs JWTs with HS256 -- so the vulnerable path was unreachable, but
 # there is a fixed release and no reason to ship a known-vulnerable version.
-cryptography==50.0.0
+cryptography==50.0.1
 passlib[bcrypt]==1.7.4
 jinja2==3.1.6
-requests==2.33.1
+requests==2.34.2
 pillow==12.3.0
 pytesseract==0.3.13
-deep-translator==1.8.3
-click==8.4.2
+deep-translator==1.11.4
+click==8.5.0
 beautifulsoup4==4.15.0
 structlog==26.1.0
 bleach==6.4.0
-cachetools==7.1.4
+cachetools==7.2.0
 # Geolock: reads the country GeoIP database (DB-IP Lite or MaxMind .mmdb).
 maxminddb==3.2.0
-prometheus-client==0.21.1
+prometheus-client==0.26.0
 sentry-sdk==2.71.0
