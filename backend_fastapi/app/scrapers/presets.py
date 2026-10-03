@@ -175,7 +175,7 @@ def _static(
 # Reader pages on these sites usually carry no <img> for the pages: the list
 # sits in a script (SinMH ``chapterImages``, qTcms base64, packed eval). The
 # engine reads those automatically when the selector finds nothing.
-_register(["wujinmh.com", "www.wujinmh.com", "m.wujinmh.com"], _static("#chapter-list a, .chapter-list a, #chapter-list-1 a", "img[data-original], #cp_img img, #images img", attr="data-original", headers=_ZH))
+_register(["wujinmh.com", "www.wujinmh.com", "m.wujinmh.com"], _static("#chapter-list a, .chapter-list a, #chapter-list-1 a", "#images img, #cp_img img, .comicpage img, .chapter-content img", attr="data-original", headers=_ZH))
 _register(["m.yueman1.cc", "yueman1.cc", "www.yueman1.cc"], _static(".chapter-list a, #chlist a, .list_chapter a, #mh-chapter-list-ol-0 a", ".reader-img-box img, #cp_img img, .comicpage img", attr="data-src", headers=_ZH))
 _register(
     ["mkzhan.com", "www.mkzhan.com", "m.mkzhan.com"],

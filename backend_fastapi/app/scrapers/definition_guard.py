@@ -53,7 +53,7 @@ SELECTOR_KEYS = (
 )
 TEXT_KEYS = ("image_attr", "page_url_template", "encoding", "series_id_regex", "image_referer")
 DICT_KEYS = ("image_source", "chapter_source", "chapter_api", "image_api", "chapter_ajax", "headers")
-INT_KEYS = ("skip_first_images",)
+INT_KEYS = ("skip_first_images", "requests_per_minute")
 ALLOWED_KEYS = set(SELECTOR_KEYS) | set(TEXT_KEYS) | set(DICT_KEYS) | set(INT_KEYS)
 
 KNOWN_DECODERS = {"manhuagui", "sinmh", "qtcms", "script_array", "auto_script"}
@@ -267,6 +267,17 @@ def sanitize(definition: Any, page_url: str = "") -> Tuple[Dict[str, Any], List[
                 clean[key] = number
             else:
                 problems.append("skip_first_images must be a number from 0 to 10")
+        elif key == "requests_per_minute":
+            # A site's own request budget. The AI may lower it for a strict
+            # site; it can't raise it past 120 a minute.
+            try:
+                number = int(value)
+            except (TypeError, ValueError):
+                number = 0
+            if 1 <= number <= 120:
+                clean[key] = number
+            else:
+                problems.append("requests_per_minute must be a number from 1 to 120")
     return clean, problems
 
 
@@ -285,6 +296,19 @@ def check_chapter_urls(urls: List[str], page_url: str) -> Optional[str]:
         return "every chapter link points back to the series page itself"
     if len(urls) >= 6 and len(distinct) <= 1:
         return "every chapter entry has the same link"
+    if page_url:
+        # A site the owner saved as a reference has a known chapter address
+        # pattern: links that don't follow it are not its chapters.
+        from .reference import site_for
+
+        site = site_for(urlparse(page_url).hostname or "")
+        if site is not None and site.chapter_url:
+            fitting = [u for u in distinct if re.search(site.chapter_url, u)]
+            if len(fitting) < len(distinct) * 0.5:
+                return (
+                    f"most links don't look like chapters of {site.name}; its chapter addresses "
+                    f"match {site.chapter_url}"
+                )
     return None
 
 

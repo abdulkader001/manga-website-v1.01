@@ -124,8 +124,11 @@ def process_manga_scrape(self, job_id: int):
 
 @celery_app.task(
     bind=True,
-    time_limit=300,
-    soft_time_limit=240,
+    # A chapter shown one page per address (Sen Manga, Baozi long chapters)
+    # needs one request per page; at a polite pace 40 pages take minutes.
+    # 240 s cut those off mid-chapter and the retry started over.
+    time_limit=660,
+    soft_time_limit=600,
     name="backend_fastapi.app.tasks.scraper_tasks.process_chapter_scrape",
     max_retries=3,
     default_retry_delay=60,

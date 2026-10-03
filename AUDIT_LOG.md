@@ -36,7 +36,7 @@ Contents
 | Layer | Holds | Who changes it | Undo |
 | --- | --- | --- | --- |
 | `.env` on the server | Foundation only: database/Redis, signing and encryption keys, `INTEGRATIONS_SECRET`, admin identity (`MAIN_ADMIN_EMAIL_HASH` only), the Google sign-in client (`GOOGLE_OAUTH_CLIENT_ID` / `_SECRET`, needed before the owner can open the vault; may be moved into it afterwards), starting site address | Whoever has the server | Edit the file and recreate the containers |
-| **Secret Vault** (Admin → Secret Vault) | Everything else: Google/Microsoft sign-in, SMTP/magic links, OCR/translation, API keys, limits, Sentry, **website domain**, the **backup** schedule, password and storage keys (`BACKUP_*`, set from Storage & Backups), **Geolock** (`GEOLOCK_*`, set from Geolock) and the stored-picture settings (`PAGE_MAX_WIDTH`, `PAGE_KEEP_ORIGINALS`, `MIRROR_PAGE_IMAGES`) | Main admin only, with an authenticator code and a 10-minute unlock. `ADMIN_CODE_VALID_HOURS` (how long an entered code keeps the admin area open, default 12) lives here too | Remove the value and it falls back to `.env`. `VAULT_PRELOAD_DISABLED=true` skips the vault if a bad value stops start-up |
+| **Secret Vault** (Admin → Secret Vault) | Everything else: Google/Microsoft sign-in, SMTP/magic links, OCR/translation, API keys, limits, Sentry, **website domain**, the **backup** schedule, password and storage keys (`BACKUP_*`, set from Storage & Backups), **Geolock** (`GEOLOCK_*`, set from Geolock) and the stored-picture settings (`PAGE_MAX_WIDTH`, `PAGE_KEEP_ORIGINALS`, `MIRROR_PAGE_IMAGES`, `PAGE_DOWNLOAD_WORKERS`) and the scraper's speed ceiling (`SCRAPER_REQUESTS_PER_MINUTE`) | Main admin only, with an authenticator code and a 10-minute unlock. `ADMIN_CODE_VALID_HOURS` (how long an entered code keeps the admin area open, default 12) lives here too | Remove the value and it falls back to `.env`. `VAULT_PRELOAD_DISABLED=true` skips the vault if a bad value stops start-up |
 | **Admin Settings** (database) | Site name/logo/footer, donations, session policy, the default reader mode | Main admin (an Admin only if the owner switched Admin Settings on) | Change it back in the page |
 | **Site Functions** (database, Admin → Site Functions) | The on/off switch of every main website function: sign-in required (starts **off**), maintenance, new accounts, each sign-in method, comments, community, reports, notifications, OCR, translation, ads, support links, sitemap/RSS, scraping, and the two IP-privacy switches. **Owner only, never delegable** (no permission opens it) | The owner | Switch it back, or `cli_bootstrap functions-reset` |
 
@@ -139,9 +139,35 @@ exceptions; for those, restore the database backup taken before the update.
 
 ## Change entries
 
-### 2026-10-03 — PR #NN: the authenticator code lasts 12 hours; security hardening
+### 2026-10-03 — PR #NN: faster scraping of many series, paste buttons, fillers skipped, a stronger Scraper AI
 
-Merge SHA: fill in when known (the next PR fills it in). Branch `claude/project-thread-cu8n68`.
+Merge SHA: fill in when known (the next PR fills it in). Branch `claude/project-thread-hu9r1l`.
+
+The owner asked for the scraper (built-in and Scraper AI) to be as strong as it can be: many single series imported at once without stalls, a Paste button wherever links are typed, and chapters that hold the chapter's pages, not the "猜你喜欢" (you may like) covers a site shows beside them (wujinmh.com chapter 561 stored those covers).
+
+| Change | Why | Main files |
+| --- | --- | --- |
+| **Fillers are skipped**: pictures in a box headed 猜你喜欢 / 推荐 / 热门 / おすすめ / 추천 / "You may also like", in a container named recommend / related / guess / rank / sidebar, or linking to another series are never stored as pages. A page with only fillers gives no pages (the scripts are tried next) instead of covers. wujinmh's preset no longer uses a bare `img[data-original]` | A one-page-per-view reader holds one page picture beside eight covers, so the biggest group was the covers | `scrapers/autodetect.py`, `scrapers/presets.py` |
+| **Pacing**: each source site gets up to `SCRAPER_REQUESTS_PER_MINUTE` requests a minute (Secret Vault, default 30, was a fixed 10), claimed atomically in Redis. A parser can only lower it. Waits are short sleeps, not 5-second polls; the stacked random delays are gone. AutoThrottle still slows down a site that answers slowly or pushes back | Workers stalled on the fixed limit and on stacked delays | `scrapers/concurrency.py`, `scrapers/base_scraper.py`, `scrapers/http_client.py` |
+| **Import many at once**: Admin → Series → *Import many at once* takes up to 50 series links (pasted in any form), queues each as its own import and lists what was queued or why not (`POST /admin/series/batch`, 30 batches an hour) | One link at a time, 20 an hour | `routers/admin.py`, `src/pages/Admin/SeriesManagement.jsx`, `src/services/api.js` |
+| **Paste buttons** next to every link box on the series admin page (source, MangaUpdates, parser, base and series links); the batch box takes every link in the clipboard | Pasting on a phone was fiddly | `src/components/PasteButton.jsx`, `src/utils/links.js` |
+| **6 pictures of a chapter download at once** (`PAGE_DOWNLOAD_WORKERS`, vault, 1-12) and a chapter may run 10 minutes (was 4) | One-page-per-address chapters timed out | `services/page_image_service.py`, `tasks/scraper_tasks.py` |
+| **Every parser drops site chrome and linked thumbnail groups**, not only the built-in unions | An admin's or the Scraper AI's single selector kept sidebar covers | `scrapers/autodetect.py`, `scrapers/base_scraper.py` |
+| **Scraper AI guidance**: a decision order for reader and series pages, a "pages versus fillers" section, a self-check list, the `requests_per_minute` key; chapter links are checked against a known site's chapter-address pattern | So a weaker model still builds a working parser | `scrapers/ai_playbook.py`, `scrapers/definition_guard.py` |
+| Tests: fillers in five languages, next-page and full-size links kept, a one-page reader beside covers, pacing ceiling and slots, batch import, paste buttons | Prove it | `tests/test_scraper_sidebar_images.py`, `tests/test_scraper_request_pacing.py`, `tests/test_series_batch_import.py`, `src/utils/links.test.js`, `src/pages/Admin/SeriesManagement.test.jsx` |
+
+Kept as they were, on purpose: no getting past CAPTCHAs, logins, bot challenges or scrambled (GigaViewer) pictures.
+
+- **Database:** none.
+- **Settings:** new vault keys `SCRAPER_REQUESTS_PER_MINUTE` (default 30) and `PAGE_DOWNLOAD_WORKERS` (default 6), both with `.env` fallbacks. Nothing moved between `.env`, the vault and Admin Settings.
+- **Check:** Admin → Series → *Import many at once*, paste three links, *Import all*: three imports are queued. Re-scrape a wujinmh chapter that showed covers: it now holds the chapter's pages. Locally: `pytest backend_fastapi/tests/test_scraper_sidebar_images.py backend_fastapi/tests/test_scraper_request_pacing.py backend_fastapi/tests/test_series_batch_import.py`.
+- **Undo:** `git revert -m 1 <merge>` and rebuild `backend` and `web`. Nothing is lost; scraping goes back to 10 requests a minute per site.
+
+---
+
+### 2026-10-03 — PR #53: the authenticator code lasts 12 hours; security hardening
+
+Merge `b759db7`. Branch `claude/project-thread-cu8n68`.
 
 The owner said the website asks for the authenticator code again after a few minutes and wanted it once a day or every 12 hours. They also asked to close the right-click "Inspect" gap in text boxes, to keep the admin screens out of what visitors download, and to go through a 19-point security checklist.
 

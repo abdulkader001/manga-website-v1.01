@@ -64,7 +64,7 @@ CUT_SEARCH_WINDOW = 320
 # floor keeps text edges clean for OCR and for erasing the original lettering.
 QUALITY_LADDER = (94, 92, 90)
 BYTES_PER_PIXEL_BUDGET = 0.6
-DOWNLOAD_WORKERS = 4
+DOWNLOAD_WORKERS = 6  # default; PAGE_DOWNLOAD_WORKERS (vault) overrides, 1-12
 DOWNLOAD_ATTEMPTS = 3
 RETRY_STATUSES = {429, 500, 502, 503, 504}
 _FILENAME_RE = re.compile(r"^\d{4}-[a-f0-9]{10}\.(?:webp|jpg|png)$")
@@ -86,6 +86,15 @@ def keep_originals() -> bool:
     on). Off: every page is re-encoded as WebP, as before 2026-10-03."""
 
     return os.getenv("PAGE_KEEP_ORIGINALS", "true").strip().lower() not in {"0", "false", "no", "off"}
+
+
+def download_workers() -> int:
+    """How many pictures of one chapter download at the same time."""
+
+    try:
+        return max(1, min(12, int(os.getenv("PAGE_DOWNLOAD_WORKERS", DOWNLOAD_WORKERS))))
+    except ValueError:
+        return DOWNLOAD_WORKERS
 
 
 def mirroring_enabled() -> bool:
@@ -352,7 +361,11 @@ def _download(url: str, referer: Optional[str], headers: Optional[Dict[str, str]
     for attempt in range(DOWNLOAD_ATTEMPTS):
         last = attempt == DOWNLOAD_ATTEMPTS - 1
         try:
-            response = RequestWrapper.get(url, timeout=30, headers=dict(request_headers), max_bytes=MAX_SOURCE_BYTES)
+            # The pool below caps how many pictures load at once (like a
+            # browser); no extra random pause per picture.
+            response = RequestWrapper.get(
+                url, timeout=30, headers=dict(request_headers), max_bytes=MAX_SOURCE_BYTES, jitter=False
+            )
         except requests.ConnectionError:
             if last:
                 raise
@@ -400,7 +413,7 @@ def mirror_chapter(
     if not remote:
         return result
 
-    with ThreadPoolExecutor(max_workers=DOWNLOAD_WORKERS) as pool:
+    with ThreadPoolExecutor(max_workers=download_workers()) as pool:
         outcomes = list(pool.map(lambda item: _fetch_and_compress(item[1], referer, headers, layout), remote))
 
     final = pages_dir() / str(int(manga_id)) / str(int(chapter_id))

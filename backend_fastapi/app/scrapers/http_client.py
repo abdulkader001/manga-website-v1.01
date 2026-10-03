@@ -82,9 +82,10 @@ class RequestWrapper:
 
         headers = _with_browser_headers(url, kwargs.pop("headers", {}))
 
-        # Optional jitter delay
-        jitter = random.uniform(0.1, 1.5)
-        time.sleep(jitter)
+        # Callers that pace their own requests (the scraper) pass
+        # jitter=False; everyone else keeps a short random pause.
+        if kwargs.pop("jitter", True):
+            time.sleep(random.uniform(0.1, 1.5))
 
         kwargs.pop("allow_redirects", None)
 
@@ -121,7 +122,8 @@ class RequestWrapper:
         from ..services.url_guard import validate_scrape_url_resolved
 
         headers = _with_browser_headers(url, kwargs.pop("headers", {}))
-        time.sleep(random.uniform(0.1, 1.0))
+        if kwargs.pop("jitter", True):
+            time.sleep(random.uniform(0.1, 1.0))
         response = get_pinned(
             url,
             lambda candidate: validate_scrape_url_resolved(candidate, db_session=None),

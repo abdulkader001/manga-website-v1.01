@@ -179,31 +179,50 @@ class BaseScraper:
                     headers[key] = value
         return headers
 
+    def _pace(self, attempt: int = 0, minimum: Optional[float] = None) -> None:
+        """Wait before one request to this site, once, in one place.
+
+        Three things decide the wait: the site's request budget per minute
+        (shared by every worker through Redis), the site's own pace learned
+        by AutoThrottle, and a small random jitter so requests don't look
+        machine-timed. A retry waits longer. Before 2026-10-03 the waits
+        were stacked (a fixed delay + two jitters + 5 s polling at a fixed
+        10 requests a minute), which made long chapters time out.
+        """
+
+        import random
+
+        from .concurrency import requests_per_minute, take_request_slot
+
+        limit = requests_per_minute(self.config)
+        waited = 0.0
+        while True:
+            wait = take_request_slot(self.domain, limit)
+            if wait <= 0:
+                break
+            wait = min(wait, 15.0)
+            logger.debug("scraper_site_budget_full", domain=self.domain, wait=wait)
+            time.sleep(wait)
+            waited += wait
+            if waited > 180:
+                break  # never park a worker for minutes on one site
+        base = self.delay * 0.5 * (attempt + 1) if minimum is None else minimum
+        time.sleep(throttle.delay_for(self.domain, base) + random.uniform(0.05, 0.4))
+
     def _fetch_html(self, url: str) -> Optional[BeautifulSoup]:
         """Fetch HTML with retries, rate limiting, and metrics."""
         from .metrics import ScraperMetrics
-        from .concurrency import check_rate_limit
         from .http_client import RequestWrapper
-        import random
 
         headers = self._request_headers()
         self.last_problem = None
         for attempt in range(self.retries):
             start_time = time.time()
-
-            # Distributed Rate Limit check (e.g. 10 requests per 60 seconds per domain)
-            while not check_rate_limit(self.domain, limit=10, window=60):
-                logger.debug(f"Rate limit hit for {self.domain}. Backing off.")
-                time.sleep(5)
+            self._pace(attempt)
 
             try:
-                # Local delay with jitter, stretched by the site's own pace
-                # (AutoThrottle: slow answers and push-back slow us down).
-                delay = throttle.delay_for(self.domain, self.delay * (attempt + 1)) + random.uniform(0.1, 1.0)
-                time.sleep(delay)
-
                 sent = time.time()
-                response = RequestWrapper.get(url, timeout=10, headers=dict(headers))
+                response = RequestWrapper.get(url, timeout=10, headers=dict(headers), jitter=False)
                 throttle.record(self.domain, time.time() - sent, response.status_code)
                 if is_bot_challenge(response.status_code, response.content):
                     # A CAPTCHA / "checking your browser" page. Retrying only
@@ -288,12 +307,12 @@ class BaseScraper:
         delay = float(getattr(self, "delay", 0) or 0)
         for attempt in range(retries):
             try:
-                time.sleep(throttle.delay_for(self.domain, delay * (attempt + 1)))
+                self._pace(attempt, minimum=delay * (attempt + 1))
                 sent = time.time()
                 if method == "POST":
-                    response = RequestWrapper.post(url, timeout=10, headers=dict(headers), data=data or {})
+                    response = RequestWrapper.post(url, timeout=10, headers=dict(headers), data=data or {}, jitter=False)
                 else:
-                    response = RequestWrapper.get(url, timeout=10, headers=dict(headers))
+                    response = RequestWrapper.get(url, timeout=10, headers=dict(headers), jitter=False)
                 throttle.record(self.domain, time.time() - sent, getattr(response, "status_code", None))
                 response.raise_for_status()
                 return response.content
@@ -709,6 +728,12 @@ class BaseScraper:
                 from .autodetect import main_image_group
 
                 tags = main_image_group(tags, base_url, preferred)
+            elif tags:
+                # One selector (admin or Scraper AI): drop site chrome, tiny
+                # images and linked thumbnail groups, keep every real page.
+                from .autodetect import drop_thumbnails
+
+                tags = drop_thumbnails(tags, base_url, preferred)
             for tag in tags:
                 url = parsing.image_url(tag, base_url, preferred)
                 if url:

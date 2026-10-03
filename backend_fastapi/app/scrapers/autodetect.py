@@ -34,6 +34,23 @@ _UNSTABLE_CLASS = re.compile(
 )
 _IGNORED_ANCESTORS = {"nav", "header", "footer", "aside", "form"}
 _NOISE_IMG = re.compile(r"logo|avatar|icon|banner|sprite|emoji|button|badge|/ads?/|advert", re.I)
+# "Fillers": what a site puts around the reader that isn't the chapter, such as
+# a "you may like" / 猜你喜欢 box of other series' covers, rankings, adverts.
+# They often use the same lazy-load attributes as the pages, so a selector
+# alone can't tell them apart; their container's name or heading can.
+_FILLER_HINT = re.compile(
+    r"recommend|related|similar|guess|you-?may|youlike|maylike|popular|hot-?(list|comic|manga|book)|"
+    r"\brank|top-?\d|suggest|sidebar|side-?bar|promo|advert|\bads?\b|other-?(comic|manga|series|book)|"
+    r"more-?(comic|manga|series)|tuijian|cainixihuan",
+    re.I,
+)
+_FILLER_TEXT = re.compile(
+    r"猜你喜[欢歡]|相[关關]推[荐薦]|推[荐薦]|[热熱]门|[热熱]門|人[气氣]|排行|大家都在看|看了[这這]|"
+    r"おすすめ|関連|人気|ランキング|추천|인기|관련|"
+    r"you (may|might) (also )?like|recommended|related|popular|trending|more like this|similar",
+    re.I,
+)
+_IMAGE_FILE = re.compile(r"\.(jpe?g|png|webp|gif|avif|bmp)(\?|$)", re.I)
 
 
 def _stable_classes(tag: Tag, limit: int = 2) -> List[str]:
@@ -244,11 +261,78 @@ def detect_pagination(soup: BeautifulSoup, url: str) -> Optional[Dict[str, Any]]
     return {"page_list": selector} if selector else None
 
 
-def _is_page_candidate(tag: Tag, url: Optional[str]) -> bool:
+def _labelled_filler(node: Tag) -> bool:
+    """True when ``node`` is a box headed "猜你喜欢", "Recommended"... : a
+    short text child (or the element just before it) with no image in it."""
+
+    near = [c for c in node.find_all(recursive=False) if isinstance(c, Tag)][:3]
+    prev = node.find_previous_sibling()
+    if isinstance(prev, Tag):
+        near.append(prev)
+    for el in near:
+        if el.name == "img" or el.find("img") is not None:
+            continue
+        text = el.get_text(" ", strip=True)
+        if text and len(text) <= 24 and _FILLER_TEXT.search(text):
+            return True
+    return False
+
+
+_FIRST_NUMBER = re.compile(r"\d+")
+
+
+def _same_series(target, here) -> bool:
+    """Whether a link from a page image stays within this series: the next
+    page, the next chapter or the series page, not another title."""
+
+    if target.netloc and target.netloc != here.netloc:
+        return False
+    if here.path.startswith(target.path.rstrip("/") + "/") or target.path == here.path:
+        return True
+    a, b = _FIRST_NUMBER.search(target.path), _FIRST_NUMBER.search(here.path)
+    if a and b:
+        return a.group() == b.group()
+    # No ids in the addresses: same series when they share all but the
+    # last part (/manga/slug/ch-1 and /manga/slug/ch-2).
+    return target.path.rstrip("/").rsplit("/", 1)[0] == here.path.rstrip("/").rsplit("/", 1)[0]
+
+
+def is_filler(tag: Tag, page_url: Optional[str] = None) -> bool:
+    """True for an image the site put around the chapter rather than in it:
+    another series' cover in a "you may like" box, a ranking, an advert.
+
+    Signs, any one is enough: a container named like one (``recommend``,
+    ``related``, ``sidebar``...), a box headed like one (猜你喜欢, 推荐,
+    おすすめ, 추천, "You may also like"), or a link from the image to a page
+    shaped differently from this chapter (another series), not to the next
+    page or to the full-size picture.
+    """
+
+    for anc in _ancestors(tag, 6):
+        name = " ".join([str(anc.get("id") or "")] + list(anc.get("class") or []))
+        if name.strip() and _FILLER_HINT.search(name):
+            return True
+    if any(_labelled_filler(anc) for anc in _ancestors(tag, 3)):
+        return True
+    if page_url and not page_url.startswith(_BASE):
+        link = tag.find_parent("a", href=True)
+        if link is not None and any(a is link for a in _ancestors(tag, 3)):
+            href = str(link.get("href") or "").strip()
+            if href and not href.startswith(("#", "javascript:")) and not _IMAGE_FILE.search(href):
+                target = urlparse(parsing.absolute(page_url, href) or href)
+                if not _same_series(target, urlparse(page_url)):
+                    return True
+    return False
+
+
+def _is_page_candidate(tag: Tag, url: Optional[str], page_url: Optional[str] = None) -> bool:
     """False for images that are plainly not chapter pages: site chrome
-    (nav/header/footer/aside), logos and badges, and small thumbnails."""
+    (nav/header/footer/aside), logos and badges, small thumbnails and
+    fillers (see ``is_filler``)."""
 
     if not url or _in_ignored(tag):
+        return False
+    if is_filler(tag, page_url):
         return False
     if _NOISE_IMG.search(url) or _NOISE_IMG.search(" ".join(tag.get("class") or [])):
         return False
@@ -276,11 +360,40 @@ def main_image_group(tags: List[Tag], base_url: str, preferred_attr: Optional[st
 
     groups: Dict[str, List[Tag]] = defaultdict(list)
     for tag in tags:
-        if _is_page_candidate(tag, parsing.image_url(tag, base_url, preferred_attr)):
+        if _is_page_candidate(tag, parsing.image_url(tag, base_url, preferred_attr), base_url):
             groups[_group_signature(tag)].append(tag)
     if not groups:
         return []
     return max(groups.values(), key=len)
+
+
+def drop_thumbnails(tags: List[Tag], base_url: str, preferred_attr: Optional[str] = None) -> List[Tag]:
+    """The page images among ``tags`` for a parser with ONE selector (an
+    admin's or the Scraper AI's), which is trusted more than a union.
+
+    Always dropped: site chrome (nav/header/footer/aside), logos and badges,
+    and images under 150 px wide. When the matches fall into several
+    containers, a smaller group whose images are links (the "related series"
+    thumbnails a sidebar shows) is dropped too; a smaller group of plain
+    images (a first page in its own wrapper) is kept.
+    """
+
+    candidates = [t for t in tags if _is_page_candidate(t, parsing.image_url(t, base_url, preferred_attr), base_url)]
+    if not candidates:
+        return []
+    groups: Dict[str, List[Tag]] = defaultdict(list)
+    for tag in candidates:
+        groups[_group_signature(tag)].append(tag)
+    if len(groups) == 1:
+        return candidates
+    largest = max(groups.values(), key=len)
+    dropped = set()
+    for members in groups.values():
+        if members is largest:
+            continue
+        if all(member.find_parent("a", href=True) is not None for member in members):
+            dropped.update(id(member) for member in members)
+    return [t for t in candidates if id(t) not in dropped]
 
 
 def detect_reader_definition(html: str, base_url: str = _BASE) -> Optional[Dict[str, Any]]:
@@ -300,7 +413,7 @@ def detect_reader_definition(html: str, base_url: str = _BASE) -> Optional[Dict[
     attr_used: Dict[str, str] = {}
     for tag in soup.find_all(["img", "amp-img"]):
         url = parsing.image_url(tag, base_url)
-        if not _is_page_candidate(tag, url):
+        if not _is_page_candidate(tag, url, base_url):
             continue
         signature = _group_signature(tag)
         groups[signature].append(tag)
