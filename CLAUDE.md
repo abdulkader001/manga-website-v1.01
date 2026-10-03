@@ -46,9 +46,11 @@
 - Roles: owner, admin, sub-admin, user.
 - Readers sign in with a magic link, Google or Microsoft only. No reader
   passwords. One inbox gives one account, for life.
-- Nobody sees the site before signing in: "Sign-in required" is on by default
-  (the owner may switch it off in Admin -> Site Functions). Sign-in, sign-up and
-  the admin area are never behind it.
+- "Sign-in required" is **off by default**: guests can browse and read, and
+  bookmarks work for them (kept in the browser by series ID). The owner switches
+  it on in Admin -> Site Functions once the Admins are in place; then nobody sees
+  the site before signing in. Sign-in, sign-up and the admin area are never
+  behind it.
 - **Site Functions** (Admin -> Site Functions: the on/off switch of every main
   website function) and **Tab access** (Role Management: which admin tabs each
   Admin / sub-admin sees, and "switch all powers off") are for the **owner only and

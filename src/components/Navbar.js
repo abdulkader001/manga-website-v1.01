@@ -8,7 +8,7 @@ import CONFIG from "../config";
 import useAuth from "../hooks/useAuth";
 import { updateFavicon } from "../utils/favicon";
 import { maskEmail } from "../utils/maskEmail";
-import { apiFetch } from "../services/api";
+import api, { apiFetch } from "../services/api";
 
 const PRESET_LOGOS = [
   { icon: "🦎", name: "Gecko / Lizard" },
@@ -43,7 +43,7 @@ export default function Navbar() {
 
   // State-driven changeable website name & picture/favicon
   const [brandName, setBrandName] = useState(() => {
-    return localStorage.getItem("mgeko_custom_brand") || CONFIG.BRAND_NAME || "mgeko.cc";
+    return localStorage.getItem("mgeko_custom_brand") || CONFIG.BRAND_NAME;
   });
   const [brandLogo, setBrandLogo] = useState(() => {
     return localStorage.getItem("mgeko_custom_logo") || "🦎";
@@ -66,6 +66,23 @@ export default function Navbar() {
   const userMenuRef = useRef(null);
 
   const isUserAdmin = user?.is_admin === true || isAdmin || isSecondaryAdmin;
+
+  // The site's saved branding (Admin) is what every visitor sees; this
+  // browser's copy only avoids a flash while it loads.
+  useEffect(() => {
+    let alive = true;
+    api.branding
+      .get()
+      .then((data) => {
+        if (!alive || !data) return;
+        if (data.name) setBrandName(data.name);
+        if (data.logo_url || data.logo) setBrandLogo(data.logo_url || data.logo);
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   // Sync favicon and document title on mount & update
   useEffect(() => {
@@ -108,7 +125,7 @@ export default function Navbar() {
 
   const handleSaveBranding = async (e) => {
     e?.preventDefault();
-    const finalName = tempBrandName.trim() || "mgeko.cc";
+    const finalName = tempBrandName.trim() || CONFIG.BRAND_NAME;
     const finalLogo = tempBrandLogo.trim() || "🦎";
 
     setBrandName(finalName);
@@ -212,9 +229,12 @@ export default function Navbar() {
               <ThemeToggle />
 
               {/* Notification Bell */}
-              <FunctionGate name="notifications">
-                <NotificationBell />
-              </FunctionGate>
+              {/* Guests have no notifications: polling would only collect 401s. */}
+              {user && (
+                <FunctionGate name="notifications">
+                  <NotificationBell />
+                </FunctionGate>
+              )}
 
               {/* Quick Search Button */}
               <button
@@ -422,7 +442,7 @@ export default function Navbar() {
                 ) : (
                   <span className="text-2xl leading-none">{tempBrandLogo || "🦎"}</span>
                 )}
-                <span className="font-extrabold text-white text-sm">{tempBrandName || "mgeko.cc"}</span>
+                <span className="font-extrabold text-white text-sm">{tempBrandName || CONFIG.BRAND_NAME}</span>
               </div>
             </div>
 
@@ -433,7 +453,7 @@ export default function Navbar() {
                 type="text"
                 value={tempBrandName}
                 onChange={(e) => setTempBrandName(e.target.value)}
-                placeholder="e.g. mgeko.cc, MangaWorld, AnimeScans"
+                placeholder="e.g. MangaWorld, AnimeScans"
                 className="w-full bg-[#1f2330] border border-[#374151] rounded-lg p-2.5 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-[#00AEF0]"
                 required
               />

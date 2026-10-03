@@ -92,9 +92,9 @@ function AppRoutes() {
       <Route path="/login/magic/:token" element={<MagicLinkConsume />} />
       <Route path="/complete-profile" element={<CompleteProfile />} />
 
-      {/* Reading pages: open to guests unless the main admin turned on
-          "Sign-in required" in Admin Settings. Signed-in users still have to
-          finish their profile. */}
+      {/* Reading pages: open to guests unless the owner turned on "Sign-in
+          required" (Admin -> Site Functions; it starts off). Signed-in users
+          still have to finish their profile. */}
       <Route
         element={
           <AuthGuard followSiteSetting>

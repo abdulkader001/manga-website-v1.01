@@ -40,7 +40,6 @@ class CommentItem(BaseModel):
     id: int
     user_id: int
     username: Optional[str] = None
-    user_email_masked: Optional[str] = None
     target_type: str
     target_id: int
     parent_id: Optional[int] = None

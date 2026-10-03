@@ -57,6 +57,18 @@ describe("Reader (ChapterViewer)", () => {
     expect(lib.last["7"].chapterId).toBe(21);
   });
 
+  it("shows the series title the API sends", async () => {
+    api.manga.chapter.mockResolvedValue({
+      id: 21,
+      chapter_number: 3,
+      manga_title: "Solo Leveling",
+      pages: ["https://cdn.test/p1.webp"],
+    });
+    open();
+    expect(await screen.findByText("Solo Leveling")).toBeInTheDocument();
+    expect(screen.queryByText("Manga #7")).not.toBeInTheDocument();
+  });
+
   it("says so when a chapter has no pages", async () => {
     api.manga.chapter.mockResolvedValue({ id: 21, chapter_number: 3, pages: [] });
     open();

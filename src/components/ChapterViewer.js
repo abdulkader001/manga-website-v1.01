@@ -259,7 +259,7 @@ export default function ChapterViewer() {
     );
   }
 
-  const mangaTitle = chapter.manga?.title || `Manga #${mangaId}`;
+  const mangaTitle = chapter.manga_title || chapter.manga?.title || `Manga #${mangaId}`;
   const chapterTitle = chapterLabel(chapter);
 
   return (

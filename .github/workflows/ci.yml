@@ -197,14 +197,19 @@ jobs:
           pip-audit -r backend_fastapi/requirements.lock --strict \
             --ignore-vuln PYSEC-2026-1325
 
-      # npm audit is clean today, so the gate is `high`: a new high or critical
-      # advisory fails the build, moderate ones are reported only.
+      # The gate is `high`: a new high or critical advisory fails the build,
+      # moderate ones are reported only. npm cannot ignore one advisory, so the
+      # gate reads `npm audit --json`; the script lists the advisories that
+      # have no fix yet, each with its reason (today: GHSA-vfj7-8cjw-p6xm in
+      # braces, build-time only via tailwindcss 3), like --ignore-vuln above.
       #
       # `if: always()` on both so a Python advisory cannot hide a JavaScript
       # one; the first run stopped at pip-audit and never reported npm at all.
       - name: npm audit (gate - high and above)
         if: always()
-        run: npm audit --audit-level=high
+        run: |
+          npm audit --json > npm-audit.json || true
+          node .github/scripts/npm-audit-gate.mjs < npm-audit.json
 
       - name: npm audit (report - moderate and above)
         if: always()

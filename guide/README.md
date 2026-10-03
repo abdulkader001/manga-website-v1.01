@@ -1,16 +1,40 @@
-# Install guides
+# Guides: start here
 
-Pick the guide for the computer that will run the site:
+There are two ways to run the site. Pick one.
+
+## A. Local test on your own computer (no domain)
+
+For trying the site, testing changes, or learning the admin area. It runs at
+`http://localhost:8080`, only you can see it, and you can delete it any time.
 
 | Your computer | Guide |
 | --- | --- |
 | Windows 10 / 11 | [INSTALL-WINDOWS.md](INSTALL-WINDOWS.md) |
 | macOS (Intel or Apple Silicon) | [INSTALL-MACOS.md](INSTALL-MACOS.md) |
-| Linux (Ubuntu / Debian, a home PC or a cloud server) | [INSTALL-LINUX.md](INSTALL-LINUX.md) |
+| Linux (Ubuntu / Debian) | [INSTALL-LINUX.md](INSTALL-LINUX.md) |
 
-All three follow the same 9 steps. Only the install commands and the way you
-type a few commands differ. Each guide goes from an empty computer to a
-running site with you signed in as the admin.
+All three follow the same 9 steps (only the install commands differ) and go
+from an empty computer to a running site with you signed in as the owner.
+Create `.env` with `make_env.py --local`.
+
+## B. Live server: the real website people visit
+
+One Linux server, your domain, HTTPS, backups. This is the base of the public
+website: **[LIVE-SERVER.md](LIVE-SERVER.md)** gives the order, and links to the
+detailed commands in [`../GUIDE.md`](../GUIDE.md).
+
+| | A. Local test | B. Live server |
+| --- | --- | --- |
+| Address | `http://localhost:8080` | `https://your-domain` |
+| `.env` | `make_env.py --local` | `make_env.py` + domain lines |
+| HTTPS, firewall, backups | not needed | required |
+| Who can see it | only you | everyone |
+
+Both start with *Sign-in required* **off**: guests can browse and read, and
+bookmarks are kept in each visitor's browser. The owner switches it on in
+**Admin → Site Functions** when ready.
+
+---
 
 **Already installed, and the admin sign-in "doesn't work"?** Jump to
 **Step 6** in your guide. The old admin password and `/admin-login` page are
@@ -64,5 +88,5 @@ to sign in with Google using the e-mail you choose:
 The guides show the exact command for your system: through Docker, so you
 don't have to install Python yourself.
 
-For running the site on a public domain with HTTPS, backups and updates, see
-[`../GUIDE.md`](../GUIDE.md) after you finish your install guide.
+For running the site on a public domain with HTTPS, backups and updates, follow
+[LIVE-SERVER.md](LIVE-SERVER.md) (path B above).

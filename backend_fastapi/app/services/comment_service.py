@@ -25,7 +25,6 @@ from ..models.community import (
     ContentReport,
 )
 from ..models.user import MAX_COMMENT_LENGTH, MAX_COMMENT_REPLY_DEPTH, Comment
-from ..utils.email_crypto import allow_email_decryption, mask_email
 from ..utils.sanitizer import sanitize_html
 from . import comment_translation_service, emoji_catalogue, moderation_service
 from . import ranking_service, reputation_service
@@ -323,14 +322,11 @@ def serialize_comment(
     translation_service: Any = None,
 ) -> Dict[str, Any]:
     hidden = comment.deleted_at is not None or comment.removed_at is not None
-    with allow_email_decryption():
-        user_email = comment.user.email if comment.user else None
 
     data: Dict[str, Any] = {
         "id": comment.id,
         "user_id": comment.user_id,
         "username": getattr(comment.user, "username", None) if comment.user else None,
-        "user_email_masked": mask_email(user_email),
         "target_type": comment.target_type,
         "target_id": comment.target_id,
         "parent_id": comment.parent_id,

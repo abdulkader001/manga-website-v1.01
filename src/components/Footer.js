@@ -3,6 +3,12 @@ import api, { apiFetch } from "../services/api";
 import { updateFavicon } from "../utils/favicon";
 import SupportLinks from "./SupportLinks";
 import FunctionGate from "./FunctionGate";
+import CONFIG from "../config";
+
+// What visitors see until the owner saves the site's branding and footer
+// (Admin). The server's values always win: the browser copy is only a cache.
+const DEFAULT_TAGLINE = "Read manga, manhwa and manhua online";
+const defaultCopyright = (name) => `© ${new Date().getFullYear()} ${name}. All rights reserved.`;
 
 const PRESET_LOGOS = [
   { icon: "🦎", name: "Gecko / Lizard" },
@@ -24,25 +30,21 @@ const PRESET_LOGOS = [
 
 export default function Footer() {
   const [brandName, setBrandName] = useState(() => {
-    return localStorage.getItem("mgeko_custom_brand") || "MGEKO.CC";
+    return localStorage.getItem("mgeko_custom_brand") || CONFIG.BRAND_NAME;
   });
   const [brandLogo, setBrandLogo] = useState(() => {
     return localStorage.getItem("mgeko_custom_logo") || "🦎";
   });
   const [brandTagline, setBrandTagline] = useState(() => {
-    return localStorage.getItem("mgeko_custom_tagline") || "Fan Comics & Fast Manga Reader Engine";
+    return localStorage.getItem("mgeko_custom_tagline") || DEFAULT_TAGLINE;
   });
 
   const [footerData, setFooterData] = useState({
-    copyright: "© 2026 mgeko.cc. All rights reserved.",
+    copyright: "",
     disclaimer: "Disclaimer: All manga, manhwa, and manhua content are property of their respective creators and publishers.",
-    social_links: [
-      { id: 1, platform: "discord", title: "Discord Community", url: "https://discord.gg/mgeko", icon: "fab fa-discord", enabled: true },
-      { id: 2, platform: "twitter", title: "Twitter / X Updates", url: "https://x.com/mgekocc", icon: "fab fa-x-twitter", enabled: true },
-      { id: 3, platform: "telegram", title: "Telegram Channel", url: "https://t.me/mgeko_updates", icon: "fab fa-telegram", enabled: true },
-      { id: 4, platform: "reddit", title: "Reddit Community", url: "https://reddit.com/r/mgeko", icon: "fab fa-reddit", enabled: true },
-      { id: 5, platform: "email", title: "Contact & Support", url: "mailto:contact@mgeko.cc", icon: "fas fa-envelope", enabled: true },
-    ],
+    // No links until the owner adds the site's own (they used to point at
+    // another site's Discord, X, Telegram and Reddit).
+    social_links: [],
   });
 
   // Modal Editor for Footer Brand & Info
@@ -62,19 +64,14 @@ export default function Footer() {
       .then((data) => {
         if (data) {
           setFooterData({
-            copyright: data.copyright || "© 2026 mgeko.cc. All rights reserved.",
+            copyright: data.copyright || "",
             disclaimer: data.disclaimer || "Disclaimer: All manga content are property of their respective creators.",
-            social_links: Array.isArray(data.social_links) && data.social_links.length > 0 ? data.social_links : footerData.social_links,
+            social_links: Array.isArray(data.social_links) ? data.social_links : [],
           });
-          if (data.site_name && !localStorage.getItem("mgeko_custom_brand")) {
-            setBrandName(data.site_name);
-          }
-          if (data.tagline && !localStorage.getItem("mgeko_custom_tagline")) {
-            setBrandTagline(data.tagline);
-          }
-          if (data.logo_url && !localStorage.getItem("mgeko_custom_logo")) {
-            setBrandLogo(data.logo_url);
-          }
+          // The saved branding is the site's, so it beats this browser's copy.
+          if (data.site_name) setBrandName(data.site_name);
+          if (data.tagline) setBrandTagline(data.tagline);
+          if (data.logo_url) setBrandLogo(data.logo_url);
         }
       })
       .catch(() => {});
@@ -123,9 +120,9 @@ export default function Footer() {
 
   const handleSaveBrand = async (e) => {
     e?.preventDefault();
-    const finalName = tempBrandName.trim() || "MGEKO.CC";
+    const finalName = tempBrandName.trim() || CONFIG.BRAND_NAME;
     const finalLogo = tempBrandLogo.trim() || "🦎";
-    const finalTagline = tempBrandTagline.trim() || "Fan Comics & Fast Manga Reader Engine";
+    const finalTagline = tempBrandTagline.trim() || DEFAULT_TAGLINE;
 
     setBrandName(finalName);
     setBrandLogo(finalLogo);
@@ -231,7 +228,7 @@ export default function Footer() {
               {footerData.disclaimer}
             </p>
             <div className="text-xs font-semibold text-gray-300 whitespace-nowrap">
-              {footerData.copyright}
+              {footerData.copyright || defaultCopyright(brandName)}
             </div>
           </div>
         </div>
@@ -268,7 +265,7 @@ export default function Footer() {
                   <span className="text-xl leading-none">{tempBrandLogo || "🦎"}</span>
                 )}
                 <div>
-                  <div className="font-extrabold text-white text-xs uppercase">{tempBrandName || "MGEKO.CC"}</div>
+                  <div className="font-extrabold text-white text-xs uppercase">{tempBrandName || CONFIG.BRAND_NAME}</div>
                   <div className="text-[10px] text-[#8b93a3]">{tempBrandTagline || "Fan Comics & Fast Manga Reader"}</div>
                 </div>
               </div>
@@ -282,7 +279,7 @@ export default function Footer() {
                 required
                 value={tempBrandName}
                 onChange={(e) => setTempBrandName(e.target.value)}
-                placeholder="e.g. MGEKO.CC, MangaWorld, AnimeScans"
+                placeholder="e.g. MangaWorld, AnimeScans"
                 className="w-full bg-[#1f2330] border border-[#374151] rounded-lg p-2.5 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-[#00AEF0]"
               />
             </div>

@@ -52,7 +52,7 @@ _SPECS: tuple[FunctionSpec, ...] = (
         "Sign-in required for everyone",
         G_ACCESS,
         "Visitors must sign in before they can see anything. Off lets guests browse and read.",
-        True,
+        False,
         store="login_required",
         enforced_by="dependencies.site_access.require_site_access",
     ),

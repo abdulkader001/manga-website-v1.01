@@ -11,6 +11,7 @@ from sqlalchemy import (
     Index,
     event,
     func,
+    false as sa_false,
     true as sa_true,
 )
 from sqlalchemy.orm import relationship, synonym
@@ -24,9 +25,10 @@ from ..utils.email_crypto import (
     render_email,
 )
 
-# Visitors must sign in before they see anything, until the owner switches it
-# off in Admin Settings (``system_settings.login_required``).
-LOGIN_REQUIRED_DEFAULT = True
+# Off by default (owner's rule, 2026-10-03): guests can browse and read until the
+# owner switches "Sign-in required" on in Admin -> Site Functions
+# (``system_settings.login_required``).
+LOGIN_REQUIRED_DEFAULT = False
 
 
 class FooterSettings(Base):
@@ -254,12 +256,12 @@ class SystemSettings(Base):
     platform_default_daily_ceiling = Column(Integer, nullable=True)
     # Main-admin switch: when on, only signed-in accounts can browse and read.
     # Sign-in, sign-up and admin bootstrap stay reachable so nobody is locked out.
-    # On by default (owner's rule): nobody sees the site before signing in.
+    # Off by default (owner's rule): the owner switches it on when ready.
     login_required = Column(
         Boolean,
         nullable=False,
         default=LOGIN_REQUIRED_DEFAULT,
-        server_default=sa_true(),
+        server_default=sa_false(),
     )
     # Retired: the one-time admin password is gone (the owner now claims the
     # seat with Google). Nothing reads or writes this column any more.

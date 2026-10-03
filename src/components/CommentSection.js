@@ -10,6 +10,7 @@ export default function CommentSection({ targetType = "manga", targetId }) {
   const [content, setContent] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [sort, setSort] = useState("top");
+  const [postError, setPostError] = useState("");
 
   const { data: commentsData, isLoading } = useQuery({
     queryKey: ["comments", targetType, targetId, sort],
@@ -23,6 +24,7 @@ export default function CommentSection({ targetType = "manga", targetId }) {
     e.preventDefault();
     if (!content.trim() || !targetId || submitting) return;
     setSubmitting(true);
+    setPostError("");
     try {
       await api.comments.create({
         target_type: targetType,
@@ -32,7 +34,8 @@ export default function CommentSection({ targetType = "manga", targetId }) {
       setContent("");
       queryClient.invalidateQueries({ queryKey: ["comments", targetType, targetId] });
     } catch (err) {
-      console.error("Failed to post comment:", err);
+      // Keep the text so nothing is lost, and say why it didn't go through.
+      setPostError(err?.message || "Your comment could not be posted. Please try again.");
     } finally {
       setSubmitting(false);
     }
@@ -71,9 +74,14 @@ export default function CommentSection({ targetType = "manga", targetId }) {
           rows={3}
           value={content}
           onChange={(e) => setContent(e.target.value)}
-          placeholder={user ? "Join the discussion..." : "Sign in or post a thought..."}
+          placeholder={user ? "Join the discussion..." : "Sign in to join the discussion..."}
           className="w-full p-3.5 rounded-xl bg-[#101216] border border-[#262a33] text-sm text-white placeholder:text-gray-500 focus:outline-none focus:border-[#00AEF0] resize-none"
         />
+        {postError && (
+          <p role="alert" className="text-[11px] text-red-400">
+            {postError}
+          </p>
+        )}
         <div className="flex items-center justify-between">
           <span className="text-[11px] text-[#8b93a3]">
             Be respectful and keep spoilers tagged.
@@ -100,24 +108,32 @@ export default function CommentSection({ targetType = "manga", targetId }) {
                   {cmt.user_profile_image || cmt.user_avatar || cmt.profile_image ? (
                     <img
                       src={cmt.user_profile_image || cmt.user_avatar || cmt.profile_image}
-                      alt={cmt.user_name || "User"}
+                      alt={cmt.username || "User"}
                       className="w-7 h-7 rounded-full object-cover border border-[#00AEF0] flex-none"
                     />
                   ) : (
                     <div className="w-7 h-7 rounded-full bg-gradient-to-tr from-[#00AEF0] to-purple-600 flex items-center justify-center font-bold text-xs text-white flex-none">
-                      {(cmt.user_name || "A")[0].toUpperCase()}
+                      {(cmt.username || "R")[0].toUpperCase()}
                     </div>
                   )}
                   <div>
-                    <span className="text-xs font-bold text-white block">{cmt.user_name || "Reader"}</span>
+                    <span className="text-xs font-bold text-white block">{cmt.username || "Reader"}</span>
                     <span className="text-[10px] text-[#8b93a3]">{cmt.created_at ? formatUtcTime(cmt.created_at, false) + " · " + formatUtcTime(cmt.created_at).split(",")[0] : "Recently"}</span>
                   </div>
                 </div>
-                {cmt.score != null && (
-                  <span className="text-xs text-emerald-400 font-bold">+{cmt.score}</span>
+                {cmt.like_count > 0 && (
+                  <span className="text-xs text-emerald-400 font-bold">+{cmt.like_count}</span>
                 )}
               </div>
-              <p className="text-xs text-gray-200 leading-relaxed pl-9">{cmt.content}</p>
+              <p className="text-xs text-gray-200 leading-relaxed pl-9">
+                {cmt.removed ? (
+                  <em className="text-[#8b93a3]">Removed by a moderator.</em>
+                ) : cmt.deleted ? (
+                  <em className="text-[#8b93a3]">Deleted by its author.</em>
+                ) : (
+                  cmt.content
+                )}
+              </p>
             </div>
           ))
         ) : (

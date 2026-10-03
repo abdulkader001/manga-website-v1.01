@@ -1,5 +1,11 @@
 # TARGET DESIGN — Role & Permission Model (Not Yet Implemented)
 
+> **Superseded (2026-10-03).** This is the old design (user / moderator /
+> secondary admin / permanent admin). What is built and enforced today is the
+> four-role model: **owner**, **Admin** (at most two), **sub-admin** and
+> **user**; see `CLAUDE.md` (house rules) and `AUDIT_LOG.md` §1 "People and
+> roles". Kept for history only.
+
 **Status: design spec only.** Nothing in this document describes current code behavior. It exists so this design isn't lost between the audit and the eventual fix/build phase. Current actual behavior is documented separately in `README_ROLES.md`'s prior sibling `docs/system-reference/02-authorization-and-permissions.md` (not included in this repository).
 
 ## Role hierarchy — four tiers, no more

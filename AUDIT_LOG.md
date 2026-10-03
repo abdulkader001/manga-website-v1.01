@@ -38,7 +38,7 @@ Contents
 | `.env` on the server | Foundation only: database/Redis, signing and encryption keys, `INTEGRATIONS_SECRET`, admin identity (`MAIN_ADMIN_EMAIL_HASH` only), the Google sign-in client (`GOOGLE_OAUTH_CLIENT_ID` / `_SECRET`, needed before the owner can open the vault; may be moved into it afterwards), starting site address | Whoever has the server | Edit the file and recreate the containers |
 | **Secret Vault** (Admin → Secret Vault) | Everything else: Google/Microsoft sign-in, SMTP/magic links, OCR/translation, API keys, limits, Sentry, **website domain**, the **backup** schedule, password and storage keys (`BACKUP_*`, set from Storage & Backups) and **Geolock** (`GEOLOCK_*`, set from Geolock) | Main admin only, with an authenticator code and a 10-minute unlock | Remove the value and it falls back to `.env`. `VAULT_PRELOAD_DISABLED=true` skips the vault if a bad value stops start-up |
 | **Admin Settings** (database) | Site name/logo/footer, donations, session policy, the default reader mode | Main admin (an Admin only if the owner switched Admin Settings on) | Change it back in the page |
-| **Site Functions** (database, Admin → Site Functions) | The on/off switch of every main website function: sign-in required, maintenance, new accounts, each sign-in method, comments, community, reports, notifications, OCR, translation, ads, support links, sitemap/RSS, scraping, and the two IP-privacy switches. **Owner only, never delegable** (no permission opens it) | The owner | Switch it back, or `cli_bootstrap functions-reset` |
+| **Site Functions** (database, Admin → Site Functions) | The on/off switch of every main website function: sign-in required (starts **off**), maintenance, new accounts, each sign-in method, comments, community, reports, notifications, OCR, translation, ads, support links, sitemap/RSS, scraping, and the two IP-privacy switches. **Owner only, never delegable** (no permission opens it) | The owner | Switch it back, or `cli_bootstrap functions-reset` |
 
 ### People and roles
 
@@ -53,7 +53,7 @@ Contents
 
 ### Data that is deliberately *not* on the server
 
-- Bookmarks, reading history and "where I stopped" live in the reader's browser (`localStorage` key `mw_library_v1`, `src/utils/library.js`). Readers move them between devices with export/import.
+- Bookmarks, reading history and "where I stopped" live in the reader's browser (`localStorage` key `mw_library_v1`, `src/utils/library.js`), keyed by series ID, for guests and signed-in readers alike. Readers move them between devices with export/import. (The old server-side `bookmarks` / `read_history` tables and `/bookmarks`, `/history` routes still exist but nothing in the website writes to them; see §5.)
 
 ### Server-side tools (run with `docker compose exec backend python -m backend_fastapi.scripts.<name>`)
 
@@ -89,9 +89,10 @@ back what the upgrade removed, so restore a backup instead.
 | `20261011_admin_password_single_use` | #27 | `system_settings.admin_setup_password_used` | Drops it. The column is unused now (the one-time password is gone), so this changes nothing |
 | `20261012_overlay_text_scale` | #33 | `user_processing_settings.overlay_font_size` becomes the 1-100 slider (pixels converted: 20 px → 28.5); new `overlay_outline_color`, `overlay_match_bubble` | **Lossy**: sizes go back to pixels rounded and capped at 10-40 px (a reader on 100 = 70 px gets 40 px); outline colour and bubble switch are dropped |
 | `20261013_admin_succession` | #34 | `admin_activity_days` table (one row per admin per active day) and `system_settings.succession_enabled` / `succession_inactive_days` / `succession_enabled_at` | Drops them. **Lossy**: the activity history and the succession switch are gone (succession is off again) |
-| `20261014_four_roles` | this PR | Adds role `CO_ADMIN` (Postgres enum value if native), `users.appointed_by` / `sub_admin_quota` / `admin_since`, `admin_successors`, `system_settings.sub_admin_blocked_permissions`; deletes site-owner overrides held by sub-admins (they can no longer hold them) | **Lossy**: Admins go back to sub-admins, and the new columns, succession lines and ceiling are dropped. The deleted overrides do not come back (re-promote in Role Management) |
+| `20261014_four_roles` | #35 | Adds role `CO_ADMIN` (Postgres enum value if native), `users.appointed_by` / `sub_admin_quota` / `admin_since`, `admin_successors`, `system_settings.sub_admin_blocked_permissions`; deletes site-owner overrides held by sub-admins (they can no longer hold them) | **Lossy**: Admins go back to sub-admins, and the new columns, succession lines and ceiling are dropped. The deleted overrides do not come back (re-promote in Role Management) |
 | `20261015_login_required_default_on` | #41 | `system_settings.login_required` column default becomes **on**, and the existing row is set to on | **Lossy**: only the default goes back to off. The value the owner had before the upgrade is not kept, so existing rows stay on (turn it off in Admin Settings) |
 | `20261016_site_functions_and_tab_access` | #41 | New table `site_functions` (owner's switches) and `users.visible_admin_tabs` / `users.powers_suspended` | **Lossy**: drops them. Every function goes back to its default and every Admin / sub-admin goes back to "follow my permissions", with no powers switched off |
+| `20261017_login_required_default_off` | this PR | `system_settings.login_required` column default becomes **off** again, and the existing row is switched off (guests can read until the owner switches it on) | **Lossy**: only the default goes back to on. The value the owner had before the upgrade is not kept, so existing rows stay off (switch it on in Admin → Site Functions) |
 
 Check where a server is: `docker compose exec backend alembic current`.
 
@@ -133,9 +134,38 @@ exceptions; for those, restore the database backup taken before the update.
 
 ## Change entries
 
+### 2026-10-03 — Sign-in optional at the start; whole-site bug test; two clear guides
+
+Merge SHA: fill in when known (the next PR fills it in). Branch `claude/funny-gauss-k12tkr`. Full report: `audit/bug-test-2026-10-03.md`.
+
+The owner changed the sign-in rule: the site starts **open** (guests read and keep bookmarks in their browser) and the owner switches *Sign-in required* on later, once the Admins are in place. They also asked for a bug test of the whole website, guides that match the site (one for a local test without a domain, one for the live server), and the audit files brought up to date.
+
+| Change | Why | Main files |
+| --- | --- | --- |
+| **"Sign-in required" starts off** (`LOGIN_REQUIRED_DEFAULT = False`, Site Functions default off). Migration `20261017_login_required_default_off` sets the column default to off and switches the existing site off. If the setting can't be read at all, guests are kept out (a database hiccup never opens a members-only site) | Owner's rule (2026-10-03) | `models/settings.py`, `dependencies/site_access.py`, `core/site_functions.py`, `migrations/versions/20261017_login_required_default_off.py` |
+| Reader page showed **"Manga #7"** instead of the series title (the API sends `manga_title`) | Bug found live | `src/components/ChapterViewer.js` |
+| Comments showed **every author as "Reader"** (the API sends `username`), never showed likes, showed removed comments as blank, and **hid posting errors** | Bug found live | `src/components/CommentSection.js` |
+| The comments API sent each author's **masked e-mail** (`r***r@example.test`) to everyone, guests included, and decrypted an e-mail per comment | Privacy: e-mails are for the owner and Admins only | `services/comment_service.py`, `schemas/comments.py` |
+| Guests saw the notification bell, which asked the server every 20 seconds and got 401 every time | Wasted requests on every guest tab | `src/components/Navbar.js` |
+| An e-mail sign-in link was used twice (React runs the effect twice in development): the second call failed and threw the new session back to `/login` | Local testing (`npm run dev`) could not sign in by e-mail | `src/pages/MagicLinkConsume.js` |
+| `favicon.ico`, `logo192.png`, `logo512.png` were missing: a 404 on every page, and the service worker's install failed, so offline caching never worked. The install now skips a missing file instead of failing | Bug found live | `public/`, `public/sw.js` |
+| **Branding**: the navbar never read the site name/logo the owner saved, and the footer preferred the admin's own browser copy, so visitors saw "MangaWorld" in one place and "MGEKO.CC" (another site's name, with its Discord/X/Telegram/Reddit links) in the other. The saved branding now wins everywhere; the foreign defaults are gone | Visitors must see the owner's site | `src/components/Navbar.js`, `src/components/Footer.js`, `src/components/FooterEditor.js`, `src/pages/Admin/AdminSettings.jsx` |
+| Guides: `guide/README.md` now starts with two paths, **A. local test (no domain)** and **B. live server**; new `guide/LIVE-SERVER.md` gives the live order and links to `GUIDE.md`; install guides and `GUIDE.md` §6.2, troubleshooting and checklist say sign-in starts off; the repository `README.md` points to the guides | Owner asked for a local and a live guide that match the site | `guide/`, `GUIDE.md`, `README.md` |
+| Audit files: new bug-test report; roadmap item 29 (public browsing) closed by the owner's decision; old statements (2FA "off by default", the login gate, the pre-four-roles role design) marked as superseded; missing merge SHAs filled in | Keep the history true | `audit/`, `backend_fastapi/audit/`, `AUDIT_LOG.md` |
+| **CI dependency audit**: a high advisory published on 2026-10-03 (GHSA-vfj7-8cjw-p6xm, `braces`, every version, no fix) turned the npm gate red on every branch. It reaches the site only through tailwindcss 3 at build time (`npm audit --omit=dev` is clean). The gate now reads `npm audit --json` and ignores just that advisory, with its reason, like the existing `--ignore-vuln` for pip-audit; any other high or critical advisory, or an audit that can't run, still fails | Keep the gate meaningful without a forced Tailwind 4 migration | `.github/workflows/ci.yml`, `.github/scripts/npm-audit-gate.mjs` |
+| Tests: sign-in default off (no row, new row, Site Functions default), unreadable setting keeps guests out, migration 20261017 both ways; reader title, comment names/likes/errors, the sign-in link spent once under StrictMode | Prove it | `tests/test_login_required.py`, `tests/test_login_required_migration.py`, `tests/conftest.py`, `src/components/ChapterViewer.test.jsx`, `src/components/CommentSection.test.jsx`, `src/pages/MagicLinkConsume.test.jsx` |
+
+- **Database:** `20261017_login_required_default_off` (added to §2; lossy to downgrade: the earlier value is not kept).
+- **Settings:** none in `.env`. Site Functions → *Sign-in required* now starts off, and updating switches an existing site off. `cli_bootstrap functions-reset` also puts it back to off. `CLAUDE.md` house rule updated.
+- **Behaviour changes to know:** after this update guests can read again until the owner switches the setting on. Comments no longer carry `user_email_masked`.
+- **Check:** in a private window the home page, a series and a chapter open without signing in, and *Add to Bookmarks* works. Switch *Sign-in required* on in Admin → Site Functions: the same window now lands on the login page. `pytest backend_fastapi/tests/test_login_required.py backend_fastapi/tests/test_login_required_migration.py`; `npx vitest run`.
+- **Undo:** switch *Sign-in required* on (no code change); or `git revert -m 1 <merge>` and `alembic downgrade 20261016_site_functions_and_tab_access` (the default goes back to on; existing rows stay as they are).
+
+---
+
 ### 2026-10-03 — Site Functions, tab access, IP privacy, route audit and hardening
 
-Merge SHA: fill in when known. Branch `claude/nifty-fermat-53hmly`; this joins PR #41 (still open). Full report: `audit/site-functions-tab-access-and-hardening-2026-10-03.md`.
+Merge commit `c2efe13` (PR #41). Branch `claude/nifty-fermat-53hmly`. Full report: `audit/site-functions-tab-access-and-hardening-2026-10-03.md`.
 
 The owner asked for one page listing every main website function with an on/off switch (owner only), per-person admin tab access (owner only), the owner able to switch an Admin's powers off while the seat stays filled, visitors' IP addresses visible to the owner only, and a check that every route is connected properly.
 
@@ -158,7 +188,7 @@ The owner asked for one page listing every main website function with an on/off 
 
 ### 2026-10-02 — Sign-in first: nobody sees the site before logging in
 
-Merge SHA: fill in when known. Branch `claude/nifty-fermat-53hmly` (restarted from `main` after #40 merged).
+Merge commit `c2efe13` (PR #41). Branch `claude/nifty-fermat-53hmly` (restarted from `main` after #40 merged). **Reversed on 2026-10-03:** sign-in required starts off again (see the entry above).
 
 The owner wants every visitor to log in first (Google, Microsoft or an e-mail magic link), with the login page in front even for a casual look, so there is less scraping and less load. The "Sign-in required" switch already existed but started **off**.
 
@@ -181,7 +211,7 @@ The owner wants every visitor to log in first (Google, Microsoft or an e-mail ma
 
 ### 2026-10-02 — Owner sign-in clean-up: guide order, leftovers of the admin password
 
-Merge SHA: fill in when known. Branch `claude/nifty-fermat-53hmly` (restarted from `main` after #39 merged). Follow-up to PR #39; documentation and comments only, no behaviour change.
+Merge commit `7a53a77` (PR #40). Branch `claude/nifty-fermat-53hmly` (restarted from `main` after #39 merged). Follow-up to PR #39; documentation and comments only, no behaviour change.
 
 The owner asked that everything that depended on the admin password hash works with the new Google sign-in, `GUIDE.md` included. A search of the whole repository (code, tests, scripts, compose and deployment files, CI, guides) found no remaining use of `MAIN_ADMIN_PASSWORD_HASH`, `/admin-login` or the password helpers. The leftovers were these:
 
@@ -223,7 +253,7 @@ The owner asked for a simpler first login: put the Google client in `.env`, keep
 
 ### 2026-10-02 — GUIDE.md: commands that match the machine
 
-Documentation only. Branch `claude/guide-fewer-mismatches`. Merge SHA: fill in when known.
+Documentation only. Branch `claude/guide-fewer-mismatches`. Merge commit `306aa79` (PR #38).
 
 Written from a real terminal log of an Ubuntu 26.04 machine (Python 3.14, no `python3.11`, `pip` or `nvm`) where many guide commands "didn't match".
 
@@ -264,7 +294,7 @@ Documentation only. Merge commit `178bb3d` (PR #37).
 
 ### 2026-10-02 — Four-role audit: pages and "delete all" follow the owner's switches
 
-Branch `claude/eager-noether-0jg9xq`. Merge SHA: fill in when known.
+Branch `claude/eager-noether-0jg9xq`. Merge commit `7303c34` (PR #36).
 
 | Change | Why | Main files |
 | --- | --- | --- |
@@ -297,7 +327,7 @@ Branch `claude/eager-noether-0jg9xq`. Merge commit `27eda94` (PR #35).
 
 ### 2026-10-02 — PR #34: Storage & Backups, Geolock, deputies and automatic succession
 
-Branch `claude/great-faraday-nh2dwx`. Commits `c96b98e`, `2da5e86`, `c608f69` and the follow-ups. Merge SHA: fill in when known.
+Branch `claude/great-faraday-nh2dwx`. Commits `c96b98e`, `2da5e86`, `c608f69` and the follow-ups. Merge commit `217f255`.
 
 | Change | Why | Main files |
 | --- | --- | --- |
@@ -516,6 +546,12 @@ PRs #1–#22 predate this log. Their summaries are in the merge commits
 - **Win + right-click**: Windows often swallows the Windows key. Shift + right-click is the reliable way to get a new window.
 - **Crypto addresses** are checked for format, not ownership. Send yourself a small test amount after every change.
 - **Comment and cultivation systems**: postponed by the owner ("fix our issues first").
+- **"New chapter" notifications reach nobody** (found 2026-10-03): the scheduled check notifies readers who have a *server-side* bookmark, but bookmarks live in the browser, so no such rows are ever made. Needs the owner's choice: an opt-in "follow this series" saved on the server under the reader's account ID, or drop the feature.
+- **Unused server code** (found 2026-10-03): the `/bookmarks` and `/history` routes, `bookmarks/import`, the `read_history` table and `suggestion_service` serve nothing in the website (bookmarks and history are in the browser). About 60 functions in `src/services/api.js` are never called.
+- **Built on the server but without a page** (found 2026-10-03): Community (emojis, realms, memes, ranks, pills; it has a Site Functions switch), comment edit / vote / react / report / moderation, and notification preferences.
+- **Homepage header text** edited by an admin is saved only in that admin's browser (`localStorage`); visitors never see it. Needs a server setting.
+- **SQLite development database:** several migrations are PostgreSQL-only, so an SQLite database made with `alembic upgrade head` lacks `settings`, `footer_settings`, `login_tokens`, `complaints` and some columns. Production (PostgreSQL) is complete. Use PostgreSQL for local testing too (the install guides do, through Docker).
+- **`braces` advisory ignored in CI** (GHSA-vfj7-8cjw-p6xm, build-time only via tailwindcss 3): remove it from `.github/scripts/npm-audit-gate.mjs` when `braces` ships a fix or the site moves to Tailwind 4.
 - **`users.password_hash`** column is unused since PR #27. It was kept so that undoing PR #27 restores old password logins. It can be dropped in a later migration.
 
 ---

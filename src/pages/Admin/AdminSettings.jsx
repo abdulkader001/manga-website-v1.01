@@ -12,8 +12,8 @@ export default function AdminSettings() {
 
   // General settings state
   const [settings, setSettings] = useState({
-    site_name: "mgeko.cc",
-    tagline: "Fan comics - Read Manga Online Free",
+    site_name: "",
+    tagline: "",
     logo_url: "/logo192.png",
     maintenance_mode: false,
     allow_registration: true,
@@ -274,7 +274,7 @@ export default function AdminSettings() {
                 value={settings.site_name}
                 onChange={(e) => setSettings({ ...settings, site_name: e.target.value })}
                 className="w-full bg-[#101216] border border-[#262a33] rounded-xl px-3.5 py-2.5 text-white placeholder-gray-600 focus:outline-none focus:border-[#00AEF0]"
-                placeholder="e.g., mgeko.cc"
+                placeholder="e.g., MangaWorld"
               />
             </div>
 
