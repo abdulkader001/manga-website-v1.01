@@ -49,6 +49,15 @@ export const ADMIN_FEATURE_LINKS = [
     permission: "view_system_health",
   },
   {
+    key: "error-report",
+    label: "Error Report",
+    to: "/admin/error-report",
+    description:
+      "Errors the site hit (server, workers and readers' browsers), the likely cause and how to fix each one.",
+    minRole: "secondary",
+    permission: "view_error_reports",
+  },
+  {
     key: "chapter-reports",
     label: "Chapter Reports & Single Re-scrape",
     to: "/admin/chapter-reports",

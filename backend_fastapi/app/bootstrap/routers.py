@@ -21,6 +21,8 @@ from ..api.routers import (
     auth_router,
     backup_router,
     backups_admin_router,
+    error_reports_public_router,
+    error_reports_router,
     geo_public_router,
     geolock_admin_router,
     roles_succession_router,
@@ -107,6 +109,9 @@ def build_api_router() -> APIRouter:
     api_router.include_router(backups_admin_router)
     api_router.include_router(geolock_admin_router)
     api_router.include_router(geo_public_router)
+    # Admin -> Error Report; browsers report their errors to the public half.
+    api_router.include_router(error_reports_router)
+    api_router.include_router(error_reports_public_router)
     api_router.include_router(roles_succession_router)
     api_router.include_router(roles_admins_router)
     return api_router

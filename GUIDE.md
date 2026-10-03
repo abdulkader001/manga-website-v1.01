@@ -1084,6 +1084,30 @@ tab, **and the server refuses those tabs' actions too**, not only the menu.
   an Admin or sub-admin, both are cleared.
 - Every change goes to the audit log.
 
+### 6.6 Error Report: what went wrong and how to fix it
+
+**Admin → Error Report** lists every error the site hit, from three places:
+
+- **Server**: the API crashed on a request, or an outside service failed (an OCR /
+  translation / AI provider, a source site).
+- **Background job**: a scraper, OCR, e-mail or other worker job failed for good
+  (after its retries).
+- **Reader's browser**: a page crashed or a script failed in a visitor's browser.
+
+The same error is **one entry with a count**, so a crash that happens a thousand
+times shows once. Each entry shows the error, *Where* it happened, a **Likely
+cause** and **How to fix** in plain words, and *Technical details* (the stack) to
+send to a developer. Press **Mark fixed** once you have dealt with it; it comes
+back by itself if it happens again. **Clear fixed** deletes the fixed entries.
+
+- Who sees it: you and your Admins (power *Error Report*, `view_error_reports`).
+  A sub-admin only if you give them that power in Role Management, and you can
+  hide the tab from anyone with Tab access (Section 6.5).
+- Privacy: no visitor IP address, account or link query (`?token=…`) is stored, and
+  e-mail addresses, passwords and keys are masked out of the message and stack.
+- The newest 2,000 entries are kept; older ones are dropped automatically.
+- "Unrecognised" means no known pattern matched: open *Technical details*.
+
 ## 7. Start using the site's functions
 
 All of this is in the **admin area** once you are logged in as admin.
@@ -1606,6 +1630,8 @@ command and the machine, not a broken site.
 | Geolock blocks nobody | Turn it on, tick countries, and install the country database (Geolock tab). Visitors on a local network or VPN aren't matched. |
 | Port already in use (`port is already allocated`) | Another program uses 8080/8000/5432: `sudo ss -ltnp \| grep -E ':(8080\|8000\|5432)\b'`. Stop it, or change the published port in `docker-compose.yml`. |
 | Windows: `exec ... no such file or directory` in a container | Line endings; clone inside WSL or run `git config core.autocrlf false` before cloning. |
+| Something on the site fails and you don't know why | Open **Admin → Error Report** (Section 6.6): each error there says the likely cause and how to fix it. |
+| Error Report says the database is missing a table or column | The update's database step didn't run: `docker compose exec backend alembic upgrade head`, then `docker compose restart backend`. |
 | API docs (`/docs`) missing | Intentional in production; set `EXPOSE_API_DOCS=true` on a private deploy. |
 
 ---
@@ -1631,6 +1657,7 @@ command and the machine, not a broken site.
 - [ ] Backups: nightly `~/manga-backup.sh` in cron and copied off the server; in **Admin → Storage & Backups** set a backup password (kept off the server), check the weekly schedule, and connect R2/B2 storage
 - [ ] Geolock set if needed (Admin → Geolock; install the country database first)
 - [ ] Admins (optional): at most two trusted sub-admins with an authenticator, made Admins in Role Management; set their seats, the sub-admin ceiling and each Admin's succession line; automatic succession on if you want idle Admins replaced (Section 6.3)
+- [ ] **Admin → Error Report** opened after setup and after every update: no open errors, or each one dealt with and marked fixed (Section 6.6)
 - [ ] `AUDIT_LOG.md` read; a backup taken before every update (Section 12)
 
 More detail: `README.md`, `backend_fastapi/README.md`, `deployment/README.md`,

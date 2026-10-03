@@ -9,6 +9,8 @@ from .ads import router as ads_router
 from .auth import router as auth_router
 from .backup import router as backup_router
 from .backups_admin import router as backups_admin_router
+from .error_reports import public_router as error_reports_public_router
+from .error_reports import router as error_reports_router
 from .geolock_admin import public_router as geo_public_router
 from .geolock_admin import router as geolock_admin_router
 from .roles_succession import router as roles_succession_router
@@ -59,6 +61,8 @@ __all__ = [
     "auth_router",
     "backup_router",
     "backups_admin_router",
+    "error_reports_public_router",
+    "error_reports_router",
     "geo_public_router",
     "geolock_admin_router",
     "roles_succession_router",

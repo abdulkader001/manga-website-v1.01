@@ -49,6 +49,7 @@ Contents
 - **Automatic succession** (owner only, off by default, owner's code to change): an Admin idle longer than the chosen days (default 60) becomes a user and the first eligible sub-admin in their line (still a sub-admin, active, with an authenticator) takes the seat as it is: the owner's restrictions, the seats and the appointees (`services/admin_succession.py`, daily job). The owner can hand a seat over at once. Ownership never passes to anyone; `/admin/demote-main` stays owner-only.
 - **Owner-only pages, not delegable** (no permission opens them): **Site Functions** (the website's on/off switches) and Role Management → **Tab access** (which admin tabs each Admin / sub-admin sees, and "switch all powers off": the person keeps the title and the seat but nothing in the admin area answers them). An Admin can't see either, even one holding Role Management.
 - **Visitors' IP addresses are for the owner only** (Site Functions → *Visitor IP addresses are for the owner only*, on by default): the audit log shows them to the owner alone; the legacy admin-token list is owner only; the ad-click log line no longer prints one. *Record visitor IP addresses* (on by default) can stop new entries storing one.
+- **Error Report** (`view_error_reports`, Admin → Error Report): errors from the API, the workers and readers' browsers with a likely cause and fix. The owner and Admins hold it by default; a sub-admin only if granted. Browsers report to the open route `POST /errors/report` (rate-limited; no IP, account or query string stored; e-mails and tokens masked).
 - **User (reader)**: signs in with a magic link, Google or Microsoft. **No passwords.** One inbox gives one account for life.
 
 ### Data that is deliberately *not* on the server
@@ -95,6 +96,7 @@ back what the upgrade removed, so restore a backup instead.
 | `20261016_site_functions_and_tab_access` | #41 | New table `site_functions` (owner's switches) and `users.visible_admin_tabs` / `users.powers_suspended` | **Lossy**: drops them. Every function goes back to its default and every Admin / sub-admin goes back to "follow my permissions", with no powers switched off |
 | `20261017_login_required_default_off` | this PR | `system_settings.login_required` column default becomes **off** again, and the existing row is switched off (guests can read until the owner switches it on) | **Lossy**: only the default goes back to on. The value the owner had before the upgrade is not kept, so existing rows stay off (switch it on in Admin → Site Functions) |
 
+| `20261018_error_reports` | this PR | New table `error_reports` (Admin → Error Report: grouped errors with cause, fix, count, fixed flag) | **Lossy**: drops the table; the recorded errors are lost (nothing else depends on them) |
 Check where a server is: `docker compose exec backend alembic current`.
 
 ---
@@ -135,9 +137,31 @@ exceptions; for those, restore the database backup taken before the update.
 
 ## Change entries
 
+### 2026-10-03 — Admin → Error Report: what went wrong, the likely cause and the fix
+
+Merge SHA: fill in when known (the next PR fills it in). Branch `claude/project-thread-y77vpo`.
+
+The owner asked for an admin tab that shows what errors are happening, what the real problem is and how to fix it. Errors from the API server, the background workers and readers' browsers are now saved (grouped: one entry per distinct error, with a count) and shown in **Admin → Error Report** with a plain-language *Likely cause* and *How to fix*.
+
+| Change | Why | Main files |
+| --- | --- | --- |
+| **Errors are recorded**: unhandled API exceptions and 5xx API errors (exception handler), worker tasks that failed for good (Celery `task_failure`), and browser script errors / crashed pages (`window` error + unhandled rejection listeners and the error boundary, sent to `POST /errors/report`) | Until now errors only went to server logs (and Sentry if set up), which the owner doesn't read | `bootstrap/exception_handlers.py`, `core/celery_app.py`, `src/utils/errorReporter.js`, `src/components/ErrorBoundary.js`, `src/index.jsx` |
+| **Plain-language diagnosis**: 30 rules (database missing a table, database down, Redis down, disk full, out of memory, provider key refused, rate limits, scraper blocked or layout changed, SMTP, missing setting, stale page after an update, browser network failure, code bugs, harmless notices) each naming the page, setting or command to use | "What's the genuine problem, what are the fixes" | `services/error_report_service.py` (`RULES`, `diagnose`) |
+| **Admin → Error Report tab**: open / fixed / all, filter by where it happened, counts, first and last seen, technical details, *Mark fixed*, *Reopen*, *Clear fixed*; a fixed entry reopens when the error happens again | The owner's request | `src/pages/Admin/ErrorReport.jsx`, `api/routers/error_reports.py`, `core/admin_tabs.py`, `src/constants/adminFeatures.js`, `src/app.js` |
+| **New power `view_error_reports`** (Observability): owner and Admins by default, sub-admins off (grantable) | Only the owner/Admins should read server internals | `core/permissions.py` |
+| **Privacy**: no IP, account or query string stored; e-mails, IPs, tokens, passwords and URL credentials masked before saving; the browser route's rate limit is keyed on a hash of the address; at most 2,000 rows kept | House rule: visitor IPs never stored or logged | `services/error_report_service.py` (`scrub`), `api/routers/error_reports.py` |
+| `POST /errors/report` added to the route audit's list of open routes (a decision: guests' browsers crash too) | `tests/test_route_audit.py` lists every open route | `backend_fastapi/tests/test_route_audit.py` |
+
+- **Database:** new migration `20261018_error_reports` (table `error_reports`); see §2.
+- **Settings:** none. Mark fixed / reopen / clear go to the admin audit log (`ERROR_REPORT_RESOLVE`, `ERROR_REPORT_REOPEN`, `ERROR_REPORT_CLEAR`).
+- **Check:** after `alembic upgrade head`, open **Admin → Error Report** as the owner: it says "No open errors". In a browser console on the site run `setTimeout(() => { throw new Error("test") })`; refresh the tab and a *Reader's browser* entry appears with a cause and fix. An Admin sees the tab; a sub-admin doesn't unless given *Error Report*. Tests: `backend_fastapi/tests/test_error_reports.py`, `src/pages/Admin/ErrorReport.test.jsx`, `src/utils/errorReporter.test.js`.
+- **Undo:** `alembic downgrade 20261017_login_required_default_off` (drops `error_reports`, **lossy**: the recorded errors are gone), then `git revert -m 1 <merge>`. Nothing else depends on the table.
+
+---
+
 ### 2026-10-03 — Whole-site map and fix plan (documents only, nothing fixed)
 
-Merge SHA: fill in when known (the next PR fills it in). Branch `claude/site-map-and-fix-plan`.
+Merge SHA: `7040e4d` (PR #47). Branch `claude/site-map-and-fix-plan`.
 
 The owner asked for the whole website to be mapped and every error, bug and path mismatch to be found, with a plan written **before** anything is fixed. This PR adds the two documents and changes no code, setting or database table. `plan.md` lists 41 findings (4 P0, 10 P1, 15 P2, 12 P3), eleven questions for the owner, and the order of work in nine pull requests; the owner decides what is fixed and when.
 

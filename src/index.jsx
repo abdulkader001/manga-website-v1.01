@@ -2,6 +2,7 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import App from "./app";
 import { AuthProvider } from "./contexts/AuthContext";
+import { installErrorReporter } from "./utils/errorReporter";
 import "@fortawesome/fontawesome-free/css/all.min.css";
 import "material-icons/iconfont/material-icons.css";
 import "material-icons/iconfont/outlined.css";
@@ -19,6 +20,9 @@ import "./styles/mgeko.css";
     document.documentElement.setAttribute("data-theme", "light");
   }
 })();
+
+// Script errors and unhandled promise failures go to Admin -> Error Report.
+installErrorReporter();
 
 const root = ReactDOM.createRoot(document.getElementById("root"));
 root.render(

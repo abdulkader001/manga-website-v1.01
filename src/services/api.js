@@ -506,6 +506,13 @@ const api = {
       update: (links) => api.put("/admin/support", { links }),
     },
     // Owner only (never delegable): every website function and its on/off switch.
+    // Admin -> Error Report: recorded errors with a likely cause and fix.
+    errorReports: {
+      list: ({ status = "open", source } = {}) => api.get("/admin/error-reports", { params: { status, source } }),
+      resolve: (id) => api.post(`/admin/error-reports/${id}/resolve`),
+      reopen: (id) => api.post(`/admin/error-reports/${id}/reopen`),
+      clearResolved: () => api.del("/admin/error-reports/resolved"),
+    },
     siteFunctions: {
       list: () => api.get("/admin/site-functions"),
       set: (key, enabled) => api.put(`/admin/site-functions/${key}`, { enabled: Boolean(enabled) }),

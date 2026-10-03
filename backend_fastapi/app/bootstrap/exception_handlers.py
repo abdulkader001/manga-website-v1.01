@@ -19,9 +19,12 @@ import structlog
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+from starlette.concurrency import run_in_threadpool
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from ..core.api_errors import ApiError, ErrorCode, error_body
+from ..models.error_report import SOURCE_SERVER
+from ..services import error_report_service
 
 logger = structlog.get_logger("backend_fastapi.errors")
 
@@ -65,9 +68,30 @@ def _first_field(errors: list[dict]) -> str | None:
     return ".".join(parts) if parts else (str(loc[-1]) if loc else None)
 
 
+def _where(request: Request) -> str:
+    """Method and route template (``/manga/{manga_id}``), never the query string."""
+
+    route = request.scope.get("route")
+    path = getattr(route, "path", None) or request.url.path
+    return f"{request.method} {path}"
+
+
+async def _report(request: Request, exc: Exception, kind: str | None = None) -> None:
+    """Admin -> Error Report. Never raises (``record`` swallows its own failures)."""
+
+    await run_in_threadpool(
+        error_report_service.record_exception, exc, source=SOURCE_SERVER, location=_where(request), kind=kind
+    )
+
+
 def configure_exception_handlers(app: FastAPI) -> None:
     @app.exception_handler(ApiError)
     async def _handle_api_error(request: Request, exc: ApiError):
+        # A 5xx API error is the server or an outside service failing (a
+        # provider, a scraper): worth a line in the error report. 4xx are the
+        # caller's mistakes and are not.
+        if exc.status >= 500:
+            await _report(request, exc, kind=exc.code.value)
         return JSONResponse(status_code=exc.status, content=exc.to_body())
 
     @app.exception_handler(RequestValidationError)
@@ -113,6 +137,7 @@ def configure_exception_handlers(app: FastAPI) -> None:
         logger.exception(
             "Unhandled exception", path=request.url.path, method=request.method
         )
+        await _report(request, exc)
         return JSONResponse(
             status_code=ErrorCode.INTERNAL_ERROR.status,
             content=error_body(
