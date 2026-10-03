@@ -2,6 +2,7 @@ import { AVATAR_PLACEHOLDER } from "../utils/placeholders";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useLocation } from "react-router";
 import NotificationBell from "./NotificationBell";
+import FunctionGate from "./FunctionGate";
 import ThemeToggle from "./ThemeToggle";
 import CONFIG from "../config";
 import useAuth from "../hooks/useAuth";
@@ -211,7 +212,9 @@ export default function Navbar() {
               <ThemeToggle />
 
               {/* Notification Bell */}
-              <NotificationBell />
+              <FunctionGate name="notifications">
+                <NotificationBell />
+              </FunctionGate>
 
               {/* Quick Search Button */}
               <button

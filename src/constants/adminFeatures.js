@@ -21,7 +21,7 @@ export const ADMIN_FEATURE_LINKS = [
     label: "User Database",
     to: "/admin/users",
     description: "Search the full user directory, handle badges, and inspect accounts.",
-    minRole: "admin",
+    minRole: "secondary",
     permission: "view_user_list",
   },
   {
@@ -38,7 +38,7 @@ export const ADMIN_FEATURE_LINKS = [
     to: "/admin/health",
     description: "Check service telemetry, uptime, background jobs, and diagnostic signals.",
     minRole: "secondary",
-    permission: "view_dashboard",
+    permission: "view_system_health",
   },
   {
     key: "audit-report",
@@ -98,15 +98,27 @@ export const ADMIN_FEATURE_LINKS = [
     minRole: "secondary",
     permission: "manage_geolock",
   },
+  {
+    key: "functions",
+    label: "Site Functions",
+    to: "/admin/functions",
+    description:
+      "Switch each website function on or off: sign-in methods, comments, ads, translation, scraping and more. Owner only.",
+    // Never delegable: there is no permission for it, so only the owner sees it.
+    minRole: "owner",
+    permission: null,
+  },
 ];
 
 /**
- * Admin hub tiles a person may see. Tiles marked minRole "admin" open
- * main-admin-only pages; "secondary" tiles follow the sub-admin's toggle,
- * the same rule their routes apply (AuthGuard `permission`).
+ * Admin hub tiles a person may see. The owner sees them all. Everyone else sees
+ * the tiles whose permission they hold ("secondary" tiles), exactly the rule
+ * their routes apply (AuthGuard `permission`). Tiles marked minRole "owner" open
+ * owner-only pages (Site Functions) and are never shown to anyone else. A person
+ * whose powers the owner switched off sees none.
  */
-export function visibleAdminLinks(links, { isAdmin, isSecondaryAdmin, can }) {
+export function visibleAdminLinks(links, { isAdmin, isSecondaryAdmin, can, suspended = false }) {
   if (isAdmin) return links;
-  if (!isSecondaryAdmin) return [];
+  if (!isSecondaryAdmin || suspended) return [];
   return links.filter((link) => link.minRole === "secondary" && Boolean(link.permission) && can(link.permission));
 }

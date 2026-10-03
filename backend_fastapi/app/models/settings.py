@@ -11,6 +11,7 @@ from sqlalchemy import (
     Index,
     event,
     func,
+    true as sa_true,
 )
 from sqlalchemy.orm import relationship, synonym
 
@@ -22,6 +23,10 @@ from ..utils.email_crypto import (
     normalize_email,
     render_email,
 )
+
+# Visitors must sign in before they see anything, until the owner switches it
+# off in Admin Settings (``system_settings.login_required``).
+LOGIN_REQUIRED_DEFAULT = True
 
 
 class FooterSettings(Base):
@@ -166,6 +171,22 @@ class AdminBootstrapState(Base):
     last_token_redeemed_at = Column(DateTime, nullable=True)
 
 
+class SiteFunction(Base):
+    """One website function switched off (or on) by the owner.
+
+    Only the owner reads or writes these (Admin -> Site Functions). A function
+    with no row has its registry default (``core.site_functions``); a few
+    functions keep their value in older settings instead (see the registry).
+    """
+
+    __tablename__ = "site_functions"
+
+    key = Column(String(64), primary_key=True)
+    enabled = Column(Boolean, nullable=False, default=True, server_default=sa_true())
+    updated_by = Column(Integer, nullable=True)
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+
 class SystemState(Base):
     __tablename__ = "system_state"
 
@@ -233,8 +254,12 @@ class SystemSettings(Base):
     platform_default_daily_ceiling = Column(Integer, nullable=True)
     # Main-admin switch: when on, only signed-in accounts can browse and read.
     # Sign-in, sign-up and admin bootstrap stay reachable so nobody is locked out.
+    # On by default (owner's rule): nobody sees the site before signing in.
     login_required = Column(
-        Boolean, nullable=False, default=False, server_default="false"
+        Boolean,
+        nullable=False,
+        default=LOGIN_REQUIRED_DEFAULT,
+        server_default=sa_true(),
     )
     # Retired: the one-time admin password is gone (the owner now claims the
     # seat with Google). Nothing reads or writes this column any more.

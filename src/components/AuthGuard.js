@@ -6,8 +6,10 @@ import useAuth from "../hooks/useAuth";
 import useStaffPermissions from "../hooks/useStaffPermissions";
 import AdminSecondFactor from "./AdminSecondFactor";
 
-// `followSiteSetting`: guests may pass unless the main admin switched on
-// "Sign-in required" (Admin Settings). The backend enforces the same switch.
+// `followSiteSetting`: sign-in is required by default, so a guest passes only
+// when the server says plainly that the owner switched "Sign-in required" off
+// (Admin Settings). If the answer can't be fetched the guest goes to the login
+// page. The backend enforces the same switch.
 export default function AuthGuard({
   children,
   requireAdmin,
@@ -19,7 +21,7 @@ export default function AuthGuard({
   const { user, isAdmin, isSecondaryAdmin, isLoading } = useAuth();
   // `permission`: a sub-admin passes only with this toggle on (the main admin
   // always passes). Matches the tile filter on the admin hub.
-  const { can, isLoading: permissionsLoading } = useStaffPermissions();
+  const { can, suspended, isLoading: permissionsLoading } = useStaffPermissions();
   const location = useLocation();
   const siteAccess = useQuery({
     queryKey: ["siteAccess"],
@@ -39,7 +41,7 @@ export default function AuthGuard({
 
   // 1. Mandatory login gate: if user is not authenticated, redirect to /login
   if (!user) {
-    if (followSiteSetting && !siteAccess.data?.loginRequired) {
+    if (followSiteSetting && siteAccess.data?.loginRequired === false) {
       return children;
     }
     return <Navigate to="/login" state={{ from: location }} replace />;
@@ -63,7 +65,19 @@ export default function AuthGuard({
     return <AdminSecondFactor>{children}</AdminSecondFactor>;
   }
 
-  // 4. Admin permissions check
+  // 4. Admin permissions check. A person whose powers the owner switched off
+  // keeps the title but nothing in the admin area opens for them.
+  if (requireAdmin && suspended) {
+    return (
+      <div className="max-w-md mx-auto mt-16 p-6 rounded-2xl bg-[#101216] border border-[#262a33] text-gray-200 space-y-2">
+        <h2 className="text-sm font-bold text-white">Your admin powers are switched off</h2>
+        <p className="text-xs text-[#8b93a3]">
+          The site owner switched your admin powers off. You keep your role, but the admin area stays
+          closed until the owner switches them back on.
+        </p>
+      </div>
+    );
+  }
   if (requireAdmin) {
     if (allowSecondaryAdmins && (isAdmin || isSecondaryAdmin)) {
       if (permission && !isAdmin) {

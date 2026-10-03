@@ -39,6 +39,16 @@ async def list_providers(request: Request) -> Dict[str, Any]:
     }
 
 
+@router.get("/site-functions")
+def public_site_functions(db: Session = Depends(get_db)) -> Dict[str, Any]:
+    """Public: which website functions are on, so the page hides what is off.
+    Only on/off per function, nothing else; the server enforces every switch."""
+
+    from ...services import site_functions
+
+    return {"functions": site_functions.states(db)}
+
+
 @router.get("/site-access")
 def site_access(db: Session = Depends(get_db)) -> Dict[str, Any]:
     """Public: whether visitors must sign in before reading."""

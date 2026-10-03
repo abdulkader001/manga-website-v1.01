@@ -49,6 +49,8 @@ function QuickLink({ to, label, description, keyName }) {
         return "fas fa-cog text-cyan-400";
       case "vault":
         return "fas fa-key text-amber-300";
+      case "functions":
+        return "fas fa-toggle-on text-emerald-400";
       default:
         return "fas fa-shield-alt text-blue-400";
     }
@@ -81,13 +83,13 @@ function QuickLink({ to, label, description, keyName }) {
 
 export default function AdminPanel() {
   const { isAdmin, isSecondaryAdmin } = useAuth();
-  const { can } = useStaffPermissions();
+  const { can, suspended } = useStaffPermissions();
 
   // Main-admin-only tiles are hidden from sub-admins; theirs follow their
   // toggles, matching the routes (F-97).
   const quickLinks = useMemo(
-    () => visibleAdminLinks(ADMIN_FEATURE_LINKS, { isAdmin, isSecondaryAdmin, can }),
-    [isAdmin, isSecondaryAdmin, can]
+    () => visibleAdminLinks(ADMIN_FEATURE_LINKS, { isAdmin, isSecondaryAdmin, can, suspended }),
+    [isAdmin, isSecondaryAdmin, can, suspended]
   );
 
   // Synchronized System Health Query
@@ -95,6 +97,8 @@ export default function AdminPanel() {
     queryKey: ["healthSimple"],
     queryFn: () => api.health.simple(),
     staleTime: 30000,
+    // The health numbers need the System Health power; asking without it only earns a refusal.
+    enabled: can("view_system_health"),
   });
 
   if (loading) {

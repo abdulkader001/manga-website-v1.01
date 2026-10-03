@@ -19,6 +19,7 @@ from __future__ import annotations
 from sqlalchemy.orm import Session
 
 from ..core.api_errors import ApiError, ErrorCode
+from ..core.admin_tabs import tabs_of
 from ..core.permissions import (
     ALL_PERMISSIONS,
     BUILTIN_PRESETS,
@@ -53,6 +54,21 @@ def sub_admin_blocked(db: Session) -> set[str]:
     return {key for key in raw if is_valid_permission(key)}
 
 
+def _owner_restriction(user: User, key: str) -> str | None:
+    """Why the owner's switches take ``key`` away from this person, if they do:
+    "suspended" (all powers switched off) or "tab_hidden" (the permission belongs
+    to an admin tab the owner left off their tab list)."""
+
+    if getattr(user, "powers_suspended", False):
+        return "suspended"
+    tabs = getattr(user, "visible_admin_tabs", None)
+    if tabs is not None:
+        belongs_to = tabs_of(key)
+        if belongs_to and not any(tab in tabs for tab in belongs_to):
+            return "tab_hidden"
+    return None
+
+
 def _decide(user: User, role: UserRole, key: str, state: str | None, blocked: set[str]) -> tuple[bool, str]:
     """(effective, label) for ``key``: the one rule both ``has_permission`` and
     the toggle page use, so they can't disagree."""
@@ -61,6 +77,9 @@ def _decide(user: User, role: UserRole, key: str, state: str | None, blocked: se
         return True, "inherited"
     if role not in ADJUSTABLE:
         return False, "inherited"
+    hidden = _owner_restriction(user, key)
+    if hidden:
+        return False, hidden
     if role == UserRole.SECONDARY:
         if key in OWNER_POWERS:
             return False, "inherited"  # a sub-admin never holds a site-owner power

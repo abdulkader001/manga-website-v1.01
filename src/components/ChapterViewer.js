@@ -8,6 +8,8 @@ import OverlayScaleControl from "./OverlayScaleControl";
 import AdSection from "./GlobalAds";
 import AdPlacement from "./AdPlacement";
 import CommentSection from "./CommentSection";
+import FunctionGate from "./FunctionGate";
+import useSiteFunctions from "../hooks/useSiteFunctions";
 import useAuth from "../hooks/useAuth";
 import useReaderSettings from "../hooks/useReaderSettings";
 import useChapterTitles from "../hooks/useChapterTitles";
@@ -39,7 +41,11 @@ export default function ChapterViewer() {
   const { settings: readerSettings, loaded: readerSettingsLoaded } = useReaderSettings({
     enabled: Boolean(authUser),
   });
-  const showOcr = Boolean(authUser && readerSettingsLoaded && readerSettings.overlay_enabled);
+  const { isOn } = useSiteFunctions();
+  // Reading the text and translating it are both Site Functions the owner can switch off.
+  const showOcr = Boolean(
+    authUser && readerSettingsLoaded && readerSettings.overlay_enabled && isOn("ocr") && isOn("translation")
+  );
   const chapterLabel = useChapterTitles(mangaId);
   const [overlayNotice, setOverlayNotice] = useState("");
 
@@ -555,15 +561,17 @@ export default function ChapterViewer() {
           <span className="text-xs">Home</span>
         </Link>
 
-        <button
-          type="button"
-          onClick={() => setReportOpen(true)}
-          className="reportBtn px-3 py-1.5 text-xs rounded-lg flex items-center gap-1.5 whitespace-nowrap flex-shrink-0"
-          title="Report broken images or chapter issues"
-        >
-          <i className="fas fa-bug text-xs"></i>
-          <span className="text-xs">Report</span>
-        </button>
+        <FunctionGate name="chapter_reports">
+          <button
+            type="button"
+            onClick={() => setReportOpen(true)}
+            className="reportBtn px-3 py-1.5 text-xs rounded-lg flex items-center gap-1.5 whitespace-nowrap flex-shrink-0"
+            title="Report broken images or chapter issues"
+          >
+            <i className="fas fa-bug text-xs"></i>
+            <span className="text-xs">Report</span>
+          </button>
+        </FunctionGate>
       </div>
 
       {/* Broken Chapter Report Modal */}
@@ -680,7 +688,9 @@ export default function ChapterViewer() {
 
       {/* Comments Section */}
       <div className="max-w-4xl mx-auto mt-8 px-4">
-        <CommentSection targetType="chapter" targetId={Number(chapterId)} />
+        <FunctionGate name="comments">
+          <CommentSection targetType="chapter" targetId={Number(chapterId)} />
+        </FunctionGate>
       </div>
     </div>
   );

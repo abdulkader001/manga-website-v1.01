@@ -138,6 +138,33 @@ def _session_scope() -> Iterator:
         session.close()
 
 
+def _set_members_only_default(value: bool) -> None:
+    """Change what a missing/new ``system_settings.login_required`` means."""
+
+    from backend_fastapi.app.dependencies import site_access
+    from backend_fastapi.app.models import SystemSettings
+
+    site_access.LOGIN_REQUIRED_DEFAULT = value
+    SystemSettings.__table__.c.login_required.default.arg = value
+
+
+@pytest.fixture(autouse=True)
+def _site_open_to_guests():
+    """The site is members-only by default (sign-in required). Most tests read
+    the catalogue as a guest, so they run with the default switched off; a
+    test of the real default asks for ``members_only_default``."""
+
+    _set_members_only_default(False)
+    yield
+    _set_members_only_default(True)
+
+
+@pytest.fixture
+def members_only_default():
+    _set_members_only_default(True)
+    yield
+
+
 @pytest.fixture(scope="session")
 def fastapi_app():
     from backend_fastapi.app.main import create_app

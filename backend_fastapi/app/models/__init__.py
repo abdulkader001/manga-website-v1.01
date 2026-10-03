@@ -84,6 +84,7 @@ from .settings import (
     GlobalAdProvider as GlobalAdProvider,
     AdClick as AdClick,
     AdminBootstrapState as AdminBootstrapState,
+    SiteFunction as SiteFunction,
     SystemState as SystemState,
     SystemSettings as SystemSettings,
     ProviderCredentials as ProviderCredentials,

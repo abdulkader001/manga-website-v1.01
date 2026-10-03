@@ -4,74 +4,6 @@ import api from "../../services/api";
 import FooterEditor from "../../components/FooterEditor";
 import DonationEditor from "../../components/DonationEditor";
 
-function SiteAccessCard() {
-  const [loginRequired, setLoginRequired] = useState(null);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
-
-  useEffect(() => {
-    api.admin.siteAccess
-      .get()
-      .then((data) => setLoginRequired(Boolean(data?.login_required)))
-      .catch(() => setError("Couldn't load this setting."));
-  }, []);
-
-  const toggle = async () => {
-    const next = !loginRequired;
-    if (
-      next &&
-      !window.confirm(
-        "Readers will have to sign in before they can browse or read. Sign-in pages and the admin area stay open. Turn it on?"
-      )
-    ) {
-      return;
-    }
-    setBusy(true);
-    setError("");
-    try {
-      const data = await api.admin.siteAccess.update(next);
-      setLoginRequired(Boolean(data?.login_required));
-    } catch {
-      setError("Couldn't save. Only the main admin can change this.");
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <div className="bg-[#15171c] border border-[#262a33] rounded-2xl p-5 shadow-xl flex flex-col sm:flex-row sm:items-center gap-4 text-xs">
-      <div className="flex-1">
-        <h2 className="text-base font-bold text-white flex items-center gap-2">
-          <i className="fas fa-user-lock text-[#00AEF0]"></i>
-          <span>Sign-in required</span>
-        </h2>
-        <p className="text-[#8b93a3] mt-1">
-          When on, visitors must sign in before they can browse or read. The sign-in page and the admin
-          area are never locked, so you can always get back in. Only the main admin can change this.
-        </p>
-        {error && <p className="text-red-400 mt-1">{error}</p>}
-      </div>
-      <button
-        type="button"
-        role="switch"
-        aria-checked={Boolean(loginRequired)}
-        aria-label="Sign-in required"
-        disabled={busy || loginRequired === null}
-        onClick={toggle}
-        className={`relative w-14 h-7 rounded-full transition flex-none disabled:opacity-50 ${
-          loginRequired ? "bg-[#00AEF0]" : "bg-[#262a33]"
-        }`}
-      >
-        <span
-          className={`absolute top-1 w-5 h-5 rounded-full bg-white transition-all ${
-            loginRequired ? "left-8" : "left-1"
-          }`}
-        />
-      </button>
-    </div>
-  );
-}
-
 export default function AdminSettings() {
   const [activeTab, setActiveTab] = useState("general"); // "general" | "footer" | "system"
   const [loading, setLoading] = useState(true);
@@ -263,8 +195,6 @@ export default function AdminSettings() {
         </div>
       )}
 
-      <SiteAccessCard />
-
       {/* Tabs Navigation */}
       <div className="flex items-center gap-2 border-b border-[#262a33] pb-2 text-xs font-bold overflow-x-auto">
         <button
@@ -453,42 +383,15 @@ export default function AdminSettings() {
           </div>
 
           <div className="space-y-4">
-            {/* Maintenance Mode Toggle */}
-            <div className="flex items-center justify-between p-4 rounded-xl bg-[#101216] border border-[#262a33]">
-              <div>
-                <span className="font-bold text-white text-sm block">Maintenance Mode</span>
-                <span className="text-gray-400 text-xs">
-                  When active, non-admin visitors see a maintenance notice while background operations run.
-                </span>
-              </div>
-              <label className="relative inline-flex items-center cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={settings.maintenance_mode}
-                  onChange={(e) => setSettings({ ...settings, maintenance_mode: e.target.checked })}
-                  className="sr-only peer"
-                />
-                <div className="w-11 h-6 bg-[#374151] peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-amber-500"></div>
-              </label>
-            </div>
-
-            {/* Allow Registration Toggle */}
-            <div className="flex items-center justify-between p-4 rounded-xl bg-[#101216] border border-[#262a33]">
-              <div>
-                <span className="font-bold text-white text-sm block">Allow New User Registrations</span>
-                <span className="text-gray-400 text-xs">
-                  Enable or disable account creation for new readers.
-                </span>
-              </div>
-              <label className="relative inline-flex items-center cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={settings.allow_registration}
-                  onChange={(e) => setSettings({ ...settings, allow_registration: e.target.checked })}
-                  className="sr-only peer"
-                />
-                <div className="w-11 h-6 bg-[#374151] peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-500"></div>
-              </label>
+            {/* Maintenance mode, new accounts and "Sign-in required" are Site Functions:
+                the owner's switches, on their own owner-only page. */}
+            <div className="p-4 rounded-xl bg-[#101216] border border-[#262a33] text-xs text-gray-400">
+              <span className="font-bold text-white text-sm block">Maintenance, new accounts and sign-in</span>
+              Maintenance mode, new account registration and &quot;Sign-in required&quot; are switched on the owner-only{" "}
+              <Link to="/admin/functions" className="text-[#00AEF0] hover:underline font-semibold">
+                Site Functions
+              </Link>{" "}
+              page.
             </div>
 
             {/* Clear Indices Cache */}

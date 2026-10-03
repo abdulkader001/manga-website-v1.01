@@ -11,6 +11,8 @@ from sqlalchemy.orm import Session
 
 from ...core.db import get_db
 from ...dependencies.auth import require_permission
+from ...dependencies.site_access import require_site_access
+from ...dependencies.site_functions import require_function
 from ...models import AdSlot, GlobalAdProvider, User
 from ...schemas.ad_slots import AdSlotCreate, AdSlotUpdate
 from ...services.ad_placements import is_valid_placement
@@ -69,7 +71,7 @@ def _find_provider(
     return None
 
 
-@router.get("")
+@router.get("", dependencies=[Depends(require_site_access), Depends(require_function("ads"))])
 def list_ad_slots(
     slot_key: Optional[str] = Query(default=None, description="Filter by slot key"),
     slot_group: Optional[str] = Query(default=None, description="Filter by slot group"),
@@ -92,7 +94,7 @@ def list_ad_slots(
     return [_slot_to_dict(slot) for slot in slots]
 
 
-@router.get("/{slot_id}")
+@router.get("/{slot_id}", dependencies=[Depends(require_site_access), Depends(require_function("ads"))])
 def get_ad_slot(slot_id: int, db: Session = Depends(get_db)) -> dict[str, Any]:
     """Return a single ad slot by identifier."""
 

@@ -7,6 +7,7 @@ import { formatGstTime, formatTimeAgo } from "../utils/gstTime";
 import useChapterTitles from "../hooks/useChapterTitles";
 import { isBookmarked, readSet, recordRead, toggleBookmark as toggleLocalBookmark, useLibrary } from "../utils/library";
 import CommentSection from "./CommentSection";
+import FunctionGate from "./FunctionGate";
 import "../styles/components.css";
 
 const MangaDetail = () => {
@@ -532,7 +533,9 @@ const MangaDetail = () => {
 
       {/* --- Comments Section --- */}
       <div>
-        <CommentSection targetType="manga" targetId={Number(mangaId)} />
+        <FunctionGate name="comments">
+          <CommentSection targetType="manga" targetId={Number(mangaId)} />
+        </FunctionGate>
       </div>
     </div>
   );

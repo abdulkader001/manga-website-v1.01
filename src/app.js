@@ -43,6 +43,7 @@ const AdminSecurity = React.lazy(() => import("./pages/Admin/AdminSecurity"));
 const SecretVault = React.lazy(() => import("./pages/Admin/SecretVault"));
 const StorageBackups = React.lazy(() => import("./pages/Admin/StorageBackups"));
 const Geolock = React.lazy(() => import("./pages/Admin/Geolock"));
+const SiteFunctions = React.lazy(() => import("./pages/Admin/SiteFunctions"));
 
 function PageLoading() {
   return (
@@ -127,7 +128,7 @@ function AppRoutes() {
         <Route
           path="/admin/series"
           element={
-            <AuthGuard requireAdmin allowSecondaryAdmins>
+            <AuthGuard requireAdmin allowSecondaryAdmins permission="edit_series">
               <SeriesManagement />
             </AuthGuard>
           }
@@ -143,7 +144,7 @@ function AppRoutes() {
         <Route
           path="/admin/users"
           element={
-            <AuthGuard requireMainAdmin>
+            <AuthGuard requireAdmin allowSecondaryAdmins permission="view_user_list">
               <UserDatabase />
             </AuthGuard>
           }
@@ -167,7 +168,7 @@ function AppRoutes() {
         <Route
           path="/admin/health"
           element={
-            <AuthGuard requireAdmin allowSecondaryAdmins permission="view_dashboard">
+            <AuthGuard requireAdmin allowSecondaryAdmins permission="view_system_health">
               <Health />
             </AuthGuard>
           }
@@ -233,6 +234,15 @@ function AppRoutes() {
           element={
             <AuthGuard requireAdmin allowSecondaryAdmins permission="view_system_health">
               <AuditReport />
+            </AuthGuard>
+          }
+        />
+        {/* Owner only and never delegable: no permission opens it. */}
+        <Route
+          path="/admin/functions"
+          element={
+            <AuthGuard requireMainAdmin>
+              <SiteFunctions />
             </AuthGuard>
           }
         />

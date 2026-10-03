@@ -1,3 +1,4 @@
+import FunctionGate from "./FunctionGate";
 import React, { createContext, useContext, useState, useEffect } from "react";
 import { apiFetch } from "../services/api";
 
@@ -12,7 +13,7 @@ export function AdsProvider({ children }) {
   );
 }
 
-export default function AdSection({ sectionKey, className = "", fallback = null }) {
+function AdSectionInner({ sectionKey, className = "", fallback = null }) {
   const { adsEnabled } = useContext(AdsContext);
   const [ad, setAd] = useState(null);
   const [dismissed, setDismissed] = useState(false);
@@ -81,5 +82,14 @@ export default function AdSection({ sectionKey, className = "", fallback = null 
         ) : null}
       </a>
     </div>
+  );
+}
+
+// The owner can switch ads off for the whole site (Admin -> Site Functions).
+export default function AdSection(props) {
+  return (
+    <FunctionGate name="ads" fallback={props.fallback ?? null}>
+      <AdSectionInner {...props} />
+    </FunctionGate>
   );
 }

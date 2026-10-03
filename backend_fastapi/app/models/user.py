@@ -98,6 +98,15 @@ class User(Base):
     sub_admin_quota = Column(Integer, nullable=True)
     # When the person became an Admin: the idle clock never starts earlier.
     admin_since = Column(DateTime, nullable=True)
+    # Owner-only (Role Management -> Tab access). Which admin-panel tabs this
+    # Admin / sub-admin may use: NULL = whatever their permissions allow, a list
+    # of tab keys (core.admin_tabs) = only those tabs, [] = none.
+    visible_admin_tabs = Column(JSON, nullable=True)
+    # Owner-only "switch all powers off": the person keeps the Admin / sub-admin
+    # seat (and the seat count) but nothing in the admin area answers them.
+    powers_suspended = Column(
+        Boolean, nullable=False, default=False, server_default=expression.false()
+    )
     provider = Column(String(50), nullable=True)
     # Verified-email state (SRS 1D.2.4). The sole purpose of verification on this
     # platform is to confirm a genuine, reachable email — set True once the user

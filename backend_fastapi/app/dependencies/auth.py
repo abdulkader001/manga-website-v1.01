@@ -258,6 +258,8 @@ def require_permission(permission: str):
             )
         return current_user
 
+    _dependency.__name__ = f"require_permission_{permission}"
+    _dependency.permission = permission  # type: ignore[attr-defined]
     return _dependency
 
 
@@ -270,6 +272,14 @@ async def require_admin_user(
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Admin privileges required",
+        )
+    if getattr(current_user, "powers_suspended", False) and not is_main_admin(current_user):
+        # The owner switched all this person's powers off: they keep the seat,
+        # but nothing in the admin area answers them.
+        raise ApiError(
+            ErrorCode.FORBIDDEN,
+            "The site owner has switched your admin powers off.",
+            details={"reason": "powers_suspended"},
         )
     enforce_admin_second_factor(request, current_user)
     return current_user

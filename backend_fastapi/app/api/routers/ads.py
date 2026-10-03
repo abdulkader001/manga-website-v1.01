@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 from ...core.db import get_db
 from ...dependencies.auth import get_optional_user
 from ...models import AdClick, AdSlot, User
+from ...services import site_functions
 from ...services.ad_placements import list_placements
 from ...services.ads_config_service import load_ads_config
 from ...utils.email_crypto import allow_email_decryption
@@ -100,7 +101,7 @@ def track_click(
 
     # F-72: attribute the click to the real client, not the reverse proxy.
     ip_address = resolve_client_ip(request)
-    if ip_address == "unknown":
+    if ip_address == "unknown" or not site_functions.record_ips(db):
         ip_address = None
 
     with allow_email_decryption():
@@ -114,7 +115,8 @@ def track_click(
     db.add(click)
     db.commit()
 
-    logger.info("Recorded ad click for slot_id=%s ip=%s", slot_id, ip_address)
+    # The address is stored for the owner only; it is not written to the logs.
+    logger.info("Recorded ad click for slot_id=%s", slot_id)
     return {"message": "click_recorded", "slot_id": slot_id}
 
 

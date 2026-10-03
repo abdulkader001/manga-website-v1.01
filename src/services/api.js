@@ -284,6 +284,8 @@ const api = {
   config: {
     providers: () => api.get("/config/providers"),
     siteAccess: () => api.get("/config/site-access"),
+    // Which website functions are on (the owner's switches); on/off only.
+    siteFunctions: () => api.get("/config/site-functions"),
   },
 
   // ---- Authentication ----
@@ -504,11 +506,16 @@ const api = {
       get: () => api.get("/admin/support"),
       update: (links) => api.put("/admin/support", { links }),
     },
-    // Main admin only: "readers must sign in" switch.
-    siteAccess: {
-      get: () => api.get("/admin/config/access"),
-      update: (loginRequired) =>
-        api.put("/admin/config/access", { login_required: Boolean(loginRequired) }),
+    // Owner only (never delegable): every website function and its on/off switch.
+    siteFunctions: {
+      list: () => api.get("/admin/site-functions"),
+      set: (key, enabled) => api.put(`/admin/site-functions/${key}`, { enabled: Boolean(enabled) }),
+    },
+    // Owner only (never delegable): which admin tabs each Admin / sub-admin sees.
+    tabAccess: {
+      get: () => api.get("/admin/roles/tab-access"),
+      set: (userId, { tabs, suspended }) =>
+        api.put(`/admin/roles/tab-access/${userId}`, { tabs, suspended: Boolean(suspended) }),
     },
     apiRegistry: {
       get: () => api.get("/admin/api-registry"),
