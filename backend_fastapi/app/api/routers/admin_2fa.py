@@ -64,7 +64,7 @@ def _set_step_up_cookie(response: Response, user: User) -> None:
     response.set_cookie(
         second_factor.STEP_UP_COOKIE,
         second_factor.create_step_up_token(user),
-        max_age=second_factor.STEP_UP_MINUTES * 60,
+        max_age=second_factor.step_up_seconds(),
         httponly=True,
         secure=settings.force_https_redirects,
         samesite="lax",
@@ -80,6 +80,7 @@ def _status(request: Request, user: User) -> Dict[str, Any]:
         "enabled": enabled,
         "unlocked": bool(unlocked),
         "required": _owner_must_enrol(user),
+        "valid_hours": second_factor.step_up_hours(),
     }
 
 

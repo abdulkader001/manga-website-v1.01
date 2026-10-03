@@ -167,3 +167,42 @@ def test_disable_needs_a_valid_code(fastapi_client):
     )
     assert off.status_code == 200
     assert fastapi_client.get("/api/admin/cache", headers=headers).status_code == 200
+
+
+def _step_up_cookie_header(resp) -> str:
+    for name, value in resp.headers:
+        if name.lower() == "set-cookie" and value.startswith(f"{sf.STEP_UP_COOKIE}="):
+            return value
+    raise AssertionError("no step-up cookie was set")
+
+
+def test_code_lasts_twelve_hours_by_default(fastapi_client):
+    from jose import jwt
+
+    from backend_fastapi.app.core.security import _get_algorithm, _get_secret_key
+
+    assert sf.step_up_hours() == 12
+    uid, headers = _admin()
+    fastapi_client.post("/api/admin/2fa/setup", headers=headers)
+    ok = fastapi_client.post(
+        "/api/admin/2fa/enable", json={"code": _code(uid)}, headers=headers
+    )
+    assert ok.status_code == 200, ok.text
+    assert "max-age=43200" in _step_up_cookie_header(ok).lower()
+    payload = jwt.decode(_step_up(ok), _get_secret_key(), algorithms=[_get_algorithm()])
+    assert 43200 - 60 <= payload["exp"] - time.time() <= 43200 + 60
+
+    status = fastapi_client.get("/api/admin/2fa/status", headers=_with_cookie(headers, _step_up(ok)))
+    assert status.json()["valid_hours"] == 12
+
+
+def test_code_window_follows_the_setting(monkeypatch):
+    from backend_fastapi.app.core.settings import settings
+
+    monkeypatch.setattr(settings, "admin_code_valid_hours", 24, raising=False)
+    assert sf.step_up_seconds() == 24 * 3600
+    # Nonsense falls back to the default; a huge value is capped at a week.
+    monkeypatch.setattr(settings, "admin_code_valid_hours", 0, raising=False)
+    assert sf.step_up_hours() == sf.DEFAULT_STEP_UP_HOURS
+    monkeypatch.setattr(settings, "admin_code_valid_hours", 10_000, raising=False)
+    assert sf.step_up_hours() == sf.MAX_STEP_UP_HOURS

@@ -85,6 +85,9 @@ class Settings(BaseSettings):
     magic_link_secret: str | None = None
     integrations_secret: str | None = None
     access_token_expire_minutes: int = 60
+    # How long an admin's authenticator code stays good before the admin area
+    # asks for a new one (the step-up cookie). Vault key ADMIN_CODE_VALID_HOURS.
+    admin_code_valid_hours: int = 12
     algorithm: str = "HS256"
     email_encryption_key: str | None = None
 
