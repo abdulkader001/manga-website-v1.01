@@ -11,12 +11,15 @@ from backend_fastapi.app.core.security import create_access_token
 from backend_fastapi.app.models import Manga, User, UserRole
 from backend_fastapi.app.utils import swr_cache
 
+from _support.db_reset import clear_list_cache
+
 HIDDEN = ("source_url", "mangaupdates_url", "scrape_layout")
 
 
 @pytest.fixture
 def series(db_session):
     swr_cache._local_cache.clear()
+    clear_list_cache()
     manga = Manga(
         title="Hidden Sources",
         slug=f"hidden-sources-{uuid.uuid4().hex[:8]}",

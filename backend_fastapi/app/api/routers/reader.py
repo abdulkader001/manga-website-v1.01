@@ -466,11 +466,17 @@ def serve_page_image(manga_id: int, chapter_id: int, filename: str) -> Response:
 
 @router.get("/images/proxy")
 def proxy_image(
-    u: str = Query(..., max_length=4096),
-    r: str = Query(..., max_length=2048),
-    s: str = Query(..., max_length=64),
+    t: str | None = Query(None, max_length=8192),
+    u: str | None = Query(None, max_length=4096),
+    r: str | None = Query(None, max_length=2048),
+    s: str | None = Query(None, max_length=64),
 ) -> Response:
-    decoded = image_proxy.decode_request(u, r, s)
+    if t:
+        decoded = image_proxy.decode_token(t)
+    elif u and r is not None and s:
+        decoded = image_proxy.decode_request(u, r, s)
+    else:
+        decoded = None
     if decoded is None:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="invalid_signature")
     url, referer = decoded
@@ -487,7 +493,7 @@ def proxy_image(
             timeout=20,
             headers={
                 "User-Agent": USER_AGENTS[0],
-                "Referer": referer,
+                **({"Referer": referer} if referer else {}),
                 "Accept": page_image_service.ORIGINAL_FIRST_ACCEPT,
             },
             max_bytes=image_proxy.MAX_PROXY_IMAGE_BYTES,

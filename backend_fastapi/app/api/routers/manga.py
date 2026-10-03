@@ -7,7 +7,10 @@ from typing import List
 import structlog
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
+from pydantic import BaseModel
+
 from ...schemas.manga import (
+    MangaBase,
     MangaListResponse,
     MangaDetailResponse,
     ChapterBase,
@@ -204,7 +207,11 @@ async def browse_manga(
     )
 
 
-@router.get("/batch")
+class MangaBatchResponse(BaseModel):
+    items: List[MangaBase]
+
+
+@router.get("/batch", response_model=MangaBatchResponse)
 async def get_manga_batch(
     ids: str = Query("", max_length=2000),
     user: User | None = Depends(get_optional_user),
@@ -240,7 +247,12 @@ async def get_manga_batch(
                 # (admins still see them), checked for the whole list at once.
                 allowed = hostable_manga_ids(db, rows)
                 rows = [m for m in rows if m.id in allowed]
-            return catalogue_service.enrich(db, [m.to_dict() for m in rows])
+            items = catalogue_service.enrich(db, [m.to_dict() for m in rows])
+            # The response model is the allow-list (plan.md P1-1): the raw
+            # row also carries who added the series, its last scrape error
+            # and its source, none of which visitors may see.
+            catalogue_service.apply_viewer_fields(db, items, user)
+            return items
 
     visible = await run_in_db_threadpool(_work)
     order = {mid: i for i, mid in enumerate(wanted)}

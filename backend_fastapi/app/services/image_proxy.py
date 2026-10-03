@@ -9,6 +9,12 @@ instead of the raw URL; the backend fetches the image with the right
 The URL and referer are HMAC-signed with the server secret, so the endpoint
 only ever fetches URLs the backend itself put into a chapter -- it cannot be
 used as an open proxy. Every fetch still goes through the SSRF guard.
+
+Readers must not learn where a chapter comes from (plan.md P1-1, the owner's
+roadmap item 3), so pages that are not stored on this server are always
+handed out as ``/images/proxy?t=<token>``: the source address and referer are
+encrypted (Fernet: AES with an HMAC), not just base64-encoded. The older
+``u``/``r``/``s`` form is still accepted so links already in browsers work.
 """
 
 from __future__ import annotations
@@ -40,6 +46,33 @@ def _b64(value: str) -> str:
 def _unb64(value: str) -> str:
     padding = "=" * (-len(value) % 4)
     return base64.urlsafe_b64decode(value + padding).decode("utf-8")
+
+
+def _fernet():
+    from cryptography.fernet import Fernet
+
+    digest = hashlib.sha256(("image-proxy-token:" + (settings.secret_key or "")).encode("utf-8")).digest()
+    return Fernet(base64.urlsafe_b64encode(digest))
+
+
+def opaque_url(url: str, referer: str = "") -> str:
+    """A proxy address that reveals nothing about the source."""
+
+    token = _fernet().encrypt(f"{url}\n{referer}".encode("utf-8")).decode("ascii")
+    return f"{PROXY_PATH}?{urlencode({'t': token})}"
+
+
+def decode_token(token: str) -> Optional[tuple[str, str]]:
+    """Return ``(url, referer)`` for a token this server made, else ``None``."""
+
+    from cryptography.fernet import InvalidToken
+
+    try:
+        plain = _fernet().decrypt(token.encode("ascii")).decode("utf-8")
+    except (InvalidToken, ValueError, UnicodeError):
+        return None
+    url, _, referer = plain.partition("\n")
+    return url, referer
 
 
 def sign(url: str, referer: str) -> str:
@@ -88,8 +121,8 @@ def reader_page_urls(db: Session, chapter: Chapter) -> List[str]:
     """Page image URLs as the browser should load them.
 
     Our own compressed copies are served as-is (optionally through the image
-    CDN); source URLs go through the signed proxy when the source blocks
-    hotlinking.
+    CDN); every other page goes through the proxy with an opaque token, with
+    the source's referer when it blocks hotlinking.
     """
 
     from ..utils.cdn import build_cdn_url
@@ -102,8 +135,6 @@ def reader_page_urls(db: Session, chapter: Chapter) -> List[str]:
     for page in pages:
         if page_image_service.is_local_url(page):
             urls.append(build_cdn_url(page) or page)
-        elif referer:
-            urls.append(proxied_url(page, referer))
         else:
-            urls.append(page)
+            urls.append(opaque_url(page, referer or ""))
     return urls

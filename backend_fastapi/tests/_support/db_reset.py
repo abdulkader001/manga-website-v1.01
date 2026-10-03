@@ -74,3 +74,27 @@ def clear_content(session: Session, *, commit: bool = True) -> None:
     """Drop manga and chapters along with everything that references them."""
 
     clear_tables(session, "manga", "chapters", commit=commit)
+
+
+def clear_list_cache() -> None:
+    """Drop cached catalogue pages from Redis (when the tests run with one).
+
+    A list cached by an earlier test outlives its rows, so a test that seeds a
+    series and reads the list would see the old page.
+    """
+
+    import os
+
+    url = os.getenv("REDIS_URL")
+    if not url:
+        return
+    import redis
+
+    from backend_fastapi.app.utils import cache_invalidation
+
+    client = redis.Redis.from_url(url)
+    try:
+        cache_invalidation.invalidate_manga_list_cache(client)
+        cache_invalidation.invalidate_manga_detail_cache(client)
+    finally:
+        client.close()
