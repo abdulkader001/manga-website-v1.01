@@ -498,29 +498,6 @@ def bulk_delete_series_task(unique_ids: list[int]):
         db.close()
 
 
-@celery_app.task(name="backend_fastapi.app.tasks.scraper_tasks.prune_history_task")
-def prune_history_task():
-    from ..core.db import SessionLocal
-    from ..models import ReadHistory
-    import datetime
-    import structlog
-
-    logger = structlog.get_logger("prune_history")
-    db = SessionLocal()
-    try:
-        threshold = datetime.datetime.utcnow() - datetime.timedelta(days=90)
-        deleted = (
-            db.query(ReadHistory).filter(ReadHistory.last_read_at < threshold).delete()
-        )
-        db.commit()
-        logger.info(
-            "History pruned",
-            extra={"deleted": deleted, "threshold": threshold.isoformat()},
-        )
-    finally:
-        db.close()
-
-
 @celery_app.task(
     name="backend_fastapi.app.tasks.scraper_tasks.generate_parser_task",
     time_limit=600,

@@ -364,6 +364,18 @@ const api = {
         : api.del(`/bookmarks/${mangaId}`, { params: { chapterId } }),
   },
 
+  // ---- Read chapters of a signed-in reader (components/HistorySync.jsx) ----
+  history: {
+    /** One chapter was just opened. */
+    read: (chapterId, readAt) =>
+      api.post("/history/read", { chapter_id: chapterId, read_at: readAt }),
+    /**
+     * Send changes ({entries, clear_manga, clear_all, return_entries}); the
+     * answer is the account's whole list of read chapters.
+     */
+    sync: (payload) => api.post("/history/sync", payload),
+  },
+
   // ---- Ads / Branding ----
   ads: {
     slots: (params) => api.get("/ads/slots", { params }),

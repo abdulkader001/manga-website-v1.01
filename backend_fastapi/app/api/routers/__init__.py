@@ -23,6 +23,7 @@ from .community import router as community_router
 from .config import router as config_router
 from .glossary import router as glossary_router
 from .health import router as health_router
+from .history import router as history_router
 from .integrations import router as integrations_router
 from .management import router as management_router
 from .manga import router as manga_router
@@ -70,6 +71,7 @@ __all__ = [
     "community_router",
     "glossary_router",
     "health_router",
+    "history_router",
     "integrations_router",
     "management_router",
     "manga_router",

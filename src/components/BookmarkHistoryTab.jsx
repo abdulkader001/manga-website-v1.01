@@ -15,7 +15,8 @@ import {
 import { COVER_PLACEHOLDER, useFallback } from "../utils/placeholders";
 import useAuth from "../hooks/useAuth";
 
-// Bookmarks and reading history, both kept in this browser (utils/library.js).
+// Bookmarks and reading history, kept in this browser (utils/library.js) and,
+// for a signed-in reader, also on their account (BookmarkSync, HistorySync).
 // The server is only asked for public facts about those series: cover, title
 // and newest chapter.
 
@@ -180,8 +181,8 @@ export default function BookmarkHistoryTab() {
           <h1 className="text-2xl font-extrabold text-white">My Library</h1>
           <p className="text-[11px] text-[#8b93a3]">
             {user
-              ? "Your bookmarks are saved to your account, so they follow you to other devices and you get an alert when a bookmarked series has a new chapter. Reading history stays in this browser."
-              : "Saved in this browser. Sign in to keep your bookmarks on your account and get an alert when a bookmarked series has a new chapter. Reading history always stays in this browser."}
+              ? "Your bookmarks and the chapters you have read are saved to your account, so they follow you to other devices, and you get an alert when a bookmarked series has a new chapter."
+              : "Saved in this browser only. Sign in to keep your bookmarks and read chapters on your account, so they follow you to other devices, and to get an alert when a bookmarked series has a new chapter."}
           </p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
@@ -197,7 +198,7 @@ export default function BookmarkHistoryTab() {
           {tab === "history" && historyIds.length > 0 && (
             <button
               type="button"
-              onClick={() => window.confirm("Clear all reading history on this device?") && clearHistory()}
+              onClick={() => window.confirm(user ? "Clear all reading history on this device and your account?" : "Clear all reading history on this device?") && clearHistory()}
               className="px-3 py-2 rounded-xl border border-red-500/40 text-xs text-red-300 hover:bg-red-500/10"
             >
               Clear

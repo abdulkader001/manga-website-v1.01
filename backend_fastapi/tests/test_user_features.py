@@ -129,8 +129,9 @@ def test_manga_read_history_sync(fastapi_client, sample_data):
     )
     assert detail.status_code == 200
 
-    # Reading history lives in the reader's browser (src/utils/library.js);
-    # opening a chapter must not create a server-side history row.
+    # The browser tells the account which chapter was opened (POST
+    # /history/read, see test_history_sync.py); fetching a chapter itself
+    # must not create a history row.
     updated = fastapi_client.get(f"/api/manga/{manga.id}/chapters", headers=headers)
     after = _first(updated.json(), "id", chapter.id)
     assert after["read"] is False
