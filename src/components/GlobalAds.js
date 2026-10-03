@@ -1,6 +1,6 @@
 import FunctionGate from "./FunctionGate";
 import React, { createContext, useContext, useState, useEffect } from "react";
-import { apiFetch } from "../services/api";
+import { findAdSlot, loadAdSlots } from "../utils/adSlots";
 
 const AdsContext = createContext({});
 
@@ -20,18 +20,13 @@ function AdSectionInner({ sectionKey, className = "", fallback = null }) {
 
   useEffect(() => {
     let isMounted = true;
-    apiFetch("/api/v1/ad-slots")
-      .then((res) => (res.ok ? res.json() : []))
-      .then((slots) => {
-        if (!isMounted || !Array.isArray(slots)) return;
-        const matching = slots.find(
-          (s) => (s.placement === sectionKey || s.slot_key === sectionKey) && s.enabled !== false
-        );
-        if (matching) {
-          setAd(matching);
-        }
-      })
-      .catch(() => {});
+    loadAdSlots().then((slots) => {
+      if (!isMounted) return;
+      const matching = findAdSlot(slots, sectionKey);
+      if (matching) {
+        setAd(matching);
+      }
+    });
 
     return () => {
       isMounted = false;

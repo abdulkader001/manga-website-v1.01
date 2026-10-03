@@ -6,9 +6,9 @@ from __future__ import annotations
 
 import time
 
+import anyio.to_thread
 import structlog
 from jose import JWTError
-from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
@@ -85,14 +85,44 @@ def _requester_is_admin(request: Request) -> bool:
         return bool(user is not None and user.is_active and is_secondary_or_higher(user))
 
 
-class MaintenanceModeMiddleware(BaseHTTPMiddleware):
-    async def dispatch(self, request: Request, call_next):
-        path = request.url.path
-        if not path.startswith("/api") or not _maintenance_on():
-            return await call_next(request)
-        api_path = _api_path(path)
-        if api_path.startswith(ALWAYS_OPEN_PREFIXES) or _requester_is_admin(request):
-            return await call_next(request)
+def _cached_flag() -> bool | None:
+    """The cached flag, or ``None`` when it must be read again."""
+
+    if time.monotonic() < float(_cache["expires"]):
+        return bool(_cache["value"])
+    return None
+
+
+class MaintenanceModeMiddleware:
+    """Pure ASGI. Both database reads (the flag, at most every
+    ``_CACHE_TTL_SECONDS``, and the admin check while maintenance is on) run in
+    a worker thread: on the event loop, one slow read held up every request
+    the process was serving.
+    """
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+        path = scope.get("path") or ""
+        if not path.startswith("/api"):
+            await self.app(scope, receive, send)
+            return
+        on = _cached_flag()
+        if on is None:
+            on = await anyio.to_thread.run_sync(_maintenance_on)
+        if not on:
+            await self.app(scope, receive, send)
+            return
+        request = Request(scope)
+        if _api_path(path).startswith(ALWAYS_OPEN_PREFIXES) or await anyio.to_thread.run_sync(
+            _requester_is_admin, request
+        ):
+            await self.app(scope, receive, send)
+            return
         from ..core.api_errors import ErrorCode
 
         body = error_body(
@@ -100,4 +130,5 @@ class MaintenanceModeMiddleware(BaseHTTPMiddleware):
             "The site is under maintenance. Please check back shortly.",
         )
         body["error"]["code"] = "MAINTENANCE"
-        return JSONResponse(status_code=503, content=body, headers={"Retry-After": "300"})
+        response = JSONResponse(status_code=503, content=body, headers={"Retry-After": "300"})
+        await response(scope, receive, send)

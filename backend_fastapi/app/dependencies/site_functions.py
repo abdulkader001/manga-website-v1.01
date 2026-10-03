@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from ..core.db import get_db
 from ..core.site_functions import REGISTRY
 from ..services import site_functions as functions
+from .auth import release_connection
 
 
 def require_function(key: str):
@@ -17,7 +18,9 @@ def require_function(key: str):
         raise KeyError(f"unknown site function {key!r}")
 
     def _dependency(db: Session = Depends(get_db)) -> None:
-        if not functions.is_enabled(db, key):
+        enabled = functions.is_enabled(db, key)
+        release_connection(db)
+        if not enabled:
             raise functions.disabled_error(key)
 
     _dependency.__name__ = f"require_function_{key}"
