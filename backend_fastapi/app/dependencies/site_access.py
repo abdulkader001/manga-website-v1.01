@@ -1,12 +1,13 @@
-"""Members-only switch (Admin Settings -> "Sign-in required").
+"""Members-only switch (Admin -> Site Functions -> "Sign-in required").
 
-It is **on by default** (``LOGIN_REQUIRED_DEFAULT``): the catalogue, reader and
-community routes answer anonymous visitors with ``LOGIN_REQUIRED`` until the
-main admin turns it off. If the setting can't be read (no row yet, or the
-column is missing before the migration runs) the default applies, so the site
-fails closed. Sign-in, sign-up, the public site config and every
-admin/bootstrap route are never behind it, so the switch can't lock anyone
-(least of all the admin) out of signing in.
+It is **off by default** (``LOGIN_REQUIRED_DEFAULT``): guests browse and read
+until the owner switches it on. While it is on, the catalogue, reader and
+community routes answer anonymous visitors with ``LOGIN_REQUIRED``. A site with
+no settings row yet gets the default; if the setting can't be read at all the
+guard fails closed, so a database hiccup never opens a members-only site.
+Sign-in, sign-up, the public site config and every admin/bootstrap route are
+never behind it, so the switch can't lock anyone (least of all the owner) out
+of signing in.
 """
 
 from __future__ import annotations
@@ -24,9 +25,9 @@ from .auth import get_optional_user
 def login_required(db: Session) -> bool:
     try:
         row = db.query(SystemSettings.login_required).limit(1).first()
-    except Exception:  # column missing before the migration runs
+    except Exception:  # unreadable: fail closed
         db.rollback()
-        return LOGIN_REQUIRED_DEFAULT
+        return True
     if row is None or row[0] is None:  # no settings row yet: the default
         return LOGIN_REQUIRED_DEFAULT
     return bool(row[0])

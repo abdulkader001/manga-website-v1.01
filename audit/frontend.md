@@ -29,11 +29,13 @@ not loaded against the real CDNs from the build environment.)
 
 ## Login gate
 
-Every page except `/login`, `/complete-profile` and the magic-link routes is
-behind `AuthGuard`. Consequences: search engines cannot index series or
-chapters (while `/sitemap.xml` and `/rss.xml` list them), and ads reach logged-in
-users only. This is the original design; consider public browsing with login
-required only for actions (bookmarks, ratings, comments, translation).
+*Updated 2026-10-03.* The reading pages follow the owner's **Sign-in required**
+switch (Admin → Site Functions), which starts **off**: guests browse, read and
+keep bookmarks in their browser; comments, translation, notifications and
+settings need an account. With the switch on, every reading page sends guests
+to `/login` and the server refuses their requests too. `/login`,
+`/complete-profile`, the magic-link routes and the admin area are never behind
+it. (Originally every page needed a login; see `ROADMAP.md` item 29.)
 
 ## Mismatches with the backend
 

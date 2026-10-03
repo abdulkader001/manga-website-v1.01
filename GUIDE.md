@@ -901,27 +901,32 @@ Other server-side tools:
    `.env` itself (and a private backup of it): without `INTEGRATIONS_SECRET`
    the vault cannot be decrypted.
 
-### 6.2 Sign-in is required for everyone (you can switch it off)
+### 6.2 Sign-in required: off at the start, you switch it on when ready
 
-**Nobody sees the site before signing in.** A visitor who opens any page lands on
-the login page and chooses **Google**, **Microsoft** or an **e-mail link**
-(magic link). There are no reader passwords. This keeps casual scraping and
-load off the site. It is **on by default**, and updating an existing site
-switches it on too (the migration, Section 12).
+**The site starts open.** Guests can browse, read and keep bookmarks without an
+account. Bookmarks and reading history are saved by series ID in the visitor's
+own browser (never on the server), so they work for guests and readers alike;
+**Bookmarks → Export / Import** moves them to another device. A brand-new site
+and an updated one both start with the switch **off** (migration
+`20261017_login_required_default_off`, Section 12).
+
+When your Admins are in place and you want every visitor to log in first (less
+scraping and load), switch it on:
 
 **Admin → Site Functions → "Sign-in required for everyone"** (owner only, Section 6.4).
 
-- **On (default):** visitors must sign in before they can browse or read. The
-  server refuses catalogue, reader, community and sitemap requests from guests
-  too, not just the pages. If the page can't find out the setting, it shows the
-  login page, never the site.
-- **Off:** anyone can read; signing in is only needed for bookmarks sync,
-  translation, comments and settings.
+- **Off (default):** anyone can browse and read. Signing in is needed only for
+  comments, translation, notifications, settings and the admin area.
+- **On:** every visitor lands on the login page and chooses **Google**,
+  **Microsoft** or an **e-mail link** (no reader passwords). The server refuses
+  catalogue, reader, community and sitemap requests from guests too, not just
+  the pages. If the server can't read the setting it keeps guests out rather
+  than letting them in.
 
 The sign-in page, sign-up, the admin area and the server commands
 (Section 6) are never behind this switch, so it can't lock you out. Search
-engines can't read the site while it is on (guests see only the login page);
-turn it off if you want to be found.
+engines can't read the site while it is on (guests see only the login page).
+Switching it back off lets guests in again at once.
 
 ---
 
@@ -1003,6 +1008,7 @@ it. Every switch is enforced on the server (a function that is off answers
 
   It takes effect within a few seconds (each server process re-reads the switches
   every 5 seconds).
+  It also puts *Sign-in required* back to its default, **off**.
 - **Visitors' IP addresses.** *Visitor IP addresses are for the owner only*
   (on) means only you see an address anywhere in the admin area (the audit log);
   Admins and sub-admins see it hidden. Switch it off only if you want everyone
@@ -1525,7 +1531,9 @@ command and the machine, not a broken site.
 | "Continue with Google" says not configured | `GOOGLE_OAUTH_CLIENT_ID` / `GOOGLE_OAUTH_CLIENT_SECRET` are missing in `.env` (and the vault). See `GOOGLE_LOGIN_SETUP.md`. Until Google works, `cli_bootstrap login-link` signs you in, but you can't claim the owner seat without Google. |
 | Authenticator code refused | The phone's clock is off. Turn on automatic date & time on the phone, then type a fresh code (each lasts 30 seconds). |
 | Lost the phone with the authenticator | `cli_bootstrap reset-2fa --email you@example.com`, then sign in with Google and open **Admin** to set up the new phone (Section 6). |
-| Visitors are sent to the login page | Intended: *Sign-in required* is on by default (Section 6.2). Turn it off in **Admin → Site Functions** if you want the site open to guests. |
+| Visitors are sent to the login page | *Sign-in required* is on: you (or an earlier version of the site) switched it on. It starts **off** (Section 6.2). Switch it in **Admin → Site Functions**. |
+| Guests can read without signing in | Intended: *Sign-in required* starts off (Section 6.2). Switch it on in **Admin → Site Functions** when you want logins first. |
+| My site name or footer links don't show for visitors | Save them in Admin (Admin Settings / the footer editor) while signed in as the owner: the server copy is what visitors see. Older versions kept edits in the admin's own browser only. |
 | A feature says "… is switched off on this site" | You (the owner) switched that function off in **Admin → Site Functions** (Section 6.4). Switch it on again, or run `cli_bootstrap functions-reset` on the server. |
 | The Site Functions tab or Tab access is missing for an Admin | Intended: only the owner can open them, and nobody can be given them (Sections 6.4 and 6.5). |
 | An Admin or sub-admin says "your admin powers are switched off" | You used **Switch all powers off** in Role Management → Tab access (Section 6.5). Press *Switch powers back on*. |
@@ -1560,7 +1568,7 @@ command and the machine, not a broken site.
 - [ ] Production: `ufw` allows only 22/80/443; `docker-compose.override.yml` from Section 8 step 5 in place (production mode, ports on `127.0.0.1`); Caddy serves `https://your-domain`
 - [ ] `make_admin_hash.py --write .env`, Google client in `.env`, `up -d --force-recreate`, `admin-status` says `Owner: not claimed yet`; first Google sign-in done, authenticator set up in **Admin**; `admin-status` now says `Owner: claimed`
 - [ ] OCR, e-mail and sign-in settings entered in **Admin → Secret Vault**
-- [ ] Sign-in required left on (default) or switched off (Admin → Site Functions); the other Site Functions looked over (Section 6.4); donation links added if wanted
+- [ ] Sign-in required left off (default: guests read) or switched on once your Admins are set up (Admin → Site Functions, Section 6.2); the other Site Functions looked over (Section 6.4); donation links added if wanted
 - [ ] Tab access set for each Admin and sub-admin (Role Management, Section 6.5); the server's real IP hidden behind a CDN or tunnel and the bare-IP test run (Section 8)
 - [ ] First series imported; new chapters arrive via beat
 - [ ] Updating from before PR #33: provider keys that were saved in a **custom header** (e.g. Azure `api-key`) were publicly readable; rotate them at the provider and save the new key in Admin → API Management

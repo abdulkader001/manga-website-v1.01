@@ -222,6 +222,11 @@ Admin pages stay shut until the authenticator is set up, and from then on
 every admin page asks for a fresh code. There is nothing one-time to burn: if
 you sign out, just sign in with Google again.
 
+**Guests can read straight away.** The site starts with *Sign-in required* **off**:
+anyone can browse and read, and bookmarks are kept in each visitor's browser.
+When your Admins are ready and you want everyone to log in first, switch it on in
+**Admin → Site Functions** (details: [`GUIDE.md` §6.2](../GUIDE.md#62-sign-in-required-off-at-the-start-you-switch-it-on-when-ready)).
+
 ---
 
 ## Step 8 — Set up normal sign-in

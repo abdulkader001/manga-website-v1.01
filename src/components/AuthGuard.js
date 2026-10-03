@@ -6,10 +6,10 @@ import useAuth from "../hooks/useAuth";
 import useStaffPermissions from "../hooks/useStaffPermissions";
 import AdminSecondFactor from "./AdminSecondFactor";
 
-// `followSiteSetting`: sign-in is required by default, so a guest passes only
-// when the server says plainly that the owner switched "Sign-in required" off
-// (Admin Settings). If the answer can't be fetched the guest goes to the login
-// page. The backend enforces the same switch.
+// `followSiteSetting`: a guest passes when the server says plainly that
+// "Sign-in required" is off (Admin -> Site Functions; it starts off). If the
+// answer can't be fetched the guest goes to the login page rather than slipping
+// past a switch that may be on. The backend enforces the same switch.
 export default function AuthGuard({
   children,
   requireAdmin,

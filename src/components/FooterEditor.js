@@ -2,18 +2,18 @@ import React, { useEffect, useState } from "react";
 import api from "../services/api";
 
 const PRESET_PLATFORMS = [
-  { platform: "discord", title: "Discord Community", icon: "fab fa-discord", defaultUrl: "https://discord.gg/mgeko" },
-  { platform: "twitter", title: "Twitter / X Updates", icon: "fab fa-x-twitter", defaultUrl: "https://x.com/mgekocc" },
-  { platform: "telegram", title: "Telegram Channel", icon: "fab fa-telegram", defaultUrl: "https://t.me/mgeko_updates" },
-  { platform: "reddit", title: "Reddit Community", icon: "fab fa-reddit", defaultUrl: "https://reddit.com/r/mgeko" },
-  { platform: "email", title: "Contact & Support", icon: "fas fa-envelope", defaultUrl: "mailto:contact@mgeko.cc" },
-  { platform: "youtube", title: "YouTube Channel", icon: "fab fa-youtube", defaultUrl: "https://youtube.com/@mgeko" },
+  { platform: "discord", title: "Discord Community", icon: "fab fa-discord", defaultUrl: "https://discord.gg/" },
+  { platform: "twitter", title: "Twitter / X Updates", icon: "fab fa-x-twitter", defaultUrl: "https://x.com/" },
+  { platform: "telegram", title: "Telegram Channel", icon: "fab fa-telegram", defaultUrl: "https://t.me/" },
+  { platform: "reddit", title: "Reddit Community", icon: "fab fa-reddit", defaultUrl: "https://reddit.com/r/" },
+  { platform: "email", title: "Contact & Support", icon: "fas fa-envelope", defaultUrl: "mailto:" },
+  { platform: "youtube", title: "YouTube Channel", icon: "fab fa-youtube", defaultUrl: "https://youtube.com/@" },
   { platform: "custom", title: "Custom Link", icon: "fas fa-link", defaultUrl: "https://" },
 ];
 
 export default function FooterEditor() {
   const [footerData, setFooterData] = useState({
-    copyright: "© 2026 mgeko.cc. All rights reserved.",
+    copyright: "",
     disclaimer: "Disclaimer: All manga, manhwa, and manhua content are property of their respective creators and publishers. Content on this site is aggregated for fan translation research.",
   });
   const [socialLinks, setSocialLinks] = useState([]);
@@ -24,7 +24,7 @@ export default function FooterEditor() {
   // New Link Form state
   const [newPlatform, setNewPlatform] = useState("discord");
   const [newTitle, setNewTitle] = useState("Discord Community");
-  const [newUrl, setNewUrl] = useState("https://discord.gg/mgeko");
+  const [newUrl, setNewUrl] = useState("https://discord.gg/");
   const [newIcon, setNewIcon] = useState("fab fa-discord");
   const [newCustomIconUrl, setNewCustomIconUrl] = useState("");
 
@@ -44,7 +44,7 @@ export default function FooterEditor() {
       const data = await api.footer.get();
       if (data) {
         setFooterData({
-          copyright: data.copyright || "© 2026 mgeko.cc. All rights reserved.",
+          copyright: data.copyright || "",
           disclaimer: data.disclaimer || "Disclaimer: All manga content are property of their respective creators.",
         });
         if (Array.isArray(data.social_links)) {
@@ -253,7 +253,7 @@ export default function FooterEditor() {
               required
               value={footerData.copyright}
               onChange={(e) => setFooterData({ ...footerData, copyright: e.target.value })}
-              placeholder="e.g., © 2026 mgeko.cc. All rights reserved."
+              placeholder="e.g., © 2026 Your Site. All rights reserved."
               className="w-full px-3.5 py-2.5 rounded-xl bg-[#101216] border border-[#262a33] text-xs text-white focus:outline-none focus:border-[#00AEF0]"
             />
           </div>

@@ -1,5 +1,11 @@
 # Role Boundaries — Intended Design
 
+> **Superseded (2026-10-03).** This is the old design (user / moderator /
+> secondary admin / permanent admin). What is built and enforced today is the
+> four-role model: **owner**, **Admin** (at most two), **sub-admin** and
+> **user**; see `CLAUDE.md` (house rules) and `AUDIT_LOG.md` §1 "People and
+> roles". Kept for history only.
+
 > **This document describes the *intended* role model, not what the code does today.**
 >
 > The authoritative spec is [`roles-target-design.md`](roles-target-design.md); this file is a summary of it. **None of it is implemented yet.**

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { useParams, useNavigate } from "react-router";
 import api from "../services/api";
 import useAuth from "../hooks/useAuth";
@@ -9,6 +9,10 @@ export default function MagicLinkConsume() {
   const { refetchUser } = useAuth();
   const [status, setStatus] = useState("Verifying your email sign-in link…");
   const [error, setError] = useState(false);
+  // A link works once. React (StrictMode in development) can run the effect
+  // twice; the second call would find the link used, get a 401 and throw the
+  // freshly signed-in person back to /login. So each token is spent only once.
+  const usedToken = useRef(null);
 
   useEffect(() => {
     async function consume() {
@@ -35,7 +39,8 @@ export default function MagicLinkConsume() {
         setStatus(err.message || "Invalid or expired sign-in link. Please request a new one.");
       }
     }
-    if (token) {
+    if (token && usedToken.current !== token) {
+      usedToken.current = token;
       consume();
     }
   }, [token, navigate, refetchUser]);

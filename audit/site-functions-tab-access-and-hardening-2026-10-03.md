@@ -21,7 +21,7 @@ Each function has a real enforcement point; `tests/test_site_functions.py` prove
 
 | Group | Function | Default | When it is off |
 | --- | --- | --- | --- |
-| Sign-in and access | Sign-in required for everyone | on | Guests can browse and read (the older switch, now owner-only) |
+| Sign-in and access | Sign-in required for everyone | off (since 2026-10-03; was on) | When **on**, guests see only the login page. Off: guests browse, read and bookmark (the older switch, now owner-only) |
 | | Maintenance mode | off | Everyone below sub-admin sees a maintenance notice |
 | | New accounts | on | Only existing accounts can sign in |
 | | Sign in with Google / Microsoft / e-mail link | on | The button disappears and the route answers "provider disabled". **At least one must stay on** |
@@ -83,7 +83,7 @@ Not verified here: the nginx file was not syntax-checked (no nginx in this envir
 6. **Remove the dead admin-token code** (model, service, route) in a later change: nothing in the product uses it any more.
 7. **Decide on the audit-log IP retention.** The log is append-only by design (database triggers), so addresses can't be pruned; if you want them kept for a limited time, switch *Record visitor IP addresses* off or plan a retention job.
 8. **E-mail decryption context**: the admin router sets a context that is meant to allow decrypting e-mails, but in tests no e-mail ever comes back, so it protects you by luck rather than by design. Worth a dedicated test and a clear rule before anyone "fixes" it.
-9. **Search engines**: with sign-in required, crawlers see only the login page. That is the trade-off you chose; switch it off in Site Functions if you want to be indexed.
+9. **Search engines**: with sign-in required on, crawlers see only the login page. Since 2026-10-03 it starts off ([bug-test report](bug-test-2026-10-03.md)), so the site is indexable until you switch it on.
 10. **Open question for you:** should Admins be able to set tab lists for the sub-admins they appoint? Your latest message says owner only, so that is what was built.
 
 ## 6. If you change your mind
@@ -95,9 +95,9 @@ Not verified here: the nginx file was not syntax-checked (no nginx in this envir
 
 | Check | How | What you should see |
 | --- | --- | --- |
-| Migration | `docker compose exec backend alembic current` | `20261016_site_functions_and_tab_access (head)` |
+| Migration | `docker compose exec backend alembic current` | `20261017_login_required_default_off (head)` (was `20261016_…` when this report was written) |
 | Owner | `cli_bootstrap admin-status` | `Owner: claimed` |
-| Sign-in first | Open the site in a private window | The login page, then the site after signing in |
+| Sign-in switch | Open the site in a private window; then switch *Sign-in required* on and reload | First the site (it starts off), then the login page |
 | Site Functions | Sign in as owner → Admin → Site Functions; switch *Comments* off | The comment box disappears; `curl -s https://your-site/api/v1/comments/config` (signed in) answers 403 `FUNCTION_DISABLED`; switch it back on |
 | Last sign-in method | Switch Google and Microsoft off, then try the e-mail link | The page refuses to switch off the last one |
 | Tab access | Role Management → Tab access → give a test sub-admin *Reports only* | They see one tile; `GET /api/v1/admin/users` as them answers 403 |

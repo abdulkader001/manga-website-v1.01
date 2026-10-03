@@ -1,4 +1,4 @@
-"""Migration 20261015: sign-in required is on by default and for the existing site."""
+"""Migrations 20261015 (sign-in required on by default) and 20261017 (back to off)."""
 
 from __future__ import annotations
 
@@ -45,3 +45,30 @@ def test_downgrade_puts_the_default_back(tmp_path):
     with sqlite3.connect(db) as conn:
         conn.execute("INSERT INTO system_settings (id) VALUES (1)")
     assert _value(db) == (0,)
+
+
+# Migration 20261017: the owner changed their mind; the site starts open again.
+
+
+def test_20261017_switches_the_existing_site_off_and_new_rows_start_off(tmp_path):
+    db = tmp_path / "m.db"
+    _alembic(db, "upgrade", "20261016_site_functions_and_tab_access")
+    with sqlite3.connect(db) as conn:
+        conn.execute("INSERT INTO system_settings (id) VALUES (1)")
+    assert _value(db) == (1,)  # 20261015 made "on" the default
+
+    _alembic(db, "upgrade", "20261017_login_required_default_off")
+    assert _value(db) == (0,)
+    with sqlite3.connect(db) as conn:
+        conn.execute("DELETE FROM system_settings")
+        conn.execute("INSERT INTO system_settings (id) VALUES (1)")
+    assert _value(db) == (0,)  # the column default is now "off"
+
+
+def test_20261017_downgrade_puts_the_on_default_back(tmp_path):
+    db = tmp_path / "m.db"
+    _alembic(db, "upgrade", "20261017_login_required_default_off")
+    _alembic(db, "downgrade", "20261016_site_functions_and_tab_access")
+    with sqlite3.connect(db) as conn:
+        conn.execute("INSERT INTO system_settings (id) VALUES (1)")
+    assert _value(db) == (1,)
