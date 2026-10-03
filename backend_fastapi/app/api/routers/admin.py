@@ -1528,24 +1528,38 @@ def set_series_takedown(
     request: Request,
     manga_id: int,
     payload: TakedownPayload,
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> Dict[str, Any]:
     """Record a takedown decision for a series (Permanent Admin only).
 
     ``taken_down`` denies both hosting and translation regardless of the
-    per-series flags.
+    per-series flags, and deletes the series' stored pictures (plan.md P1-2).
     """
     from ...services.content_rights import resolve_series_rights
+    from ...services.takedown import set_takedown
 
     manga = db.get(Manga, manga_id)
     if manga is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail={"error": "not_found"}
         )
-    manga.takedown_status = payload.status
-    manga.takedown_reason = (payload.reason or "").strip() or None
+    previous = manga.takedown_status or "none"
+    result = set_takedown(db, manga, payload.status, payload.reason)
     db.commit()
+    result.remove_files()
     db.refresh(manga)
+    log_admin_action(
+        db,
+        request,
+        current_user,
+        "SET_TAKEDOWN",
+        "series",
+        str(manga_id),
+        "success",
+        previous_value=previous,
+        new_value=payload.status,
+    )
 
     # F-18: without this, a just-taken-down series could keep serving its
     # cached detail/chapter-list pages (up to the cache's TTL) regardless of

@@ -10,11 +10,14 @@ re-encoded, at a higher quality and a 2000px cap.
 from __future__ import annotations
 
 import io
+import uuid
 
 import pytest
 import requests
 from PIL import Image
 
+from backend_fastapi.app.core.db import SessionLocal
+from backend_fastapi.app.models import Manga
 from backend_fastapi.app.services import page_image_service as pis
 
 
@@ -78,7 +81,13 @@ def test_mirrored_originals_are_served_with_their_own_type(monkeypatch, fastapi_
     raw = _picture("JPEG")
     seen: list = []
     _serve(monkeypatch, {url: raw}, seen)
-    local = pis.mirror_chapter(21, 210, [url]).urls[0]
+    # The picture route serves pages of a series that exists and may be hosted.
+    with SessionLocal() as session:
+        manga = Manga(title="Originals", source_url=f"https://s.example/{uuid.uuid4().hex}")
+        session.add(manga)
+        session.commit()
+        manga_id = manga.id
+    local = pis.mirror_chapter(manga_id, 210, [url]).urls[0]
     assert local.endswith(".jpg")
     response = fastapi_client.get(local)
     assert response.status_code == 200

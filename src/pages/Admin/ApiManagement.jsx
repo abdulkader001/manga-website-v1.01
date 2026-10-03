@@ -1,7 +1,11 @@
 import React, { useEffect, useState, useMemo } from "react";
 import { Link } from "react-router";
 import api from "../../services/api";
-import { useApiRegistry } from "../../services/apiRegistry";
+
+// The server is the only list of providers (plan.md P1-10). An older version
+// kept a copy, keys included, in this browser; remove it if it is still there.
+const OLD_BROWSER_COPY = "manga_admin_api_registry_v1";
+const serverError = (err, fallback) => err?.message || fallback;
 
 const CATEGORY_META = {
   ocr: {
@@ -34,8 +38,6 @@ const CATEGORY_META = {
 };
 
 export default function ApiManagement() {
-  const { registry: localRegistry, addProvider: addLocalProvider, removeProvider: removeLocalProvider, updateProvider: updateLocalProvider } = useApiRegistry();
-
   const [activeCategoryFilter, setActiveCategoryFilter] = useState("all"); // "all" | "ocr" | "ai" | "translation"
   const [providers, setProviders] = useState({ ocr: [], ai: [], translation: [] });
   const [siteDefaults, setSiteDefaults] = useState([]);
@@ -64,33 +66,22 @@ export default function ApiManagement() {
     try {
       const serverData = await api.admin.apiRegistry.get();
       setSiteDefaults(Array.isArray(serverData?.site_defaults) ? serverData.site_defaults : []);
-      if (serverData && (serverData.ocr || serverData.ai || serverData.translation)) {
-        setProviders({
-          ocr: serverData.ocr || [],
-          ai: serverData.ai || [],
-          translation: serverData.translation || [],
-        });
-      } else if (localRegistry) {
-        setProviders({
-          ocr: localRegistry.ocr || [],
-          ai: localRegistry.ai || [],
-          translation: localRegistry.translation || [],
-        });
-      }
-    } catch {
-      if (localRegistry) {
-        setProviders({
-          ocr: localRegistry.ocr || [],
-          ai: localRegistry.ai || [],
-          translation: localRegistry.translation || [],
-        });
-      }
+      setProviders({
+        ocr: serverData?.ocr || [],
+        ai: serverData?.ai || [],
+        translation: serverData?.translation || [],
+      });
+    } catch (err) {
+      setNotice({ type: "error", message: `Could not load the providers: ${serverError(err, "the server did not answer.")}` });
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
+    try {
+      window.localStorage.removeItem(OLD_BROWSER_COPY);
+    } catch {}
     loadAllProviders();
   }, []);
 
@@ -102,6 +93,7 @@ export default function ApiManagement() {
   }), [providers]);
 
   const handleOpenAddModal = (defaultCat = "ocr") => {
+    setNotice(null);
     setEditingId(null);
     setFormCategory(defaultCat);
     setFormData({
@@ -117,6 +109,7 @@ export default function ApiManagement() {
   };
 
   const handleOpenEditModal = (cat, provider) => {
+    setNotice(null);
     setEditingId(provider.id);
     setFormCategory(cat);
     setFormData({
@@ -155,42 +148,23 @@ export default function ApiManagement() {
     };
 
     try {
-      // Save to server
       await api.admin.apiRegistry.saveProvider(formCategory, newProvider);
-      // Sync local registry store
-      addLocalProvider(formCategory, newProvider);
-      
-      setNotice({ type: "success", message: `✅ ${formData.label} saved successfully in ${CATEGORY_META[formCategory].tag}!` });
+      setNotice({ type: "success", message: `✅ ${formData.label} saved in ${CATEGORY_META[formCategory].tag}.` });
       setModalOpen(false);
       await loadAllProviders();
-    } catch {
-      // Local fallback
-      addLocalProvider(formCategory, newProvider);
-      setProviders((prev) => {
-        const list = [...(prev[formCategory] || [])];
-        const idx = list.findIndex((p) => p.id === providerId);
-        if (idx >= 0) list[idx] = newProvider;
-        else list.unshift(newProvider);
-        return { ...prev, [formCategory]: list };
-      });
-      setNotice({ type: "success", message: `✅ ${formData.label} saved locally in ${CATEGORY_META[formCategory].tag}!` });
-      setModalOpen(false);
+    } catch (err) {
+      // Nothing was stored: say why and keep the form open.
+      setNotice({ type: "error", message: `${formData.label} was not saved: ${serverError(err, "the server refused it.")}` });
     }
   };
 
   const handleDeleteProvider = async (category, id, label) => {
     try {
       await api.admin.apiRegistry.deleteProvider(category, id);
-      removeLocalProvider(category, id);
       setNotice({ type: "success", message: `✅ Deleted ${label || id} from ${CATEGORY_META[category]?.tag || category}.` });
       await loadAllProviders();
-    } catch {
-      removeLocalProvider(category, id);
-      setProviders((prev) => ({
-        ...prev,
-        [category]: (prev[category] || []).filter((p) => p.id !== id),
-      }));
-      setNotice({ type: "success", message: `✅ Deleted ${label || id} from ${CATEGORY_META[category]?.tag || category}.` });
+    } catch (err) {
+      setNotice({ type: "error", message: `${label || id} was not deleted: ${serverError(err, "the server refused it.")}` });
     }
   };
 
@@ -209,17 +183,16 @@ export default function ApiManagement() {
         ...prev,
         [provider.id]: {
           success: true,
-          latency: res.latencyMs || 58,
-          message: res.message || "Connection OK (200 Status)",
+          latency: res.latencyMs,
+          message: res.message || "Connection OK",
         },
       }));
-    } catch {
+    } catch (err) {
       setTestResult((prev) => ({
         ...prev,
         [provider.id]: {
-          success: true,
-          latency: 64,
-          message: `Connection OK! ${provider.label} is responsive.`,
+          success: false,
+          message: `Connection failed: ${serverError(err, "no answer.")}`,
         },
       }));
     } finally {
@@ -603,7 +576,7 @@ export default function ApiManagement() {
                             {testInfo && (
                               <span className={`text-[11px] font-semibold flex items-center gap-1 ${testInfo.success ? "text-emerald-400" : "text-red-400"}`}>
                                 <i className={testInfo.success ? "fas fa-check-circle" : "fas fa-times-circle"}></i>
-                                <span>{testInfo.message} ({testInfo.latency}ms)</span>
+                                <span>{testInfo.message}{typeof testInfo.latency === "number" ? ` (${testInfo.latency}ms)` : ""}</span>
                               </span>
                             )}
                           </div>
@@ -737,6 +710,12 @@ export default function ApiManagement() {
                   className="w-full bg-[#101216] border border-[#262a33] rounded-xl px-3 py-2 text-white placeholder-gray-600 focus:outline-none focus:border-[#00AEF0]"
                 />
               </div>
+
+              {notice?.type === "error" && (
+                <p role="alert" className="text-red-400 text-[11px]">
+                  {notice.message}
+                </p>
+              )}
 
               {/* Modal Actions */}
               <div className="pt-3 border-t border-[#262a33] flex items-center justify-end gap-2.5">

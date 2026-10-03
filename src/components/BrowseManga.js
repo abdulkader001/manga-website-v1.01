@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect } from "react";
-import { Link, useLocation } from "react-router";
+import { Link, useSearchParams } from "react-router";
 import { useQuery } from "@tanstack/react-query";
 import api from "../services/api";
 import useAuth from "../hooks/useAuth";
@@ -19,12 +19,14 @@ const ALL_GENRES = [
   "Video Games", "Villainess", "Webtoons", "Wuxia", "Xianxia", "Yaoi", "Yuri", "Zombies"
 ];
 
-const POPULAR_TAGS = [
-  "System", "Regression", "OP MC", "Reincarnation", "Dungeons", "Leveling",
-  "Cultivation", "Murim", "Revenge", "Virtual Reality", "Game Elements",
-  "Magic Academy", "Monsters", "Time Travel", "Apocalypse", "Necromancy",
-  "Strong to Stronger", "Solo Hero", "Tower Climb", "Villain Protagonist"
-];
+// Genres hidden by "Hide NSFW" (sent to the server as exclusions, so the
+// count and the pages stay right). The server compares genres case-blind.
+const NSFW_GENRES = ["Adult", "Ecchi", "Hentai", "Smut", "Gore", "Mature"];
+
+const PER_PAGE = 48;
+const SORTS = ["latest", "new", "views_today", "views_week", "views_month", "popular", "rating", "az", "chapters"];
+
+const listParam = (value) => (value ? value.split(",").map((v) => v.trim()).filter(Boolean) : []);
 
 // First chapter when the series has one, otherwise its detail page.
 const readNowLink = (manga) =>
@@ -34,187 +36,88 @@ export default function BrowseManga() {
   const { user } = useAuth();
   const isUnder18 = user?.is_under_18 === true || (user?.age != null && user.age < 18);
 
-  const [searchQuery, setSearchQuery] = useState("");
-  const [status, setStatus] = useState("");
-  const [type, setType] = useState("");
-  const [sort, setSort] = useState("latest");
+  // Every filter lives in the address (plan.md P1-3, P1-4), so the navbar
+  // search, genre links and "see all" links land on the right results, and
+  // the server does the filtering over the whole catalogue, not one page.
+  const [params, setParams] = useSearchParams();
+  const searchQuery = params.get("search") || params.get("q") || "";
+  const status = params.get("status") || "";
+  const type = params.get("type") || "";
+  const sortParam = params.get("sort") || "latest";
+  const sort = SORTS.includes(sortParam) ? sortParam : "latest";
+  const includeGenres = listParam(params.get("genre"));
+  const excludeGenres = listParam(params.get("exclude"));
+  const page = Math.max(1, Number.parseInt(params.get("page") || "1", 10) || 1);
+
   const [safeMode, setSafeMode] = useState(true);
   const [advancedCollapsed, setAdvancedCollapsed] = useState(false);
-
-  // Genre Filters
-  const [includeGenres, setIncludeGenres] = useState([]);
-  const [excludeGenres, setExcludeGenres] = useState([]);
-
-  // Tags Filter
-  const [tagInput, setTagInput] = useState("");
-  const [selectedTags, setSelectedTags] = useState([]);
-
-  // Sliders & Numeric Conditions
-  const [minChapters, setMinChapters] = useState(0);
-  const [maxChapters, setMaxChapters] = useState(9995);
-  const [minRating, setMinRating] = useState(0);
-
-  // Extra Options
-  const [onlyCompleted, setOnlyCompleted] = useState(false);
-  const [onlyTranslated, setOnlyTranslated] = useState(false);
-  const [hideHiatus, setHideHiatus] = useState(false);
-
-  // View state
   const [viewMode, setViewMode] = useState("grid"); // "grid" | "list"
-  const [page, setPage] = useState(1);
-  const location = useLocation();
+  const [searchInput, setSearchInput] = useState(searchQuery);
 
-  useEffect(() => {
-    const params = new URLSearchParams(location.search);
-    const g = params.get("genre");
-    if (g) {
-      setIncludeGenres([g]);
+  // Any change of filter starts again from page 1.
+  const update = (changes, { keepPage = false } = {}) => {
+    const next = new URLSearchParams(params);
+    for (const [key, value] of Object.entries(changes)) {
+      const empty = value == null || value === "" || (Array.isArray(value) && value.length === 0);
+      if (empty) next.delete(key);
+      else next.set(key, Array.isArray(value) ? value.join(",") : String(value));
     }
-  }, [location.search]);
+    if (!keepPage) next.delete("page");
+    if ("search" in changes) next.delete("q");
+    setParams(next, { replace: !keepPage });
+  };
 
-  // Fetch manga data from API
+  useEffect(() => setSearchInput(searchQuery), [searchQuery]);
+  useEffect(() => {
+    if (searchInput.trim() === searchQuery) return undefined;
+    const timer = setTimeout(() => update({ search: searchInput.trim() }), 400);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchInput]);
+
+  const hideNsfw = safeMode || isUnder18;
+  const excluded = useMemo(() => {
+    const all = [...excludeGenres];
+    if (hideNsfw) {
+      for (const g of NSFW_GENRES) {
+        if (!all.some((e) => e.toLowerCase() === g.toLowerCase())) all.push(g);
+      }
+    }
+    return all;
+  }, [excludeGenres, hideNsfw]);
+
   const { data: browseData, isLoading } = useQuery({
-    queryKey: ["browseManga", searchQuery, status, type, sort, page],
-    queryFn: async () => {
-      const res = await api.manga.browse({
+    queryKey: ["browseManga", searchQuery, status, type, sort, page, includeGenres.join(","), excluded.join(",")],
+    queryFn: () =>
+      api.manga.browse({
         search: searchQuery || undefined,
         status: status || undefined,
         type: type || undefined,
-        sort: sort || "latest",
+        sort,
+        include: includeGenres.length ? includeGenres.join(",") : undefined,
+        exclude: excluded.length ? excluded.join(",") : undefined,
         page,
-        per_page: 50,
-      });
-      return res;
-    },
+        per_page: PER_PAGE,
+      }),
+    placeholderData: (previous) => previous,
   });
 
   const mangaItems = Array.isArray(browseData?.items) ? browseData.items : [];
-  const totalResults = browseData?.total ? browseData.total : 7004;
+  const totalResults = Number(browseData?.total) || 0;
+  const totalPages = Math.max(1, Math.ceil(totalResults / PER_PAGE));
 
-  // Filter items in memory according to all detailed conditions
-  const filteredItems = useMemo(() => {
-    return mangaItems.filter((item) => {
-      const genres = Array.isArray(item.genres) ? item.genres : [];
-
-      // Include genres (matches at least one selected genre)
-      if (includeGenres.length > 0) {
-        const hasInc = includeGenres.some((g) =>
-          genres.some((ig) => ig.toLowerCase() === g.toLowerCase())
-        );
-        if (!hasInc) return false;
-      }
-
-      // Exclude genres (hides series that contain any selected genre)
-      if (excludeGenres.length > 0) {
-        const hasExc = excludeGenres.some((g) =>
-          genres.some((eg) => eg.toLowerCase() === g.toLowerCase())
-        );
-        if (hasExc) return false;
-      }
-
-      // Tags filter
-      if (selectedTags.length > 0) {
-        const matchesTags = selectedTags.every((t) => {
-          const lower = t.toLowerCase();
-          const inGenres = genres.some((g) => g.toLowerCase().includes(lower));
-          const inTitle = item.title?.toLowerCase().includes(lower);
-          const inDesc = item.description?.toLowerCase().includes(lower);
-          const inTags = Array.isArray(item.tags) && item.tags.some((tag) => tag.toLowerCase().includes(lower));
-          return inGenres || inTitle || inDesc || inTags;
-        });
-        if (!matchesTags) return false;
-      }
-
-      // Chapter Count range
-      const chaptersCount = item.chapters_count || 0;
-      if (minChapters > 0 && chaptersCount < minChapters) {
-        return false;
-      }
-      if (maxChapters < 9995 && chaptersCount > maxChapters) {
-        return false;
-      }
-
-      // Minimum Rating filter
-      const rating = item.rating_count > 0 ? item.rating || 0 : 0;
-      if (minRating > 0 && rating < minRating) {
-        return false;
-      }
-
-      // Extra Options
-      if (onlyCompleted && item.status?.toLowerCase() !== "completed") {
-        return false;
-      }
-      if (onlyTranslated && chaptersCount < 50) {
-        return false;
-      }
-      if (hideHiatus && item.status?.toLowerCase() === "hiatus") {
-        return false;
-      }
-
-      // Safe mode (Hide NSFW - strictly enforced if under 18)
-      if (safeMode || isUnder18) {
-        const nsfwKeywords = ["adult", "ecchi", "hentai", "smut", "gore", "mature", "18+"];
-        const isNsfw = genres.some((g) => nsfwKeywords.includes(g.toLowerCase()));
-        if (isNsfw) return false;
-      }
-
-      return true;
-    });
-  }, [
-    mangaItems,
-    includeGenres,
-    excludeGenres,
-    selectedTags,
-    minChapters,
-    maxChapters,
-    minRating,
-    onlyCompleted,
-    onlyTranslated,
-    hideHiatus,
-    safeMode,
-  ]);
-
-  const toggleIncludeGenre = (genre) => {
-    setIncludeGenres((prev) =>
-      prev.includes(genre) ? prev.filter((g) => g !== genre) : [...prev, genre]
-    );
-  };
-
-  const toggleExcludeGenre = (genre) => {
-    setExcludeGenres((prev) =>
-      prev.includes(genre) ? prev.filter((g) => g !== genre) : [...prev, genre]
-    );
-  };
-
-  const handleAddTag = (tag) => {
-    const trimmed = tag.trim();
-    if (!trimmed) return;
-    if (!selectedTags.includes(trimmed)) {
-      setSelectedTags([...selectedTags, trimmed]);
-    }
-    setTagInput("");
-  };
-
-  const handleRemoveTag = (tagToRemove) => {
-    setSelectedTags(selectedTags.filter((t) => t !== tagToRemove));
-  };
+  const toggleIn = (list, genre) =>
+    list.includes(genre) ? list.filter((g) => g !== genre) : [...list, genre];
+  const toggleIncludeGenre = (genre) => update({ genre: toggleIn(includeGenres, genre) });
+  const toggleExcludeGenre = (genre) => update({ exclude: toggleIn(excludeGenres, genre) });
+  const setStatus = (value) => update({ status: value });
+  const setType = (value) => update({ type: value });
+  const setSort = (value) => update({ sort: value === "latest" ? "" : value });
+  const setPage = (value) => update({ page: value > 1 ? value : "" }, { keepPage: true });
 
   const handleResetFilters = () => {
-    setSearchQuery("");
-    setStatus("");
-    setType("");
-    setSort("latest");
-    setIncludeGenres([]);
-    setExcludeGenres([]);
-    setSelectedTags([]);
-    setTagInput("");
-    setMinChapters(0);
-    setMaxChapters(9995);
-    setMinRating(0);
-    setOnlyCompleted(false);
-    setOnlyTranslated(false);
-    setHideHiatus(false);
-    setPage(1);
+    setSearchInput("");
+    setParams(new URLSearchParams(), { replace: true });
   };
 
   return (
@@ -228,7 +131,7 @@ export default function BrowseManga() {
         <p className="text-xs text-[#8b93a3] mt-1 font-medium">Discover your next favorite story</p>
         <div className="mt-2.5 inline-flex items-center gap-2 bg-[#15171c] border border-[#262a33] px-3 py-1 rounded-md text-xs font-semibold text-gray-200 shadow-sm">
           <span className="text-[#00AEF0] text-sm">📖</span>
-          <span>{totalResults} Comics</span>
+          <span>{isLoading ? "…" : `${totalResults.toLocaleString()} Comics`}</span>
         </div>
       </div>
 
@@ -242,13 +145,17 @@ export default function BrowseManga() {
             <div className="relative flex items-center">
               <input
                 type="text"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
+                value={searchInput}
+                onChange={(e) => setSearchInput(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && update({ search: searchInput.trim() })}
+                aria-label="Search"
                 placeholder="Search by title, author, artist..."
                 className="w-full bg-[#101216] border border-[#262a33] rounded-lg px-3 py-2 pr-10 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-[#00AEF0]"
               />
               <button
                 type="button"
+                onClick={() => update({ search: searchInput.trim() })}
+                aria-label="Search now"
                 className="absolute right-1 px-2.5 py-1 bg-[#00AEF0] text-white rounded-md text-xs hover:bg-[#0F5065] transition flex items-center justify-center"
               >
                 <i className="fas fa-search text-xs"></i>
@@ -298,6 +205,7 @@ export default function BrowseManga() {
               className="w-full bg-[#101216] border border-[#262a33] rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-[#00AEF0]"
             >
               <option value="latest">Latest update (Newest)</option>
+              <option value="new">Recently added</option>
               <option value="views_today">Most Viewed (Today)</option>
               <option value="views_week">Most Viewed (This Week)</option>
               <option value="views_month">Most Viewed (This Month)</option>
@@ -328,7 +236,11 @@ export default function BrowseManga() {
                   type="checkbox"
                   checked={isUnder18 ? true : safeMode}
                   disabled={isUnder18}
-                  onChange={(e) => !isUnder18 && setSafeMode(e.target.checked)}
+                  onChange={(e) => {
+                    if (isUnder18) return;
+                    setSafeMode(e.target.checked);
+                    update({});
+                  }}
                   className="sr-only peer"
                 />
                 <div className="w-9 h-5 bg-[#374151] peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-[#10b981]"></div>
@@ -356,9 +268,9 @@ export default function BrowseManga() {
 
         {/* 6-Card Grid: Row 1 (Include & Exclude side by side on phone, Tags), Row 2 (Chapter Count, Min Rating, Extra Options) */}
         {!advancedCollapsed && (
-          <div className="pt-2 grid grid-cols-1 md:grid-cols-3 gap-2.5 sm:gap-3">
+          <div className="pt-2">
             {/* Include & Exclude Genres Side-by-Side Container */}
-            <div className="grid grid-cols-2 gap-2 sm:gap-3 md:col-span-2">
+            <div className="grid grid-cols-2 gap-2 sm:gap-3">
               {/* 1. INCLUDE GENRES */}
               <div className="bg-[#101216] border border-[#262a33] rounded-xl p-2.5 sm:p-3.5 flex flex-col justify-between">
                 <div>
@@ -369,7 +281,7 @@ export default function BrowseManga() {
                   <p className="text-[10px] sm:text-[11px] text-[#8b93a3] mt-0.5 mb-1.5 line-clamp-1">Match selected</p>
                   <div className="flex flex-wrap gap-1 max-h-36 sm:max-h-44 overflow-y-auto pr-1">
                     {ALL_GENRES.map((g) => {
-                      const active = includeGenres.includes(g);
+                      const active = includeGenres.some((x) => x.toLowerCase() === g.toLowerCase());
                       return (
                         <button
                           key={`inc-${g}`}
@@ -392,7 +304,7 @@ export default function BrowseManga() {
                     <span>{includeGenres.length} selected</span>
                     <button
                       type="button"
-                      onClick={() => setIncludeGenres([])}
+                      onClick={() => update({ genre: [] })}
                       className="text-gray-400 hover:text-white underline text-[10px]"
                     >
                       Clear
@@ -411,7 +323,7 @@ export default function BrowseManga() {
                   <p className="text-[10px] sm:text-[11px] text-[#8b93a3] mt-0.5 mb-1.5 line-clamp-1">Hide selected</p>
                   <div className="flex flex-wrap gap-1 max-h-36 sm:max-h-44 overflow-y-auto pr-1">
                     {ALL_GENRES.map((g) => {
-                      const active = excludeGenres.includes(g);
+                      const active = excludeGenres.some((x) => x.toLowerCase() === g.toLowerCase());
                       return (
                         <button
                           key={`exc-${g}`}
@@ -434,7 +346,7 @@ export default function BrowseManga() {
                     <span>{excludeGenres.length} excluded</span>
                     <button
                       type="button"
-                      onClick={() => setExcludeGenres([])}
+                      onClick={() => update({ exclude: [] })}
                       className="text-gray-400 hover:text-white underline text-[10px]"
                     >
                       Clear
@@ -444,191 +356,6 @@ export default function BrowseManga() {
               </div>
             </div>
 
-            {/* 3. TAGS */}
-            <div className="bg-[#101216] border border-[#262a33] rounded-xl p-3.5 flex flex-col justify-between">
-              <div>
-                <div className="text-xs font-bold text-gray-200 uppercase tracking-wider">Tags</div>
-                <p className="text-[11px] text-[#8b93a3] mt-0.5 mb-2">Stack tags like system, regression, OP MC, etc.</p>
-                
-                {/* Tag Search Input */}
-                <form
-                  onSubmit={(e) => {
-                    e.preventDefault();
-                    handleAddTag(tagInput);
-                  }}
-                  className="relative flex items-center mb-2"
-                >
-                  <input
-                    type="text"
-                    value={tagInput}
-                    onChange={(e) => setTagInput(e.target.value)}
-                    placeholder="Search for tags..."
-                    className="w-full bg-[#15171c] border border-[#262a33] rounded-lg px-2.5 py-1.5 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-[#00AEF0]"
-                  />
-                  {tagInput.trim() && (
-                    <button
-                      type="submit"
-                      className="absolute right-1 px-2 py-0.5 bg-[#00AEF0] text-white text-[10px] font-bold rounded"
-                    >
-                      + Add
-                    </button>
-                  )}
-                </form>
-
-                {/* Selected Tags Chips */}
-                {selectedTags.length > 0 && (
-                  <div className="flex flex-wrap gap-1 mb-2 p-1.5 bg-[#15171c] rounded-lg border border-[#262a33]">
-                    {selectedTags.map((tag) => (
-                      <span
-                        key={tag}
-                        className="inline-flex items-center gap-1 bg-[#00AEF0]/20 text-[#00AEF0] border border-[#00AEF0]/40 px-2 py-0.5 rounded-full text-[11px] font-semibold"
-                      >
-                        <span>{tag}</span>
-                        <button
-                          type="button"
-                          onClick={() => handleRemoveTag(tag)}
-                          className="hover:text-red-400 ml-0.5 text-xs leading-none"
-                        >
-                          ✕
-                        </button>
-                      </span>
-                    ))}
-                  </div>
-                )}
-
-                {/* Popular Suggested Tags */}
-                <div className="flex flex-wrap gap-1 max-h-24 overflow-y-auto pr-1">
-                  {POPULAR_TAGS.map((tag) => {
-                    const isSelected = selectedTags.includes(tag);
-                    return (
-                      <button
-                        key={tag}
-                        type="button"
-                        onClick={() => isSelected ? handleRemoveTag(tag) : handleAddTag(tag)}
-                        className={`px-2 py-0.5 rounded-md text-[10px] font-medium transition border ${
-                          isSelected
-                            ? "bg-[#00AEF0] border-[#00AEF0] text-white"
-                            : "bg-[#15171c] border-[#262a33] text-gray-400 hover:text-white hover:border-gray-500"
-                        }`}
-                      >
-                        {tag}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            </div>
-
-            {/* 4. CHAPTER COUNT */}
-            <div className="bg-[#101216] border border-[#262a33] rounded-xl p-3.5 flex flex-col justify-between space-y-3">
-              <div>
-                <div className="text-xs font-bold text-gray-200 uppercase tracking-wider">Chapter Count</div>
-                <p className="text-[11px] text-[#8b93a3] mt-0.5 mb-2.5">Target on-going binge (high max) or short completed reads (lower max).</p>
-                
-                {/* Min Chapters Slider */}
-                <div className="space-y-1 mb-3">
-                  <div className="flex justify-between text-xs font-semibold">
-                    <span className="text-[#8b93a3]">Min chapters</span>
-                    <span className="text-white">{minChapters === 0 ? "Any" : minChapters}</span>
-                  </div>
-                  <input
-                    type="range"
-                    min="0"
-                    max="500"
-                    step="5"
-                    value={minChapters}
-                    onChange={(e) => setMinChapters(Number(e.target.value))}
-                    className="w-full accent-[#00AEF0] h-1.5 bg-[#252a38] rounded-lg cursor-pointer"
-                  />
-                </div>
-
-                {/* Max Chapters Slider */}
-                <div className="space-y-1">
-                  <div className="flex justify-between text-xs font-semibold">
-                    <span className="text-[#8b93a3]">Max chapters</span>
-                    <span className="text-white">{maxChapters >= 9995 ? "9995" : maxChapters}</span>
-                  </div>
-                  <input
-                    type="range"
-                    min="10"
-                    max="9995"
-                    step="25"
-                    value={maxChapters}
-                    onChange={(e) => setMaxChapters(Number(e.target.value))}
-                    className="w-full accent-[#00AEF0] h-1.5 bg-[#252a38] rounded-lg cursor-pointer"
-                  />
-                </div>
-              </div>
-            </div>
-
-            {/* 5. MINIMUM RATING */}
-            <div className="bg-[#101216] border border-[#262a33] rounded-xl p-3.5 flex flex-col justify-between space-y-3">
-              <div>
-                <div className="text-xs font-bold text-gray-200 uppercase tracking-wider">Minimum Rating</div>
-                <p className="text-[11px] text-[#8b93a3] mt-0.5 mb-2.5">Filter out low-rated series.</p>
-                
-                <div className="space-y-1.5 pt-1">
-                  <div className="flex justify-between text-xs font-semibold">
-                    <span className="text-[#8b93a3]">Min rating</span>
-                    <span className="text-white">{minRating === 0 ? "Any" : `${minRating.toFixed(1)} ★`}</span>
-                  </div>
-                  <input
-                    type="range"
-                    min="0"
-                    max="5"
-                    step="0.5"
-                    value={minRating}
-                    onChange={(e) => setMinRating(Number(e.target.value))}
-                    className="w-full accent-[#00AEF0] h-1.5 bg-[#252a38] rounded-lg cursor-pointer"
-                  />
-                  <div className="flex justify-between text-[10px] text-gray-500 pt-1">
-                    <span>Any</span>
-                    <span>2.5 ★</span>
-                    <span>5.0 ★</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* 6. EXTRA OPTIONS */}
-            <div className="bg-[#101216] border border-[#262a33] rounded-xl p-3.5 flex flex-col justify-between">
-              <div>
-                <div className="text-xs font-bold text-gray-200 uppercase tracking-wider">Extra Options</div>
-                <p className="text-[11px] text-[#8b93a3] mt-0.5 mb-2.5">Tighten search with more conditions.</p>
-                
-                <div className="space-y-2 text-xs font-medium text-gray-200">
-                  <label className="flex items-center gap-2.5 cursor-pointer hover:text-white">
-                    <input
-                      type="checkbox"
-                      checked={onlyCompleted}
-                      onChange={(e) => setOnlyCompleted(e.target.checked)}
-                      className="w-4 h-4 rounded bg-[#101216] border-[#374151] text-[#00AEF0] focus:ring-0 focus:outline-none"
-                    />
-                    <span>Only completed series</span>
-                  </label>
-
-                  <label className="flex items-center gap-2.5 cursor-pointer hover:text-white">
-                    <input
-                      type="checkbox"
-                      checked={onlyTranslated}
-                      onChange={(e) => setOnlyTranslated(e.target.checked)}
-                      className="w-4 h-4 rounded bg-[#101216] border-[#374151] text-[#00AEF0] focus:ring-0 focus:outline-none"
-                    />
-                    <span>At least 50+ chapters translated</span>
-                  </label>
-
-                  <label className="flex items-center gap-2.5 cursor-pointer hover:text-white">
-                    <input
-                      type="checkbox"
-                      checked={hideHiatus}
-                      onChange={(e) => setHideHiatus(e.target.checked)}
-                      className="w-4 h-4 rounded bg-[#101216] border-[#374151] text-[#00AEF0] focus:ring-0 focus:outline-none"
-                    />
-                    <span>Hide long hiatus (&gt; 6 months)</span>
-                  </label>
-                </div>
-              </div>
-            </div>
           </div>
         )}
       </div>
@@ -648,7 +375,7 @@ export default function BrowseManga() {
       {/* Comics Grid View */}
       {isLoading ? (
         <div className="text-center py-16 text-[#8b93a3]">Loading comics...</div>
-      ) : filteredItems.length === 0 ? (
+      ) : mangaItems.length === 0 ? (
         <div className="text-center py-16 text-[#8b93a3] bg-[#15171c] rounded-2xl border border-[#262a33]">
           <p className="font-semibold text-sm text-gray-300">No comics found matching your filters.</p>
           <button
@@ -661,16 +388,13 @@ export default function BrowseManga() {
         </div>
       ) : viewMode === "grid" ? (
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3.5">
-          {filteredItems.map((manga) => (
+          {mangaItems.map((manga) => (
             <article
               key={manga.id}
               className="bg-[#15171c] border border-[#262a33] rounded-xl overflow-hidden shadow-lg flex flex-col group hover:border-[#00AEF0] transition-all hover:-translate-y-1"
             >
-              {/* Cover & Trending Badge */}
+              {/* Cover */}
               <div className="relative aspect-[3/4] bg-black overflow-hidden">
-                <span className="absolute top-2 left-2 z-10 px-2 py-0.5 rounded text-[10px] font-extrabold uppercase bg-[#ef4444] text-white tracking-wider shadow-md">
-                  Trending
-                </span>
 
                 <Link to={`/manga/${manga.id}`} className="block w-full h-full">
                   <img
@@ -709,7 +433,7 @@ export default function BrowseManga() {
       ) : (
         /* List Mode View */
         <div className="flex flex-col gap-2.5">
-          {filteredItems.map((manga) => (
+          {mangaItems.map((manga) => (
             <article
               key={manga.id}
               className="flex items-center gap-3.5 bg-[#15171c] border border-[#262a33] rounded-xl p-3 hover:border-[#00AEF0] transition"
@@ -765,12 +489,13 @@ export default function BrowseManga() {
           « Prev
         </button>
         <span className="px-3.5 py-1.5 rounded-lg bg-[#00AEF0] text-white text-xs font-bold">
-          {page}
+          {page} / {totalPages}
         </span>
         <button
           type="button"
+          disabled={page >= totalPages}
           onClick={() => setPage(page + 1)}
-          className="px-3.5 py-1.5 rounded-lg bg-[#15171c] border border-[#262a33] text-gray-300 text-xs font-semibold hover:border-[#00AEF0]"
+          className="px-3.5 py-1.5 rounded-lg bg-[#15171c] border border-[#262a33] text-gray-300 text-xs font-semibold hover:border-[#00AEF0] disabled:opacity-30 disabled:pointer-events-none"
         >
           Next »
         </button>

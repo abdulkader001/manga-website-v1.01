@@ -218,7 +218,6 @@ def build_chapter_list_payload(
                 "number": str(number) if number is not None else None,
                 "chapter_number": number,
                 "title": chapter.chapter_title or f"Chapter {number}",
-                "url": chapter.chapter_url,
                 "created_at": _utc_iso(released),
                 "release_date": _utc_iso(released),
                 "views": int(chapter.views or 0),
@@ -241,8 +240,30 @@ def _hide_admin_fields(items: List[Dict[str, Any]], user: Optional[User]) -> Non
     if user is not None and is_secondary_or_higher(user):
         return
     for item in items:
+        _proxy_remote_pictures(item)
         for field in ADMIN_ONLY_FIELDS:
             item.pop(field, None)
+
+
+PICTURE_FIELDS = ("cover_image", "cover_url", "banner_image")
+
+
+def _proxy_remote_pictures(item: Dict[str, Any]) -> None:
+    """A cover not mirrored yet points at the source: send it through the
+    image proxy with an opaque token instead (plan.md P1-1)."""
+
+    from ..utils.cdn import _cdn_base
+    from . import image_proxy
+
+    cdn = _cdn_base()
+    referer = item.get("source_url") or ""
+    for field in PICTURE_FIELDS:
+        value = item.get(field)
+        if not isinstance(value, str) or not value.startswith(("http://", "https://")):
+            continue
+        if cdn and value.startswith(cdn):
+            continue
+        item[field] = image_proxy.opaque_url(value, referer)
 
 
 def apply_viewer_fields(

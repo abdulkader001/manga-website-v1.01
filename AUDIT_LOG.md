@@ -97,6 +97,7 @@ back what the upgrade removed, so restore a backup instead.
 | `20261017_login_required_default_off` | #42 | `system_settings.login_required` column default becomes **off** again, and the existing row is switched off (guests can read until the owner switches it on) | **Lossy**: only the default goes back to on. The value the owner had before the upgrade is not kept, so existing rows stay off (switch it on in Admin → Site Functions) |
 | `20261018_cascade_series_children` | #50 (written for #48, shipped first in #50) | PostgreSQL: reading history, bookmarks and the OCR/translation caches are deleted with their chapter or series (`ON DELETE CASCADE`); `scraping_jobs.manga_id` and `translation_cache.ocr_cache_id` become empty instead (`SET NULL`) | Lossless: the rules go back to `NO ACTION`; no row is touched (rows already removed by deletes stay removed) |
 | `20261019_error_reports` | #48 (from #49) | New table `error_reports` (Admin → Error Report: grouped errors with cause, fix, count, fixed flag) | **Lossy**: drops the table; the recorded errors are lost (nothing else depends on them) |
+| `20261020_genres_ci_index` | #51 | PostgreSQL: index `ix_manga_genres_ci_gin` on `lower(genres::text)::jsonb`, used by the case-blind genre filter | Lossless: drops the index; the filter still works, only slower on big catalogues |
 
 Check where a server is: `docker compose exec backend alembic current`.
 
@@ -138,9 +139,35 @@ exceptions; for those, restore the database backup taken before the update.
 
 ## Change entries
 
+### 2026-10-03 — PR #51: the P1 bugs from `plan.md` (visitors never see sources, takedown removes pictures, Browse, genres, homepage lists, chapter 0, deployment, honest admin screens)
+
+Merge SHA: fill in when known (the next PR fills it in). Branch `claude/project-thread-ev89fm` (restarted from `main` after #48 merged).
+
+The owner said "go ahead" with the P1 group, in one PR. Owner's questions answered with the plan's recommendations: Q-2 A (a takedown deletes the series' pictures and the picture routes check it), Q-3 (visitors never see sources; staff still do), Q-5 (genres matched whatever their capitals), Q-9 (Docker + Caddy only).
+
+| Change | Why | Main files |
+| --- | --- | --- |
+| **Visitors never see where content comes from (P1-1).** `/manga/batch` goes through the public `MangaBase` allow-list and the viewer filter (no source, last scrape error, who added it, scrape settings); public chapter routes drop `url` / `chapter_url`; pages and covers not yet stored here go out as an opaque, encrypted proxy token (`/images/proxy?t=…`, Fernet from `SECRET_KEY`) instead of a raw source address or readable base64. Staff still see sources. Old signed `?u=&r=&s=` links keep working | Guests could read every source address, scrape errors and an admin's user id | `api/routers/manga.py`, `schemas/manga.py`, `services/catalogue_service.py`, `services/image_proxy.py`, `api/routers/reader.py` |
+| **"Read now" / "latest chapter" links carry their chapter (P1-5)**: `first_chapter_id`, `latest_chapter_id` in list and detail | The response model dropped them, so every "Read Now" opened the series page | `schemas/manga.py` |
+| **Takedown removes the pictures and has a screen (P1-2).** *Taken down* deletes the series' stored pages, its cover (unless another series shares it) and its OCR/translation caches, points chapters back at their source pages (so a restore can compress them again), and is audited (`SET_TAKEDOWN`). The backend picture routes refuse pictures of a series that may not be hosted (staff excepted); compression and scheduled checks skip it. New **Takedown** panel in Admin → Series (status, reason, type the name to confirm, server errors shown) | nginx kept serving the files of a taken-down series; nothing on the site could take a series down | new `services/takedown.py`, `routers/admin.py`, `routers/reader.py`, `services/page_mirror_service.py`, `services/scheduled_checks_service.py`, new `src/pages/Admin/TakedownPanel.jsx`, `SeriesManagement.jsx`, `src/services/api.js` |
+| **Browse filters the whole catalogue (P1-3, P1-4).** Search, sort, status, type, include/exclude genres and page come from the address and go to the server; *Hide NSFW* is sent as exclusions; the real total and page count show; Next stops on the last page; a change goes back to page 1. Removed the filters the server cannot do (tags, chapter range, rating, "50+ translated", hiatus), the fixed "Trending" badge and the 7004 count. The homepage link uses `sort=new` | Filters ran on the 50 series on screen; the navbar search and links were ignored | `src/components/BrowseManga.js`, `Homepage.js` |
+| **Genre filter ignores capitals on PostgreSQL (P1-6)** (`lower(genres::text)::jsonb ? 'action'`, with an index) | Real genres are stored "Action"; `?genre=Action` found nothing | `services/manga_service.py`, migration `20261020_genres_ci_index` |
+| **Homepage Most viewed / New ask the server for their own ranking (P1-7)** | They re-sorted the 50 most recently updated series | `src/components/Homepage.js` |
+| **Chapter 0 (P1-8)**: Read Latest / First Chapter use the server's chapter ids, else chapter-number order where 0 counts; the label uses the chapter title helper | "Read Latest" opened chapter 0 | `src/components/MangaDetail.js` |
+| **Docker + Caddy only (P1-9).** Removed `deployment/manga-site.conf`, `manga-frontend.service`, the certbot units and script, and the `manga-api/worker/beat/worker-compress.service` units; the README worker command lists every queue | The host nginx file failed `nginx -t`; the systemd worker skipped the e-mail queue; the README command sent no sign-in e-mail | `deployment/`, `backend_fastapi/deployment/`, `README.md`, `backend_fastapi/README.md` |
+| **Admin screens say what the server did (P1-10).** API Management shows the server's error for a refused save, delete or connection test (no "saved locally", no fake "Connection OK"), and no longer keeps a browser copy of the providers (keys included); an old copy is deleted when the page opens. The footer editor shows the server's list after each change and an error when refused | The owner saw "saved" while nothing was stored | `src/pages/Admin/ApiManagement.jsx`, `src/services/apiRegistry.js` (removed), `src/components/FooterEditor.js` |
+| Tests: a contract test calls every public GET as a guest and a reader against a series whose sources contain `source.invalid` (none may show it); proxy tokens; takedown files, routes, audit and mirroring; Title-Case genres on PostgreSQL; Browse, homepage, chapter 0, takedown panel, API Management and footer editor failures. Docs: GUIDE (takedown, Browse, Docker + Caddy only, four troubleshooting rows, checklist), deployment READMEs, `map.md`, `plan.md` tick-list; #48's merge SHA filled in | Prove it and keep the docs true | `tests/test_public_source_privacy.py`, `tests/test_takedown_pictures.py`, `tests/test_genre_filter.py`, `src/**/*.test.jsx`, `GUIDE.md`, `map.md`, `plan.md` |
+
+- **Database:** new migration `20261020_genres_ci_index` (index only); see §2.
+- **Settings:** none. No setting moved between `.env`, the vault and Admin Settings.
+- **Check:** after `docker compose up -d --build` and the migrations: as a guest, `curl -s https://<domain>/api/v1/manga/batch?ids=<id>` shows no `source_url`; a chapter's `pages` are `/api/v1/images/proxy?t=…` or `/api/v1/manga/pages/…`; `/browse?genre=Action` lists Action series; Admin → Series → 🚫 → *Taken down* on a test series, then its page and cover addresses answer 404. Tests: `pytest backend_fastapi/tests` (also on PostgreSQL), `npx vitest run`.
+- **Undo:** `alembic downgrade 20261019_error_reports` (drops the index only), then `git revert -m 1 <merge>` and rebuild. Pictures deleted by a takedown do not come back (re-scrape or *Compress pictures* after setting the series back to *Online*); the host-nginx files come back with the revert.
+
+---
+
 ### 2026-10-03 — PR #48: the four P0 bugs from `plan.md` (live site behind Caddy, deleting series, sign-in landing)
 
-Merge SHA: fill in when known (the next PR fills it in). Branch `claude/project-thread-ev89fm`.
+Merge `ce4c71b` (filled in by PR #51). Branch `claude/project-thread-ev89fm`.
 
 The owner asked to work through `plan.md` from P0 down. These are the four "fix before go-live" bugs, plus the small items the plan groups with them (P2-2, P2-3, the nginx half of P3-9). Owner's questions answered with the plan's recommendations: Q-1 (Caddy → web nginx → backend stays; only local and Docker addresses are trusted as proxies) and Q-4 (deleting a series removes what points at it, in the database).
 
@@ -167,7 +194,7 @@ Not in this PR (later groups of the plan): delete-all and bulk delete as backgro
 
 ### 2026-10-03 — PR #48 (part 2): Admin → Error Report: what went wrong, the likely cause and the fix
 
-Merged into PR #48 (one combined PR, the owner's choice); merge SHA is #48's. Branch `claude/project-thread-y77vpo` (draft PR #49 closed in favour of #48).
+Merged into PR #48 (one combined PR, the owner's choice); merge `ce4c71b`, as #48. Branch `claude/project-thread-y77vpo` (draft PR #49 closed in favour of #48).
 
 The owner asked for an admin tab that shows what errors are happening, what the real problem is and how to fix it. Errors from the API server, the background workers and readers' browsers are now saved (grouped: one entry per distinct error, with a count) and shown in **Admin → Error Report** with a plain-language *Likely cause* and *How to fix*.
 

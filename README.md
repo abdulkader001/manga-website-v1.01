@@ -14,7 +14,7 @@ cp .env.example .env                 # fill in the secrets
 docker compose up -d db redis
 alembic upgrade head
 npm run backend                      # API on :8000
-celery -A backend_fastapi.app.core.celery_app:celery_app worker -Q scrape,celery -l info
+celery -A backend_fastapi.app.core.celery_app:celery_app worker -Q default,celery,scrape,compress,ocr,translation,email,maintenance,notifications -l info
 npm install && npm run dev           # UI on :3000
 ```
 

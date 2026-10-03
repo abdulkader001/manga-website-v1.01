@@ -801,9 +801,9 @@ curl http://localhost:3000/api/v1/version
 
 You should see `{"ok":true}` and `{"version":"dev"}`.
 
-> The README's shorter worker command (`-Q scrape,celery`) only handles
-> scraping. The full queue list above is needed for image compression,
-> OCR, translation, e-mail and notifications.
+> Every queue in the list above is needed: without `email` no sign-in
+> e-mail goes out, without `compress` pictures are not compressed. The
+> READMEs use the same list.
 
 The server-side tools in Section 6 work here too: replace
 `docker compose exec backend python -m …` with
@@ -1173,6 +1173,13 @@ sub-admin's preview says "ask the main admin", add the site as below.
 | Whole-site backups, download, restore, R2/B2 storage | Admin → Storage & Backups (Section 9.1). Main admin only |
 | Geolock (block countries) | Admin → Geolock: press *Download free database (DB-IP)* once (or upload a MaxMind `GeoLite2-Country.mmdb`), tick countries, save. Behind Cloudflare you can use its country header instead. Main admin only |
 | Backups | Section 9 |
+| Take a series down (DMCA or a rights request) | Admin → Series → the 🚫 button on the series' row. *Takedown requested* only marks it. *Taken down* hides it from readers at once and **deletes its stored pages and cover** from the server; type the series name to confirm. To show it again, set it back to *Online* and press *Compress pictures* on the row. Every change is in the audit log. Owner, and anyone given the *Take a series down* permission in Role Management |
+
+Browse runs every filter on the server: search, sort, status, type and the
+include/exclude genres (Hide NSFW excludes adult genres). The address keeps
+them (`/browse?search=…&sort=new&genre=Action`), so a link to a filtered list
+can be shared. Readers never see where a series or its pictures come from:
+pictures not yet stored here go through the site's picture proxy.
 
 ---
 
@@ -1309,9 +1316,9 @@ server, or the certificate request fails (`sudo journalctl -u caddy -n 50`).
 *"Unable to locate package caddy"* (Ubuntu 22.04): add Caddy's own repository
 first, see <https://caddyserver.com/docs/install#debian-ubuntu-raspbian>.
 
-Prefer nginx + certbot? The repo's `deployment/manga-site.conf` and
-`deployment/renew_certificates.md` are a *reference*: the config points at the
-Docker names (`backend:8000`) and a static folder, so adapt it before use.
+The site is run with Docker Compose behind Caddy only. The old host-nginx +
+systemd + certbot files were removed: their nginx file failed `nginx -t` and
+their worker served one queue, so sign-in e-mails were never sent.
 
 ### Step 8 — Start on boot
 
@@ -1353,9 +1360,8 @@ of sight:
    rest. Better still, use a **tunnel** (`cloudflared`): the server then opens no
    public port at all.
 3. **Answer nobody who asks for the bare IP or an unknown name.** Typing
-   `https://<server-ip>` must show nothing. With the repo's host nginx config
-   (`deployment/manga-site.conf`) the catch-all server blocks at the top do it. With
-   Caddy, only your domain is served; test it (below).
+   `https://<server-ip>` must show nothing. Caddy serves only your domain; test it
+   (below).
 4. **Don't leak the address elsewhere:**
    - no DNS record (including `mail.`, `ftp.`, old test names) that points at the
      real IP without the proxy;
@@ -1407,10 +1413,6 @@ Vault. The data, accounts and settings stay as they are.
      sudo systemctl reload caddy
      ```
 
-   - nginx + certbot: add the name to both `server_name` lines in
-     `/etc/nginx/sites-available/manga-site.conf`, then
-     `sudo certbot --nginx -d new-domain.com -d www.new-domain.com` and
-     `sudo systemctl reload nginx`.
    - The Docker `web` container uses `server_name _;` and needs no change.
 3. **Switch** (a few clicks): Admin → Secret Vault → unlock with your
    authenticator code → **Website domain** card → type `new-domain.com` →
@@ -1635,7 +1637,7 @@ command and the machine, not a broken site.
 | Backup says "Not enough free disk" | Delete old backups, keep fewer, turn off *Include pictures*, or set `BACKUP_DIR` to a bigger disk. |
 | Backup "Storage copy failed" | The archive is safe on the server. Press *Test connection* in Storage & Backups to see why (wrong key, bucket, region, or key not allowed to write). |
 | Restore says "Wrong backup password" | Enter the password that was set when that backup was made. |
-| Backup upload stops at 10 MB (own nginx in front) | Your outer proxy caps uploads. Copy the backups location from `deployment/manga-site.conf` (no size cap for `/api/v1/admin/backups/upload`). Caddy has no such cap. |
+| Backup upload stops at 10 MB (own nginx in front) | Your outer proxy caps uploads. Lift the cap for `/api/v1/admin/backups/upload` there (the `web` container's own `deployment/nginx/site.conf` shows how). Caddy has no such cap. |
 | You blocked your own country with Geolock | On the server: `docker compose exec backend python -m backend_fastapi.scripts.cli_bootstrap geolock-off`. |
 | Geolock blocks nobody | Turn it on, tick countries, and install the country database (Geolock tab). Visitors on a local network or VPN aren't matched. |
 | Port already in use (`port is already allocated`) | Another program uses 8080/8000/5432: `sudo ss -ltnp \| grep -E ':(8080\|8000\|5432)\b'`. Stop it, or change the published port in `docker-compose.yml`. |
@@ -1650,6 +1652,10 @@ command and the machine, not a broken site.
 | Stored pictures look blurry or smaller than on the source | Update (Section 4.1), check that `PAGE_MAX_WIDTH` in `.env` (or the Secret Vault) is 2000, not 1440, and that `PAGE_KEEP_ORIGINALS` isn't `false`, then re-scrape the series. Pictures that need no change are now stored exactly as the source sent them. |
 | A source site gets slower to scrape after a while, or a scrape pauses before going on | Expected: the scraper now paces each site by how fast it answers, and waits longer (5 to 30 seconds) after the site answers "too many requests" or "forbidden". That keeps the server from being blocked. If a site blocks you anyway, wait an hour before scraping it again. |
 | *Custom Parser* on a homepage picks a list or category page instead of a series | Update (Section 4.1). If it still does, paste the address of one series page instead. The sites the owner chose, and what is known about each, are listed in `backend_fastapi/app/scrapers/reference/sites.py`. |
+| Pictures of a taken-down series still open | Update (Section 4.1): *Taken down* now deletes the stored pages and cover. For a series taken down before the update, set it to *Online* and then *Taken down* again. A browser or CDN that kept a copy may still show it until its cache expires; purge the CDN. |
+| Browse lost the tag, chapter-count, rating and "50+ chapters" filters | On purpose: they only filtered the 50 series on screen and hid the rest. Search, sort, status, type and the genre filters now cover the whole catalogue. |
+| `/browse?genre=Action` (or a genre link) shows nothing on PostgreSQL | Update and run the migrations (Section 4.1); genres are now matched whatever their capitals. |
+| You installed with `deployment/manga-site.conf` or the `manga-*.service` units | Those files were removed (they could not start and their worker skipped the e-mail queue). Move to Docker + Caddy (Section 8), then `sudo systemctl disable --now manga-api manga-worker manga-beat manga-frontend`. |
 
 ---
 
@@ -1674,6 +1680,8 @@ command and the machine, not a broken site.
 - [ ] Backups: nightly `~/manga-backup.sh` in cron and copied off the server; in **Admin → Storage & Backups** set a backup password (kept off the server), check the weekly schedule, and connect R2/B2 storage
 - [ ] Geolock set if needed (Admin → Geolock; install the country database first)
 - [ ] Admins (optional): at most two trusted sub-admins with an authenticator, made Admins in Role Management; set their seats, the sub-admin ceiling and each Admin's succession line; automatic succession on if you want idle Admins replaced (Section 6.3)
+- [ ] The site runs with Docker Compose behind Caddy (the host-nginx / systemd / certbot files are gone); if you set those up earlier, move to Section 8 and disable the old `manga-*.service` units
+- [ ] Takedown checked once on a test series (Admin → Series → 🚫): after *Taken down* its page and cover addresses answer 404
 - [ ] **Admin → Error Report** opened after setup and after every update: no open errors, or each one dealt with and marked fixed (Section 6.6)
 - [ ] `AUDIT_LOG.md` read; a backup taken before every update (Section 12)
 
