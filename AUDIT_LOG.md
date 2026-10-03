@@ -135,6 +135,24 @@ exceptions; for those, restore the database backup taken before the update.
 
 ## Change entries
 
+### 2026-10-03 — Whole-site map and fix plan (documents only, nothing fixed)
+
+Merge SHA: fill in when known (the next PR fills it in). Branch `claude/site-map-and-fix-plan`.
+
+The owner asked for the whole website to be mapped and every error, bug and path mismatch to be found, with a plan written **before** anything is fixed. This PR adds the two documents and changes no code, setting or database table. `plan.md` lists 41 findings (4 P0, 10 P1, 15 P2, 12 P3), eleven questions for the owner, and the order of work in nine pull requests; the owner decides what is fixed and when.
+
+| Change | Why | Main files |
+| --- | --- | --- |
+| **`map.md` added**: how the site is put together (request path, middleware order, roles and powers, frontend routes, backend routers/services/tables, flows, config and deploy, tests and CI), a feature ledger, and appendices listing all 306 routes with who calls them, the 58 foreign keys with their delete rules, and the 44 background tasks | A fixing session can understand the whole site before it changes anything | `map.md` |
+| **`plan.md` added**: findings with where/what/fix/proof, the owner's open questions with recommendations, the order of work (PR-1 to PR-9), the rules for the fixing session and the commands that reproduce each live finding | The owner wants a correct plan and to be asked before any fix | `plan.md` |
+
+- **Database:** none (no migration).
+- **Settings:** none.
+- **Check:** open `map.md` and `plan.md` at the repository root. Nothing in the running site changes.
+- **Undo:** `git revert -m 1 <merge>` (or delete the two files). Nothing else is affected.
+
+---
+
 ### 2026-10-03 — A reader's read chapters follow them to a new phone
 
 Merge SHA: fill in when known (the next PR fills it in). Branch `claude/relaxed-wozniak-bsnxv1`.
