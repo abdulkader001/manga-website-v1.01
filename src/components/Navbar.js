@@ -8,7 +8,8 @@ import CONFIG from "../config";
 import useAuth from "../hooks/useAuth";
 import { updateFavicon } from "../utils/favicon";
 import { maskEmail } from "../utils/maskEmail";
-import api, { apiFetch } from "../services/api";
+import useBranding, { DEFAULT_LOGO } from "../hooks/useBranding";
+import useStaffPermissions from "../hooks/useStaffPermissions";
 
 const PRESET_LOGOS = [
   { icon: "🦎", name: "Gecko / Lizard" },
@@ -41,13 +42,15 @@ export default function Navbar() {
     logout,
   } = useAuth();
 
-  // State-driven changeable website name & picture/favicon
-  const [brandName, setBrandName] = useState(() => {
-    return localStorage.getItem("mgeko_custom_brand") || CONFIG.BRAND_NAME;
-  });
-  const [brandLogo, setBrandLogo] = useState(() => {
-    return localStorage.getItem("mgeko_custom_logo") || "🦎";
-  });
+  // The site's name and logo as the owner saved them (same for everyone).
+  // Only someone holding the branding power sees the pencil to change them.
+  const branding = useBranding();
+  const brandName = branding.name;
+  const brandLogo = branding.logo;
+  const { can } = useStaffPermissions();
+  const canEditBranding = Boolean(user) && can("configure_branding");
+  const [brandError, setBrandError] = useState("");
+  const [brandSaving, setBrandSaving] = useState(false);
 
   // Branding Modal Editor
   const [brandingModalOpen, setBrandingModalOpen] = useState(false);
@@ -66,23 +69,6 @@ export default function Navbar() {
   const userMenuRef = useRef(null);
 
   const isUserAdmin = user?.is_admin === true || isAdmin || isSecondaryAdmin;
-
-  // The site's saved branding (Admin) is what every visitor sees; this
-  // browser's copy only avoids a flash while it loads.
-  useEffect(() => {
-    let alive = true;
-    api.branding
-      .get()
-      .then((data) => {
-        if (!alive || !data) return;
-        if (data.name) setBrandName(data.name);
-        if (data.logo_url || data.logo) setBrandLogo(data.logo_url || data.logo);
-      })
-      .catch(() => {});
-    return () => {
-      alive = false;
-    };
-  }, []);
 
   // Sync favicon and document title on mount & update
   useEffect(() => {
@@ -120,37 +106,29 @@ export default function Navbar() {
         ? brandLogo
         : ""
     );
+    setBrandError("");
     setBrandingModalOpen(true);
   };
 
   const handleSaveBranding = async (e) => {
     e?.preventDefault();
     const finalName = tempBrandName.trim() || CONFIG.BRAND_NAME;
-    const finalLogo = tempBrandLogo.trim() || "🦎";
-
-    setBrandName(finalName);
-    setBrandLogo(finalLogo);
-
-    localStorage.setItem("mgeko_custom_brand", finalName);
-    localStorage.setItem("mgeko_custom_logo", finalLogo);
-
-    updateFavicon(finalLogo);
-    document.title = `${finalName} - Manga Updates & Browse`;
-
+    const finalLogo = tempBrandLogo.trim() || DEFAULT_LOGO;
+    // Saved on the server for every visitor, or not at all: nothing is kept
+    // in this browser only.
+    setBrandSaving(true);
+    setBrandError("");
     try {
-      window.dispatchEvent(new CustomEvent("mgeko_branding_updated", { detail: { name: finalName, logo: finalLogo } }));
-    } catch {}
-
-    setBrandingModalOpen(false);
-
-    try {
-      await apiFetch("/api/v1/branding", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: finalName, logo_url: finalLogo }),
-      });
+      await branding.save({ name: finalName, logo_url: finalLogo });
+      setBrandingModalOpen(false);
     } catch (err) {
-      // Ignored for local client fallback
+      setBrandError(
+        err?.code === "REVERIFICATION_REQUIRED"
+          ? "Enter your authenticator code in the admin area first, then save again."
+          : err?.message || "The change could not be saved."
+      );
+    } finally {
+      setBrandSaving(false);
     }
   };
 
@@ -185,7 +163,8 @@ export default function Navbar() {
                 <span className="truncate max-w-[140px] sm:max-w-xs">{brandName}</span>
               </Link>
 
-              {/* Change Website Name & Favicon/Logo Trigger Button */}
+              {/* Change Website Name & Favicon/Logo: branding power only */}
+              {canEditBranding && (
               <button
                 type="button"
                 onClick={handleOpenBrandingModal}
@@ -194,6 +173,7 @@ export default function Navbar() {
               >
                 <i className="fas fa-pencil-alt text-[10px]"></i>
               </button>
+              )}
             </div>
 
             {/* Desktop Navigation Links (Visible on md+ screens) */}
@@ -440,7 +420,7 @@ export default function Navbar() {
                     }}
                   />
                 ) : (
-                  <span className="text-2xl leading-none">{tempBrandLogo || "🦎"}</span>
+                  <span className="text-2xl leading-none">{tempBrandLogo || DEFAULT_LOGO}</span>
                 )}
                 <span className="font-extrabold text-white text-sm">{tempBrandName || CONFIG.BRAND_NAME}</span>
               </div>
@@ -499,13 +479,19 @@ export default function Navbar() {
                   if (e.target.value.trim()) {
                     setTempBrandLogo(e.target.value.trim());
                   } else {
-                    setTempBrandLogo("🦎");
+                    setTempBrandLogo(DEFAULT_LOGO);
                   }
                 }}
                 placeholder="https://example.com/logo.png (or any image URL)"
                 className="w-full bg-[#1f2330] border border-[#374151] rounded-lg p-2.5 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-[#00AEF0]"
               />
             </div>
+
+            {brandError && (
+              <p role="alert" className="text-[11px] text-red-400">
+                {brandError}
+              </p>
+            )}
 
             {/* Buttons */}
             <div className="flex items-center justify-end gap-2 pt-2 border-t border-[#262a33]">
@@ -518,10 +504,11 @@ export default function Navbar() {
               </button>
               <button
                 type="submit"
-                className="px-4 py-1.5 rounded-lg bg-[#00AEF0] text-white text-xs font-bold hover:bg-[#0F5065] transition shadow-md flex items-center gap-1.5"
+                disabled={brandSaving}
+                className="px-4 py-1.5 rounded-lg bg-[#00AEF0] text-white text-xs font-bold hover:bg-[#0F5065] transition shadow-md flex items-center gap-1.5 disabled:opacity-50"
               >
                 <i className="fas fa-check text-xs"></i>
-                <span>Save Changes</span>
+                <span>{brandSaving ? "Saving…" : "Save Changes"}</span>
               </button>
             </div>
           </form>

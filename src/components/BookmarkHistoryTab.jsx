@@ -13,6 +13,7 @@ import {
   useLibrary,
 } from "../utils/library";
 import { COVER_PLACEHOLDER, useFallback } from "../utils/placeholders";
+import useAuth from "../hooks/useAuth";
 
 // Bookmarks and reading history, both kept in this browser (utils/library.js).
 // The server is only asked for public facts about those series: cover, title
@@ -103,6 +104,7 @@ function Card({ manga, kind, lib, onRemove }) {
 }
 
 export default function BookmarkHistoryTab() {
+  const { user } = useAuth();
   const lib = useLibrary();
   const fileRef = useRef(null);
   const [tab, setTab] = useState("bookmarks");
@@ -177,7 +179,9 @@ export default function BookmarkHistoryTab() {
         <div>
           <h1 className="text-2xl font-extrabold text-white">My Library</h1>
           <p className="text-[11px] text-[#8b93a3]">
-            Saved in this browser only — we never store your bookmarks or reading history. Export to move them to another device.
+            {user
+              ? "Your bookmarks are saved to your account, so they follow you to other devices and you get an alert when a bookmarked series has a new chapter. Reading history stays in this browser."
+              : "Saved in this browser. Sign in to keep your bookmarks on your account and get an alert when a bookmarked series has a new chapter. Reading history always stays in this browser."}
           </p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">

@@ -12,14 +12,6 @@ from .manga import (
     ChapterDetailResponse,
 )
 
-from .history import (
-    HistoryEntryBase,
-    HistoryListResponse,
-    HistoryUpsertRequest,
-    HistoryDeleteResponse,
-    HistoryClearResponse,
-)
-
 from .admin import (
     AdminResponseBase,
     AdminActionResponse,
@@ -87,11 +79,6 @@ __all__ = [
     "ChapterBase",
     "ChapterListResponse",
     "ChapterDetailResponse",
-    "HistoryEntryBase",
-    "HistoryListResponse",
-    "HistoryUpsertRequest",
-    "HistoryDeleteResponse",
-    "HistoryClearResponse",
     "AdminResponseBase",
     "AdminActionResponse",
     "AdminAuditLogEntry",

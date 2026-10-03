@@ -33,9 +33,7 @@ from ..api.routers import (
     config_router,
     glossary_router,
     health_router,
-    history_router,
     integrations_router,
-    legacy_router,
     management_router,
     manga_router,
     system_stats_router,
@@ -83,12 +81,10 @@ def build_api_router() -> APIRouter:
     api_router.include_router(bookmarks_router, dependencies=_members_only)
     api_router.include_router(branding_router)
     api_router.include_router(cache_admin_router)
-    api_router.include_router(history_router, dependencies=_members_only)
     api_router.include_router(config_router)
     api_router.include_router(integrations_router)
     api_router.include_router(health_router)
     api_router.include_router(system_stats_router)
-    api_router.include_router(legacy_router, dependencies=_members_only)
     api_router.include_router(management_router)
     api_router.include_router(comments_router, dependencies=_members_only + _function("comments"))
     api_router.include_router(community_router, dependencies=_members_only + _function("community"))

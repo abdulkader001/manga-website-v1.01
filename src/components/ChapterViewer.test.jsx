@@ -7,7 +7,6 @@ const api = vi.hoisted(() => ({
   manga: { chapter: vi.fn(), chapters: vi.fn() },
   reports: { getChapterReports: vi.fn() },
   bookmarks: { list: vi.fn() },
-  history: { add: vi.fn() },
 }));
 vi.mock("../services/api", () => ({ default: api, apiFetch: vi.fn() }));
 vi.mock("../hooks/useAuth", () => ({

@@ -9,6 +9,7 @@ import { isBookmarked, readSet, recordRead, toggleBookmark as toggleLocalBookmar
 import CommentSection from "./CommentSection";
 import FunctionGate from "./FunctionGate";
 import "../styles/components.css";
+import useAuth from "../hooks/useAuth";
 
 const MangaDetail = () => {
   const { mangaId } = useParams();
@@ -66,7 +67,9 @@ const MangaDetail = () => {
     );
   }, [rawChapters, chapterSort, chapterSearch]);
 
-  // Bookmarks and read marks live in this browser (utils/library.js).
+  // Bookmarks and read marks live in this browser (utils/library.js); a
+  // signed-in reader's bookmarks are also kept on the server for alerts.
+  const { user } = useAuth();
   const lib = useLibrary();
   const bookmarked = isBookmarked(lib, mangaId);
 
@@ -272,6 +275,11 @@ const MangaDetail = () => {
               <i className={bookmarked ? "fas fa-bookmark" : "far fa-bookmark"}></i>
               <span>{bookmarked ? "Bookmarked" : "Add to Bookmarks"}</span>
             </button>
+            {bookmarked && !user && (
+              <span className="text-[11px] text-[#8b93a3]">
+                <Link to="/login" className="text-[#00AEF0] hover:underline">Sign in</Link> to get an alert when a new chapter comes out.
+              </span>
+            )}
 
             {lastRead ? (
               <Link

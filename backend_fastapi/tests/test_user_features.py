@@ -78,44 +78,6 @@ def test_bookmarks_flow(fastapi_client, sample_data):
     assert missing.status_code == 404
 
 
-def test_history_flow(fastapi_client, sample_data):
-    user = sample_data["user"]
-    manga = sample_data["manga"]
-    chapter = sample_data["chapter"]
-
-    token = _login(fastapi_client, _user_email(user))
-    headers = _auth_headers(token)
-
-    create = fastapi_client.post(
-        "/api/history/",
-        json={"manga_id": manga.id, "chapter_id": chapter.id},
-        headers=headers,
-    )
-    assert create.status_code == 201
-    first_entry = create.json()
-    assert first_entry["manga_id"] == manga.id
-    assert first_entry["chapter_id"] == chapter.id
-
-    update = fastapi_client.post(
-        "/api/history/",
-        json={"manga_id": manga.id, "chapter_id": chapter.id},
-        headers=headers,
-    )
-    assert update.status_code == 200
-    assert update.json()["id"] == first_entry["id"]
-
-    listing = fastapi_client.get("/api/history/", headers=headers)
-    assert listing.status_code == 200
-    entries = listing.json()
-    assert any(row["id"] == first_entry["id"] for row in entries)
-
-    delete = fastapi_client.delete(f"/api/history/{first_entry['id']}", headers=headers)
-    assert delete.status_code == 200
-
-    cleared = fastapi_client.get("/api/history/", headers=headers)
-    assert cleared.json() == []
-
-
 def test_comments_flow(fastapi_client, sample_data):
     user = sample_data["user"]
     manga = sample_data["manga"]

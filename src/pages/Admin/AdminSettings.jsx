@@ -1,10 +1,12 @@
 import React, { useEffect, useState } from "react";
 import { Link } from "react-router";
+import { useQueryClient } from "@tanstack/react-query";
 import api from "../../services/api";
 import FooterEditor from "../../components/FooterEditor";
 import DonationEditor from "../../components/DonationEditor";
 
 export default function AdminSettings() {
+  const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState("general"); // "general" | "footer" | "system"
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -71,6 +73,8 @@ export default function AdminSettings() {
         logo_url: settings.logo_url,
         logo: settings.logo_url,
       });
+      // The navbar and footer show the new name and logo straight away.
+      queryClient.invalidateQueries({ queryKey: ["branding"] });
       setNotice({ type: "success", message: "✅ Admin settings saved and applied successfully!" });
     } catch (err) {
       setNotice({ type: "error", message: "Failed to save admin settings. Please try again." });
@@ -84,8 +88,8 @@ export default function AdminSettings() {
       const res = await api.admin.settings.clearCache();
       setNotice({ type: "success", message: `✅ ${res.message || "System cache cleared successfully!"}` });
       await loadSettings();
-    } catch {
-      setNotice({ type: "success", message: "✅ System cache purged and refreshed." });
+    } catch (err) {
+      setNotice({ type: "error", message: err?.message || "The cache could not be cleared. Please try again." });
     }
   };
 

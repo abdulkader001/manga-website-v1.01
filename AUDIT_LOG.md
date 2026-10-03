@@ -53,7 +53,8 @@ Contents
 
 ### Data that is deliberately *not* on the server
 
-- Bookmarks, reading history and "where I stopped" live in the reader's browser (`localStorage` key `mw_library_v1`, `src/utils/library.js`), keyed by series ID, for guests and signed-in readers alike. Readers move them between devices with export/import. (The old server-side `bookmarks` / `read_history` tables and `/bookmarks`, `/history` routes still exist but nothing in the website writes to them; see §5.)
+- Reading history and "where I stopped" live in the reader's browser (`localStorage` key `mw_library_v1`, `src/utils/library.js`), never on the server; readers move them between devices with export/import. (The old `read_history` table is unused; its routes were removed.)
+- Bookmarks live in the browser too, keyed by series ID. For a **signed-in** reader the server also keeps the bookmarked series ids (`bookmarks` table, `src/components/BookmarkSync.jsx`) so new-chapter alerts reach them (`services/series_alerts.py`) and the list follows them to other devices. Guests' bookmarks stay in their browser only.
 
 ### Server-side tools (run with `docker compose exec backend python -m backend_fastapi.scripts.<name>`)
 
@@ -134,9 +135,35 @@ exceptions; for those, restore the database backup taken before the update.
 
 ## Change entries
 
+### 2026-10-03 — New-chapter alerts for bookmarked series; logo and homepage heading owner-only; clean-up
+
+Merge SHA: fill in when known (the next PR fills it in). Branch `claude/funny-gauss-k12tkr` (restarted from `main` after #42 merged).
+
+The owner asked that a new chapter reaches every reader who bookmarked the series, that the logo a visitor could "change" from the navbar be fixed, and for the follow-ups recommended after the bug test.
+
+| Change | Why | Main files |
+| --- | --- | --- |
+| **New-chapter alerts reach readers who bookmarked the series.** A signed-in reader's bookmarks are now kept on their account as series ids (reading history still never leaves the browser): each change is sent as it happens, changes made while signed out wait and are sent at the next sign-in, and a browser's existing bookmarks are sent the first time its reader signs in. The account's list is then what the page shows, so bookmarks follow the reader to other devices. Guests' bookmarks stay in their browser | Owner's request; alerts went to server-side bookmarks that nothing created (BT-9) | `src/utils/library.js`, `src/components/BookmarkSync.jsx`, `src/app.js`, `src/components/MangaDetail.js`, `src/components/BookmarkHistoryTab.jsx` |
+| Alerts come from **every** path that adds chapters to an existing series: the scheduled check and now also a scrape job (re-scrape, manual import of a known series). One helper; the chapter is written the way readers count ("Chapter 12", not "12.0"). A brand-new series alerts nobody | The scrape path never alerted anyone | `services/series_alerts.py`, `services/scheduled_checks_service.py`, `services/scraper_workflow_service.py` |
+| **Logo and site name:** the pencil next to the logo (navbar and footer) showed to everyone, guests included, and an edit was kept in that visitor's browser, so they saw "their" logo. Now only the branding power sees the pencil, the change is saved on the server for everyone or not at all (with the reason when refused), and old browser copies are cleared | Owner's screenshot | `src/hooks/useBranding.js`, `src/components/Navbar.js`, `src/components/Footer.js`, `src/pages/Admin/AdminSettings.jsx` |
+| **Homepage heading** is saved with the branding (`homepage_title`, `homepage_subtitle`), same for every visitor, branding power only (BT-12) | Admins' edits were visible only in their own browser | `api/routers/branding.py`, `schemas/branding.py`, `src/components/Homepage.js` |
+| The homepage no longer starts with four made-up notices ("We are fixing server issue,, thanks"…) that showed until, or instead of, the real ones | Visitors saw fake notices | `src/components/Homepage.js` |
+| Admin Settings → *Clear cache* said "✅ purged" when it failed | Wrong success message | `src/pages/Admin/AdminSettings.jsx` |
+| **Readers looked signed out an hour after their last visit.** The access token lasts an hour and the refresh cookie two weeks, but on opening the site the page asked "who am I?" once and, on 401, showed the person as a guest without renewing. Now it renews once for someone who was signed in on this browser (guests never try), and forgets it when the renewal is refused | Found while testing live: everyone had to sign in again every hour | `src/contexts/AuthContext.js`, `src/services/api.js` |
+| **Removed** the server's reading-history routes (`/history`, `/read_history`) and their browser client: nothing used them, and history stays in the browser by rule. The `read_history` table is left in place (no migration) | Clean-up (BT-10) | `api/routers/history.py`, `schemas/history.py` (deleted), `bootstrap/routers.py`, `src/services/api.js` |
+| Tests: alerts reach only followers, the scrape path alerts and a new series doesn't, the heading saves and only the branding power may change it; bookmark sync (guest, first sign-in, live changes, failed upload keeps the list); navbar pencil hidden for guests and readers, saves on the server, shows why when refused; an expired access token is renewed on load, a guest never tries | Prove it | `tests/test_series_alerts.py`, `tests/test_branding_homepage_heading.py`, `src/components/BookmarkSync.test.jsx`, `src/components/Navbar.test.jsx`, `src/contexts/AuthContext.test.jsx` |
+
+- **Database:** none. (Bookmarks use the existing `bookmarks` table; the heading lives in the branding setting.)
+- **Settings:** none in `.env`. `CLAUDE.md` house rule on bookmarks updated: signed-in readers' bookmarked series ids are kept on the server for alerts; reading history never is.
+- **Not done:** Tailwind 4 (roadmap item 40). Its upgrade tool needs the owner's permission to run here; the CI audit keeps ignoring only the `braces` advisory until then.
+- **Check:** sign in as a reader, bookmark a series, then add a chapter (scheduled check or re-scrape): the reader's bell shows "Chapter N of … is available". In a private window there is no pencil next to the logo or on the homepage heading. `pytest backend_fastapi/tests/test_series_alerts.py backend_fastapi/tests/test_branding_homepage_heading.py`; `npx vitest run`.
+- **Undo:** `git revert -m 1 <merge>`. Bookmarks already sent to accounts stay in the `bookmarks` table (harmless; delete rows to forget them).
+
+---
+
 ### 2026-10-03 — Sign-in optional at the start; whole-site bug test; two clear guides
 
-Merge SHA: fill in when known (the next PR fills it in). Branch `claude/funny-gauss-k12tkr`. Full report: `audit/bug-test-2026-10-03.md`.
+Merge commit `b101565` (PR #42). Branch `claude/funny-gauss-k12tkr`. Full report: `audit/bug-test-2026-10-03.md`.
 
 The owner changed the sign-in rule: the site starts **open** (guests read and keep bookmarks in their browser) and the owner switches *Sign-in required* on later, once the Admins are in place. They also asked for a bug test of the whole website, guides that match the site (one for a local test without a domain, one for the live server), and the audit files brought up to date.
 
@@ -546,10 +573,8 @@ PRs #1–#22 predate this log. Their summaries are in the merge commits
 - **Win + right-click**: Windows often swallows the Windows key. Shift + right-click is the reliable way to get a new window.
 - **Crypto addresses** are checked for format, not ownership. Send yourself a small test amount after every change.
 - **Comment and cultivation systems**: postponed by the owner ("fix our issues first").
-- **"New chapter" notifications reach nobody** (found 2026-10-03): the scheduled check notifies readers who have a *server-side* bookmark, but bookmarks live in the browser, so no such rows are ever made. Needs the owner's choice: an opt-in "follow this series" saved on the server under the reader's account ID, or drop the feature.
-- **Unused server code** (found 2026-10-03): the `/bookmarks` and `/history` routes, `bookmarks/import`, the `read_history` table and `suggestion_service` serve nothing in the website (bookmarks and history are in the browser). About 60 functions in `src/services/api.js` are never called.
+- **Unused server code** (found 2026-10-03): the `/history` routes are removed; the `read_history` table and `suggestion_service` remain (dropping the table needs a lossy migration). Many functions in `src/services/api.js` belong to features with no page yet (below) and are kept for them.
 - **Built on the server but without a page** (found 2026-10-03): Community (emojis, realms, memes, ranks, pills; it has a Site Functions switch), comment edit / vote / react / report / moderation, and notification preferences.
-- **Homepage header text** edited by an admin is saved only in that admin's browser (`localStorage`); visitors never see it. Needs a server setting.
 - **SQLite development database:** several migrations are PostgreSQL-only, so an SQLite database made with `alembic upgrade head` lacks `settings`, `footer_settings`, `login_tokens`, `complaints` and some columns. Production (PostgreSQL) is complete. Use PostgreSQL for local testing too (the install guides do, through Docker).
 - **`braces` advisory ignored in CI** (GHSA-vfj7-8cjw-p6xm, build-time only via tailwindcss 3): remove it from `.github/scripts/npm-audit-gate.mjs` when `braces` ships a fix or the site moves to Tailwind 4.
 - **`users.password_hash`** column is unused since PR #27. It was kept so that undoing PR #27 restores old password logins. It can be dropped in a later migration.

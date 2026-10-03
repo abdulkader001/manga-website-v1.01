@@ -99,6 +99,7 @@ class ScraperWorkflowService:
                 if remap:
                     self._remap_chapter_urls(manga, manga_data.get("chapters", []))
 
+                existing_series = manga is not None
                 if not manga:
                     # 1G.2.2: the series record is created only AFTER metadata
                     # extraction succeeded — a metadata failure creates no
@@ -153,6 +154,15 @@ class ScraperWorkflowService:
 
                 self.job_repo.mark_success(job)
                 self.db.commit()
+
+                if new_chapters and existing_series:
+                    # A brand-new series has no readers yet; an existing one
+                    # tells everyone who bookmarked it.
+                    from .series_alerts import notify_followers_of_new_chapters
+
+                    notify_followers_of_new_chapters(
+                        self.db, manga, (c.get("chapter_number") for c in new_chapters)
+                    )
 
                 from ..tasks.scraper_tasks import process_chapter_scrape
 

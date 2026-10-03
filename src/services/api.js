@@ -124,7 +124,7 @@ function handleSessionExpired() {
 // refresh) and repeat the call, instead of throwing the person to /login in
 // the middle of what they were doing.
 let refreshInFlight = null;
-function refreshSession() {
+export function refreshSession() {
   if (!refreshInFlight) {
     refreshInFlight = (async () => {
       try {
@@ -362,19 +362,6 @@ const api = {
       chapterId == null
         ? api.del(`/bookmarks/${mangaId}`)
         : api.del(`/bookmarks/${mangaId}`, { params: { chapterId } }),
-  },
-
-  // ---- Read History (primary: /history; legacy fallbacks still exist server-side) ----
-  history: {
-    list: (params) => api.get("/history/", { params }),
-    /**
-     * Add/Upsert history
-     * @param {{mangaId:number, chapterId:number}} payload
-     */
-    add: ({ mangaId, chapterId }) =>
-      api.post("/history/", { manga_id: mangaId, chapter_id: chapterId }),
-    remove: (id) => api.del(`/history/${id}`),
-    clearAll: () => api.del("/history/clear/all"),
   },
 
   // ---- Ads / Branding ----
