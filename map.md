@@ -51,7 +51,7 @@ Other ways the same code runs:
 | Compose, small server | `-f docker-compose.small.yml` | 2 Celery workers (solo pool) instead of 8; Postgres/Redis memory caps |
 | Compose, scale | `-f backend_fastapi/deployment/docker-compose.scale.yml` | one worker per queue, scalable |
 | Kubernetes | `backend_fastapi/deployment/k8s/*.yaml` | API, worker (+ compress worker), beat, migrate job |
-| Host, no Docker | `deployment/manga-site.conf` + `manga-frontend.service`, `backend_fastapi/deployment/manga-*.service` | **Does not work as written** — see `plan.md` P1-9 |
+| Host, no Docker | removed (plan.md P1-9): Docker + Caddy only | |
 
 ---
 
@@ -107,8 +107,8 @@ Guards used on routes (`dependencies/`): `get_current_user`, `get_optional_user`
 | `backend_fastapi/app/` | the API and workers (see §5): `main.py` (app factory), `api/routers/` (40), `services/` (93), `models/` (12 files, 53 tables), `schemas/`, `core/`, `dependencies/`, `bootstrap/`, `utils/`, `tasks/` (13), `scrapers/` (16 + adapters), `repositories/`, `migrations/versions/` (97) |
 | `backend_fastapi/tests/` | 161 test files, **1256 tests**, `_support/` helpers (route table, staff factory, an `httpx` stub — the suite does **not** run against the real `httpx`) |
 | `backend_fastapi/scripts/` | `make_env.py`, `cli_bootstrap.py` (owner tools), `start_*.sh`, `wait_for_*`, `rotate_encryption_key.py`, `verify_alembic_chain.py`, `seed_bootstrap_state.py`, … |
-| `backend_fastapi/deployment/` | gunicorn config, systemd units, k8s manifests, scale overlay, backup/restore/monitoring scripts, `backups.md` |
-| `deployment/` | web image (`web.Dockerfile`), `nginx/` (the config the image really uses), `manga-site.conf` + `manga-frontend.service` (host nginx alternative), certbot files, `runbook.md`, `updating.md`, `key-rotation.md` |
+| `backend_fastapi/deployment/` | gunicorn config, compose/backup systemd units, k8s manifests, scale overlay, backup/restore/monitoring scripts, `backups.md` |
+| `deployment/` | web image (`web.Dockerfile`), `nginx/` (the config the image really uses), `runbook.md`, `updating.md`, `key-rotation.md` |
 | `docker-compose.yml`, `docker-compose.small.yml` | 14 services (below) |
 | `alembic.ini` | points at `backend_fastapi/app/migrations` (no URL in the file: `DATABASE_URL` only) |
 | `guide/` + `GUIDE.md` + `GOOGLE_LOGIN_SETUP.md` | owner-facing install/operate guides (path A: local test, path B: live server) |
@@ -327,10 +327,8 @@ Notes: genres are a JSON array of strings **as the source gave them** (usually T
 | File | State |
 | --- | --- |
 | `docker-compose.yml` / `.small.yml` / `backend_fastapi/deployment/docker-compose.scale.yml` | consistent with each other and with `celery_app.task_routes` |
-| `deployment/manga-site.conf`, `manga-frontend.service` | host-nginx alternative; **fails `nginx -t` (3 ways)**; also lacks the SEO proxy and caps every `/api/` call at 500/h and 2000/day per IP (pictures included) |
-| `backend_fastapi/deployment/manga-*.service` | systemd units; the general worker has no `CELERY_QUEUES`, so only the `default` queue is served |
+| `backend_fastapi/deployment/manga-compose.service`, `manga-backup*` | systemd: start the Compose stack on boot; scheduled backups (the host-nginx API/worker/beat units were removed, plan.md P1-9) |
 | `backend_fastapi/deployment/k8s/*.yaml` | consistent (worker lists every queue except `compress`, which has its own deployment) |
-| `deployment/manga-certbot.*`, `renew_certificates.*` | certbot for the host-nginx variant |
 | `backend_fastapi/deployment/*.sh`, `backups.md` | Postgres/Redis/picture backup, restore, verification, monitoring |
 
 ---
