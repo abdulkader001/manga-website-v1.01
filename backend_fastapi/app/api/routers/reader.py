@@ -260,7 +260,9 @@ async def report_chapter(
             ),
             target_type="chapter",
             target_id=chapter_id,
-            data={"report_id": report.id, "manga_id": chapter.manga_id},
+            # report_type drives the badge (broken / wrong / missing image or
+            # text) on the Notifications page.
+            data={"report_id": report.id, "manga_id": chapter.manga_id, "report_type": report_type},
             dedup_key=f"chapter_report:{chapter_id}",
         )
         return {"success": True, "report": report_to_dict(report, db)}

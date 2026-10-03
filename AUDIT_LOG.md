@@ -135,6 +135,29 @@ exceptions; for those, restore the database backup taken before the update.
 
 ## Change entries
 
+### 2026-10-03 — Scraped chapters show their pages, not the sidebar; chapter alerts appear; long chapters no longer hit "Too many requests"
+
+Merge SHA: fill in when known (the next PR fills it in). Branch `claude/project-thread-hu9r1l`.
+
+The owner reported that importing a wujinmh.com series stored the sidebar's pictures instead of the chapter pages ("covering images"), that *Notifications & Chapter Alerts* didn't work, and that reading a 50-chapter import failed with "Too many requests". The source sites could not be opened from the build sandbox (its network allows no outside sites), so the causes were found in the code and reproduced with saved page shapes in tests.
+
+| Change | Why | Main files |
+| --- | --- | --- |
+| **Script page lists win over `<img>` tags.** For SinMH (`chapterImages`) and qTcms (`qTcms_S_m_murl_e`) readers the page list in the script is read first; the `<img>` selector is used only when there is none. Structure detection (sites with no parser) does the same | wujinmh's parser looks for `img[data-original]` and reads the script only "when the selector finds nothing", but the sidebar's lazy-loaded thumbnails of other series carry `data-original` too, so the selector always found them and the real pages were never read | `scrapers/base_scraper.py`, `scrapers/script_images.py` (`cms_images`), `scrapers/autodetect.py` |
+| **Built-in parsers whose page selector lists alternatives** (`a, b, c`) keep only the biggest group of pictures that share one container, and drop pictures in `nav`/`header`/`footer`/`aside`, logos/banners and images narrower than 150 px. A parser with one selector (from an admin or the Scraper AI) is used as written | The same sweep-in happens on the other Chinese/Korean presets (`img.lazy`, …) | `scrapers/base_scraper.py`, `scrapers/autodetect.py` (`main_image_group`) |
+| **Chapter pictures have their own rate-limit allowance** (4 × the generic 300 a minute, per visitor) for `/images/proxy`, `/manga/pages/…` and `/manga/covers/…` | Pages not mirrored yet are one proxy request each; a long chapter used up the visitor's 300-a-minute budget and the chapter's own API call then failed (*Chapter Load Error: Too many requests*) | `utils/rate_limiter.py` |
+| **Notifications page and bell read the server's types.** *Chapter Alerts & Issues* lists `chapter.new`, `chapter.reported`, `chapter.fix_completed`, `chapter.fix_failed`, `chapter.repeatedly_broken`; *New Chapter*, *Resolved*, *Broken/Wrong Chapter*, *Broadcast* badges and *Inspect Chapter* follow the same types; chapter reports now carry `report_type` | The page looked for categories `chapter_issue` / `chapter_release` that the server never sends, so the tab was always empty and alerts had no badge | `src/utils/notificationTargets.js`, `src/pages/NotificationsPage.js`, `src/components/NotificationBell.js`, `api/routers/reader.py` |
+| Tests | Prove it | `tests/test_scraper_sidebar_images.py`, `tests/test_rate_limiter_image_bucket.py`, `src/pages/NotificationsPage.test.jsx` |
+| Guide: three troubleshooting rows and a checklist line | Keep the docs true | `GUIDE.md` §10, §11 |
+
+- **Database:** none.
+- **Settings:** none (the picture allowance follows `GENERIC_RATE_LIMIT_REQUESTS`).
+- **Check:** re-scrape a wujinmh series (Admin → Series → Re-scrape) and open a chapter: pages, not covers. Read a long chapter that isn't mirrored yet: no "Too many requests". Bookmark a series as a signed-in reader, run its check: the alert shows under *Notifications → Chapter Alerts & Issues* with a *New Chapter* label. `pytest backend_fastapi/tests/test_scraper_sidebar_images.py backend_fastapi/tests/test_rate_limiter_image_bucket.py`; `npx vitest run src/pages/NotificationsPage.test.jsx`.
+- **Undo:** `git revert -m 1 <merge>`. Chapters scraped in the meantime keep their pages; nothing to migrate.
+- **Not done here:** chapters already stored with sidebar pictures stay wrong until re-scraped. Behind Caddy all visitors still share one rate-limit bucket (`plan.md` P0-2, owned by the bug-plan work). jymk.cn has no built-in parser; it could not be looked at without network access.
+
+---
+
 ### 2026-10-03 — Whole-site map and fix plan (documents only, nothing fixed)
 
 Merge SHA: fill in when known (the next PR fills it in). Branch `claude/site-map-and-fix-plan`.

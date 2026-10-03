@@ -2,7 +2,7 @@ import { formatUtcTime } from "../utils/gstTime";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 import api from "../services/api";
-import { targetPathFor } from "../utils/notificationTargets";
+import { isBroadcast, isNewChapterAlert, targetPathFor } from "../utils/notificationTargets";
 
 const POLL_INTERVAL_MS = 20000;
 
@@ -218,12 +218,12 @@ export default function NotificationBell() {
                           Admin
                         </span>
                       )}
-                      {(note.category === "announcement" || note.type === "popup" || note.type === "system") && (
+                      {isBroadcast(note) && (
                         <span className="flex-shrink-0 px-1.5 py-0.2 rounded text-[9px] font-bold uppercase bg-purple-600 text-white">
                           Broadcast
                         </span>
                       )}
-                      {note.category === "chapter_release" && (
+                      {isNewChapterAlert(note) && (
                         <span className="flex-shrink-0 px-1.5 py-0.2 rounded text-[9px] font-bold uppercase bg-[#00AEF0] text-white">
                           New Chapter
                         </span>

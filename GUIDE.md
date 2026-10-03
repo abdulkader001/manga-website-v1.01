@@ -1607,6 +1607,9 @@ command and the machine, not a broken site.
 | Port already in use (`port is already allocated`) | Another program uses 8080/8000/5432: `sudo ss -ltnp \| grep -E ':(8080\|8000\|5432)\b'`. Stop it, or change the published port in `docker-compose.yml`. |
 | Windows: `exec ... no such file or directory` in a container | Line endings; clone inside WSL or run `git config core.autocrlf false` before cloning. |
 | API docs (`/docs`) missing | Intentional in production; set `EXPOSE_API_DOCS=true` on a private deploy. |
+| An imported chapter shows other series' covers or site pictures instead of its pages | Update (Section 4.1): the scraper now reads the page list that SinMH / qTcms sites (wujinmh and similar) keep in a script before looking at `<img>` tags, and drops sidebar, header and footer pictures. Then re-scrape the series (Admin → Series → Re-scrape). If it still happens, open the chapter on the source site and send its address; the site may need its own parser (Scraper AI → Custom Parser). |
+| Reader shows "Chapter Load Error" with "Too many requests" on a long chapter | Update (Section 4.1): chapter pictures now count in a separate allowance (four times the 300-a-minute API limit), so a long chapter no longer uses up the reader's API calls. Behind Caddy, every visitor still shares one allowance until the proxy fix in `plan.md` (P0-2) is done. |
+| *Notifications → Chapter Alerts & Issues* is always empty, or new-chapter alerts have no "New Chapter" label | Update (Section 4.1): the page now reads the alert types the server sends. Readers get an alert only for series they bookmarked while signed in, and only when a re-scrape or the scheduled check adds a chapter to a series that already existed. |
 
 ---
 
@@ -1624,7 +1627,7 @@ command and the machine, not a broken site.
 - [ ] Sign-in required left off (default: guests read) or switched on once your Admins are set up (Admin → Site Functions, Section 6.2); the other Site Functions looked over (Section 6.4); donation links added if wanted
 - [ ] Site name, logo, homepage heading and footer links saved as the owner (the pencil next to the logo, Admin Settings); a private window shows them, and shows no pencil
 - [ ] Tab access set for each Admin and sub-admin (Role Management, Section 6.5); the server's real IP hidden behind a CDN or tunnel and the bare-IP test run (Section 8)
-- [ ] First series imported; new chapters arrive via beat
+- [ ] First series imported; new chapters arrive via beat; open one chapter and check it shows the pages, not the site's other covers; a reader who bookmarked the series sees the alert under *Notifications → Chapter Alerts & Issues*
 - [ ] Reader history follows the account: read a chapter while signed in, sign in as the same reader in another browser or on a phone: that chapter is dimmed and the series shows where they stopped (Section 6.2)
 - [ ] Updating from before PR #33: provider keys that were saved in a **custom header** (e.g. Azure `api-key`) were publicly readable; rotate them at the provider and save the new key in Admin → API Management
 - [ ] Scraper AI key tested (Admin → Series → Scraper AI API) before adding new source sites with Custom Parser (main admin only)

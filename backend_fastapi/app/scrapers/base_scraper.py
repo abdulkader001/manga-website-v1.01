@@ -684,9 +684,22 @@ class BaseScraper:
             images.extend(self._images_from_json(soup, source, base_url))
         if not images and isinstance(config.get("image_api"), dict):
             images.extend(self._images_from_api(config["image_api"], base_url))
+        if not images and not source:
+            # SinMH / qTcms keep the real page list in a script and also show
+            # lazy-loaded thumbnails of other series in the sidebar, with the
+            # same attributes the page selector looks for. The script list is
+            # the authoritative one, so it is read before any <img> selector.
+            images.extend(script_images.cms_images(soup, base_url))
         if not images:
             preferred = config.get("image_attr")
-            for tag in parsing.select(soup, selector):
+            tags = parsing.select(soup, selector)
+            if selector and "," in selector:
+                # A union of alternative selectors can sweep in a sidebar of
+                # thumbnails too: keep only the reader's own image group.
+                from .autodetect import main_image_group
+
+                tags = main_image_group(tags, base_url, preferred)
+            for tag in tags:
                 url = parsing.image_url(tag, base_url, preferred)
                 if url:
                     images.append(url)

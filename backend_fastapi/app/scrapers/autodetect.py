@@ -244,26 +244,65 @@ def detect_pagination(soup: BeautifulSoup, url: str) -> Optional[Dict[str, Any]]
     return {"page_list": selector} if selector else None
 
 
+def _is_page_candidate(tag: Tag, url: Optional[str]) -> bool:
+    """False for images that are plainly not chapter pages: site chrome
+    (nav/header/footer/aside), logos and badges, and small thumbnails."""
+
+    if not url or _in_ignored(tag):
+        return False
+    if _NOISE_IMG.search(url) or _NOISE_IMG.search(" ".join(tag.get("class") or [])):
+        return False
+    try:
+        width = int(str(tag.get("width") or "0").rstrip("px") or 0)
+    except ValueError:
+        width = 0
+    return not 0 < width < 150
+
+
+def _group_signature(tag: Tag) -> str:
+    return "/".join(_token(a) for a in _ancestors(tag, 3)) + "|" + tag.name
+
+
+def main_image_group(tags: List[Tag], base_url: str, preferred_attr: Optional[str] = None) -> List[Tag]:
+    """The reader's page images among ``tags``: the biggest group of images
+    sharing one container, after dropping site chrome and thumbnails.
+
+    A selector that is a union of alternatives (``img[data-original], #cp_img
+    img``) also matches the lazy-loaded "related series" thumbnails in a
+    sidebar, which use the same attributes as the pages. Those sit in a
+    different container, so keeping only the largest same-container group
+    removes them. Ties keep the group that appears first on the page.
+    """
+
+    groups: Dict[str, List[Tag]] = defaultdict(list)
+    for tag in tags:
+        if _is_page_candidate(tag, parsing.image_url(tag, base_url, preferred_attr)):
+            groups[_group_signature(tag)].append(tag)
+    if not groups:
+        return []
+    return max(groups.values(), key=len)
+
+
 def detect_reader_definition(html: str, base_url: str = _BASE) -> Optional[Dict[str, Any]]:
     """The page-image group of a reader page."""
 
     soup = BeautifulSoup(html or "", "html.parser")
 
+    from . import script_images
+
+    if script_images.cms_images(soup, base_url):
+        # SinMH / qTcms readers: the page list in the script is the real one.
+        # Their HTML still has lazy-loaded thumbnails of other series, which
+        # would otherwise be taken for the pages.
+        return {"image_source": {"decoder": "auto_script"}}
+
     groups: Dict[str, List[Tag]] = defaultdict(list)
     attr_used: Dict[str, str] = {}
     for tag in soup.find_all(["img", "amp-img"]):
-        if _in_ignored(tag):
-            continue
         url = parsing.image_url(tag, base_url)
-        if not url or _NOISE_IMG.search(url) or _NOISE_IMG.search(" ".join(tag.get("class") or [])):
+        if not _is_page_candidate(tag, url):
             continue
-        try:
-            width = int(str(tag.get("width") or "0").rstrip("px") or 0)
-        except ValueError:
-            width = 0
-        if 0 < width < 150:
-            continue
-        signature = "/".join(_token(a) for a in _ancestors(tag, 3)) + "|" + tag.name
+        signature = _group_signature(tag)
         groups[signature].append(tag)
         for attr in parsing.IMAGE_ATTRS:
             if tag.get(attr) and parsing.absolute(base_url, str(tag.get(attr))) == url:
@@ -272,8 +311,6 @@ def detect_reader_definition(html: str, base_url: str = _BASE) -> Optional[Dict[
 
     if not groups:
         # No usable <img>: the page list may live in a script instead.
-        from . import script_images
-
         if script_images.auto_images(soup, base_url):
             return {"image_source": {"decoder": "auto_script"}}
         return None

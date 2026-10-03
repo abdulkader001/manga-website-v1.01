@@ -26,3 +26,38 @@ export function targetPathFor(note) {
       return note?.link || null;
   }
 }
+
+// The server's machine types (backend notification_service.TYPE_CATEGORY).
+// The page used to look for categories "chapter_issue" / "chapter_release"
+// that the server never sends, so the Chapter Alerts tab was always empty and
+// new-chapter alerts had no badge.
+const CHAPTER_PROBLEM_TYPES = new Set([
+  "chapter.reported",
+  "chapter.fix_failed",
+  "chapter.repeatedly_broken",
+]);
+
+export function isNewChapterAlert(note) {
+  return note?.type === "chapter.new";
+}
+
+export function isChapterFixed(note) {
+  return note?.type === "chapter.fix_completed";
+}
+
+export function isChapterProblem(note) {
+  return CHAPTER_PROBLEM_TYPES.has(note?.type);
+}
+
+// Everything the "Chapter Alerts & Issues" tab shows.
+export function isChapterAlert(note) {
+  return isNewChapterAlert(note) || isChapterFixed(note) || isChapterProblem(note);
+}
+
+export function isBroadcast(note) {
+  return ["announcement", "popup", "system"].includes(note?.type);
+}
+
+export function isUnread(note) {
+  return !note?.read && !note?.is_read;
+}
