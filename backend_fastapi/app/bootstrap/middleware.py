@@ -13,6 +13,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 import structlog
 
+from starlette.datastructures import MutableHeaders
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.middleware.httpsredirect import HTTPSRedirectMiddleware
 
@@ -70,7 +71,7 @@ class LoggingMiddleware(BaseHTTPMiddleware):
             clear_request_context()
 
 
-class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+class SecurityHeadersMiddleware:
     """Baseline security headers on every response (SRS 1H.2).
 
     CSP is intentionally strict for an API backend: this service serves JSON
@@ -83,7 +84,7 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
     _SWAGGER_PATHS = ("/docs", "/redoc")
 
     def __init__(self, app, *, hsts_max_age: int | None = None) -> None:
-        super().__init__(app)
+        self.app = app
         # Strict-Transport-Security is only meaningful (and only safe) when
         # the deployment actually terminates TLS. It is keyed off the same
         # setting that flips the auth cookies to Secure, so the two can never
@@ -94,16 +95,12 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
             else int(os.getenv("HSTS_MAX_AGE_SECONDS", "31536000"))
         )
 
-    async def dispatch(self, request: Request, call_next):  # type: ignore[override]
-        response: Response = await call_next(request)
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
 
-        if self.hsts_max_age > 0:
-            response.headers.setdefault(
-                "Strict-Transport-Security",
-                f"max-age={self.hsts_max_age}; includeSubDomains",
-            )
-
-        if request.url.path.startswith(self._SWAGGER_PATHS):
+        if (scope.get("path") or "").startswith(self._SWAGGER_PATHS):
             # FastAPI's bundled Swagger/Redoc UI needs inline scripts/styles
             # and CDN assets; scope the relaxed policy to those two paths only.
             csp = (
@@ -116,17 +113,27 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         else:
             csp = "default-src 'none'; frame-ancestors 'none'"
 
-        response.headers["Content-Security-Policy"] = csp
-        response.headers["X-Frame-Options"] = "DENY"
-        response.headers["X-Content-Type-Options"] = "nosniff"
-        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
-        response.headers.setdefault(
-            "Permissions-Policy", "geolocation=(), microphone=(), camera=()"
-        )
-        return response
+        async def send_with_headers(message):
+            if message["type"] == "http.response.start":
+                headers = MutableHeaders(scope=message)
+                if self.hsts_max_age > 0:
+                    headers.setdefault(
+                        "Strict-Transport-Security",
+                        f"max-age={self.hsts_max_age}; includeSubDomains",
+                    )
+                headers["Content-Security-Policy"] = csp
+                headers["X-Frame-Options"] = "DENY"
+                headers["X-Content-Type-Options"] = "nosniff"
+                headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+                headers.setdefault(
+                    "Permissions-Policy", "geolocation=(), microphone=(), camera=()"
+                )
+            await send(message)
+
+        await self.app(scope, receive, send_with_headers)
 
 
-class LegacyApiAliasDeprecationMiddleware(BaseHTTPMiddleware):
+class LegacyApiAliasDeprecationMiddleware:
     """Flag requests hitting the undocumented legacy route aliases.
 
     Every route is mounted three times: the canonical ``/api/v1/...``, plus a
@@ -149,38 +156,46 @@ class LegacyApiAliasDeprecationMiddleware(BaseHTTPMiddleware):
         "/feed.xml",
     )
 
-    async def dispatch(self, request: Request, call_next):  # type: ignore[override]
-        response: Response = await call_next(request)
+    def __init__(self, app) -> None:
+        self.app = app
 
-        path = request.url.path
-        if path == "/" or path.startswith(self._EXEMPT_PREFIXES):
-            return response
-        if path.startswith("/api/v1/"):
-            return response
-        # Only tag requests that actually matched an application route.
-        if request.scope.get("route") is None:
-            return response
+    async def __call__(self, scope, receive, send):
+        path = scope.get("path") or ""
+        if (
+            scope["type"] != "http"
+            or path == "/"
+            or path.startswith(self._EXEMPT_PREFIXES)
+            or path.startswith("/api/v1/")
+        ):
+            await self.app(scope, receive, send)
+            return
 
-        if path.startswith("/api/"):
-            alias = "api-prefix"
-            canonical = f"/api/v1{path[len('/api'):]}"
-        else:
-            alias = "no-prefix"
-            canonical = f"/api/v1{path}"
+        async def send_tagged(message):
+            # The router has filled scope["route"] by the time the response
+            # starts. Only tag requests that actually matched a route.
+            if message["type"] == "http.response.start" and scope.get("route") is not None:
+                if path.startswith("/api/"):
+                    alias = "api-prefix"
+                    canonical = f"/api/v1{path[len('/api'):]}"
+                else:
+                    alias = "no-prefix"
+                    canonical = f"/api/v1{path}"
+                record_legacy_alias(alias, Request(scope))
+                logger.warning(
+                    "legacy_api_alias_used",
+                    alias=alias,
+                    path=path,
+                    canonical=canonical,
+                )
+                headers = MutableHeaders(scope=message)
+                headers["Deprecation"] = "true"
+                headers["Link"] = f'<{canonical}>; rel="successor-version"'
+            await send(message)
 
-        record_legacy_alias(alias, request)
-        logger.warning(
-            "legacy_api_alias_used",
-            alias=alias,
-            path=path,
-            canonical=canonical,
-        )
-        response.headers["Deprecation"] = "true"
-        response.headers["Link"] = f'<{canonical}>; rel="successor-version"'
-        return response
+        await self.app(scope, receive, send_tagged)
 
 
-class ForwardedHeadersMiddleware(BaseHTTPMiddleware):
+class ForwardedHeadersMiddleware:
     """Minimal middleware that respects common proxy forwarding headers.
 
     ``X-Forwarded-For`` is only honored via ``resolve_client_ip`` -- which
@@ -190,8 +205,14 @@ class ForwardedHeadersMiddleware(BaseHTTPMiddleware):
     let any caller forge its own rate-limit identity and audit-log IP.
     """
 
-    async def dispatch(self, request: Request, call_next):  # type: ignore[override]
-        scope = request.scope
+    def __init__(self, app) -> None:
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+        request = Request(scope)
         headers = request.headers
 
         # Scheme, host and port are believed only from our own proxy, like
@@ -199,7 +220,8 @@ class ForwardedHeadersMiddleware(BaseHTTPMiddleware):
         # otherwise claim https or another host (plan.md P2-2).
         peer_ip = scope["client"][0] if scope.get("client") else None
         if not _is_trusted_peer(peer_ip):
-            return await call_next(request)
+            await self.app(scope, receive, send)
+            return
 
         forwarded_proto = headers.get("x-forwarded-proto")
         if forwarded_proto:
@@ -226,7 +248,7 @@ class ForwardedHeadersMiddleware(BaseHTTPMiddleware):
                 port = scope["server"][1]
             scope["server"] = (host_value, port)
 
-        return await call_next(request)
+        await self.app(scope, receive, send)
 
 
 def sanitize_origins(*candidates: Iterable[str | None]) -> list[str]:

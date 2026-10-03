@@ -13,18 +13,23 @@ of signing in.
 from __future__ import annotations
 
 from fastapi import Depends
+from sqlalchemy.exc import TimeoutError as PoolTimeout
 from sqlalchemy.orm import Session
 
 from ..core.api_errors import ApiError, ErrorCode
 from ..core.db import get_db
 from ..models import SystemSettings, User
 from ..models.settings import LOGIN_REQUIRED_DEFAULT
-from .auth import get_optional_user
+from .auth import release_connection, get_optional_user
 
 
 def login_required(db: Session) -> bool:
     try:
         row = db.query(SystemSettings.login_required).limit(1).first()
+    except PoolTimeout:
+        # The server is busy, not members-only: answer "busy, try again"
+        # (503) rather than telling a guest to sign in.
+        raise
     except Exception:  # unreadable: fail closed
         db.rollback()
         return True
@@ -33,11 +38,17 @@ def login_required(db: Session) -> bool:
     return bool(row[0])
 
 
-async def require_site_access(
+def require_site_access(
     db: Session = Depends(get_db),
     user: User | None = Depends(get_optional_user),
 ) -> None:
-    if user is None and login_required(db):
+    # Plain ``def`` so FastAPI runs it in the thread pool, not on the event
+    # loop; the connection goes back to the pool before the route runs.
+    if user is not None:
+        return
+    required = login_required(db)
+    release_connection(db)
+    if required:
         raise ApiError(
             ErrorCode.LOGIN_REQUIRED,
             "Sign in to read on this site.",

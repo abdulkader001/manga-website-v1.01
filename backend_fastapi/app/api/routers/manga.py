@@ -7,13 +7,16 @@ from typing import List
 import structlog
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
+from pydantic import BaseModel
+
 from ...schemas.manga import (
+    MangaBase,
     MangaListResponse,
     MangaDetailResponse,
     ChapterBase,
     ChapterDetailResponse,
 )
-from sqlalchemy import func
+from sqlalchemy import and_, func, or_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from ...utils.swr_cache import cached_with_swr
@@ -204,7 +207,11 @@ async def browse_manga(
     )
 
 
-@router.get("/batch")
+class MangaBatchResponse(BaseModel):
+    items: List[MangaBase]
+
+
+@router.get("/batch", response_model=MangaBatchResponse)
 async def get_manga_batch(
     ids: str = Query("", max_length=2000),
     user: User | None = Depends(get_optional_user),
@@ -240,7 +247,12 @@ async def get_manga_batch(
                 # (admins still see them), checked for the whole list at once.
                 allowed = hostable_manga_ids(db, rows)
                 rows = [m for m in rows if m.id in allowed]
-            return catalogue_service.enrich(db, [m.to_dict() for m in rows])
+            items = catalogue_service.enrich(db, [m.to_dict() for m in rows])
+            # The response model is the allow-list (plan.md P1-1): the raw
+            # row also carries who added the series, its last scrape error
+            # and its source, none of which visitors may see.
+            catalogue_service.apply_viewer_fields(db, items, user)
+            return items
 
     visible = await run_in_db_threadpool(_work)
     order = {mid: i for i, mid in enumerate(wanted)}
@@ -473,18 +485,32 @@ async def get_chapter_content(
         )
         payload["manga_title"] = manga.title if manga is not None else None
 
-        neighbours = (
-            db.query(Chapter.id, Chapter.chapter_number)
-            .filter(Chapter.manga_id == manga_id)
+        # Previous / next in (chapter_number, id) order: two single-row
+        # lookups on the (manga_id, chapter_number) index instead of loading
+        # every chapter id of the series on each page turn.
+        number = chapter.chapter_number
+        before = or_(
+            Chapter.chapter_number < number,
+            and_(Chapter.chapter_number == number, Chapter.id < chapter.id),
+        )
+        after = or_(
+            Chapter.chapter_number > number,
+            and_(Chapter.chapter_number == number, Chapter.id > chapter.id),
+        )
+        prev_row = (
+            db.query(Chapter.id)
+            .filter(Chapter.manga_id == manga_id, before)
+            .order_by(Chapter.chapter_number.desc(), Chapter.id.desc())
+            .first()
+        )
+        next_row = (
+            db.query(Chapter.id)
+            .filter(Chapter.manga_id == manga_id, after)
             .order_by(Chapter.chapter_number.asc(), Chapter.id.asc())
-            .all()
+            .first()
         )
-        ids = [row.id for row in neighbours]
-        position = ids.index(chapter.id) if chapter.id in ids else -1
-        payload["prev_chapter_id"] = ids[position - 1] if position > 0 else None
-        payload["next_chapter_id"] = (
-            ids[position + 1] if 0 <= position < len(ids) - 1 else None
-        )
+        payload["prev_chapter_id"] = prev_row.id if prev_row else None
+        payload["next_chapter_id"] = next_row.id if next_row else None
         payload["liked"] = bool(
             user is not None
             and db.query(ChapterLike.id)

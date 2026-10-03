@@ -38,6 +38,21 @@ export default function FooterEditor() {
     } catch {}
   };
 
+  // What visitors see is what the server stored (plan.md P1-10): show the
+  // server's list after every change, and an error when it refused one.
+  const applyServerLinks = async (res) => {
+    let links = Array.isArray(res?.links) ? res.links : null;
+    if (!links) {
+      const fresh = await api.footer.getSocialLinks();
+      links = Array.isArray(fresh?.links) ? fresh.links : socialLinks;
+    }
+    setSocialLinks(links);
+    notifyFooterUpdated(links);
+    return links;
+  };
+  const refused = (what, err) =>
+    setNotice({ type: "error", message: `${what}: ${err?.message || "the server refused it."} Nothing was changed.` });
+
   const loadFooter = async () => {
     setLoading(true);
     try {
@@ -118,19 +133,7 @@ export default function FooterEditor() {
         custom_icon_url: newCustomIconUrl.trim(),
       };
       const res = await api.footer.addSocialLink(payload);
-      let updated;
-      if (res?.links) {
-        updated = res.links;
-        setSocialLinks(res.links);
-      } else if (res?.link) {
-        updated = [...socialLinks, res.link];
-        setSocialLinks(updated);
-      } else {
-        const newObj = { ...payload, id: Date.now(), enabled: true };
-        updated = [...socialLinks, newObj];
-        setSocialLinks(updated);
-      }
-      notifyFooterUpdated(updated);
+      await applyServerLinks(res);
       setNotice({ type: "success", message: `✅ Added "${payload.title}" to footer links!` });
       // Reset form to next preset
       handlePlatformPresetChange("twitter");
@@ -145,57 +148,32 @@ export default function FooterEditor() {
     if (!editingLink || !editingLink.url.trim()) return;
     try {
       const res = await api.footer.updateSocialLink(editingLink.id, editingLink);
-      let updated;
-      if (res?.links) {
-        updated = res.links;
-      } else {
-        updated = socialLinks.map((l) => (l.id === editingLink.id ? editingLink : l));
-      }
-      setSocialLinks(updated);
-      notifyFooterUpdated(updated);
+      await applyServerLinks(res);
       setEditingLink(null);
       setNotice({ type: "success", message: `✅ Updated "${editingLink.title}" successfully!` });
     } catch (err) {
-      // Fallback
-      const updated = socialLinks.map((l) => (l.id === editingLink.id ? editingLink : l));
-      setSocialLinks(updated);
-      await api.footer.saveSocialLinks(updated).catch(() => {});
-      notifyFooterUpdated(updated);
-      setEditingLink(null);
-      setNotice({ type: "success", message: `✅ Updated "${editingLink.title}" successfully!` });
+      refused(`"${editingLink.title}" was not updated`, err);
     }
   };
 
   const handleToggleLink = async (id) => {
     const updated = socialLinks.map((l) => (l.id === id ? { ...l, enabled: !l.enabled } : l));
-    setSocialLinks(updated);
-    notifyFooterUpdated(updated);
     try {
-      await api.footer.saveSocialLinks(updated);
+      await applyServerLinks(await api.footer.saveSocialLinks(updated));
     } catch (err) {
-      console.error("Failed to update social links", err);
+      refused("The link was not switched", err);
     }
   };
 
   const handleDeleteLink = async (id) => {
     try {
       const res = await api.footer.deleteSocialLink(id);
-      let updated;
-      if (res?.links) {
-        updated = res.links;
-      } else {
-        updated = socialLinks.filter((l) => l.id !== id);
-      }
-      setSocialLinks(updated);
-      notifyFooterUpdated(updated);
+      await applyServerLinks(res);
       setDeleteConfirmId(null);
       setNotice({ type: "success", message: "✅ Social link successfully deleted from footer!" });
     } catch (err) {
-      const updated = socialLinks.filter((l) => l.id !== id);
-      setSocialLinks(updated);
-      notifyFooterUpdated(updated);
       setDeleteConfirmId(null);
-      setNotice({ type: "success", message: "✅ Link removed from footer." });
+      refused("The link was not deleted", err);
     }
   };
 
@@ -205,12 +183,10 @@ export default function FooterEditor() {
     const reordered = [...socialLinks];
     const [moved] = reordered.splice(index, 1);
     reordered.splice(targetIdx, 0, moved);
-    setSocialLinks(reordered);
-    notifyFooterUpdated(reordered);
     try {
-      await api.footer.saveSocialLinks(reordered);
+      await applyServerLinks(await api.footer.saveSocialLinks(reordered));
     } catch (err) {
-      console.error("Failed to save reordered links", err);
+      refused("The new order was not saved", err);
     }
   };
 

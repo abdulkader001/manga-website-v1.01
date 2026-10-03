@@ -11,11 +11,13 @@ from __future__ import annotations
 
 import uuid
 from unittest import mock
+from urllib.parse import parse_qs, urlsplit
 
 import pytest
 
 from backend_fastapi.app.core.db import Base, SessionLocal, engine
 from backend_fastapi.app.models import Chapter, Manga
+from backend_fastapi.app.services import image_proxy
 
 
 @pytest.fixture(scope="module", autouse=True)
@@ -100,7 +102,11 @@ def test_browse_and_read_survive_all_optional_services_down(
         content = fastapi_client.get(f"/api/manga/{manga_id}/chapters/{chapter_id}")
         assert content.status_code == 200
         body = content.json()
-        assert body["pages"] == [
+        # Pages not mirrored yet go out as opaque proxy tokens (plan.md P1-1).
+        assert [
+            image_proxy.decode_token(parse_qs(urlsplit(page).query)["t"][0])[0]
+            for page in body["pages"]
+        ] == [
             "https://outage.example/p1.jpg",
             "https://outage.example/p2.jpg",
         ]

@@ -14,6 +14,7 @@ from datetime import datetime, timedelta
 from typing import Any, Dict, Optional
 
 import structlog
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from ..models import ApprovedSourceDomain, Manga, Setting
@@ -145,6 +146,8 @@ def due_series(
             Manga.next_check_at.isnot(None),
             Manga.next_check_at <= now,
             Manga.auto_scrape_enabled.isnot(False),
+            # A taken-down series is not fetched again (plan.md P1-2).
+            or_(Manga.takedown_status.is_(None), Manga.takedown_status != "taken_down"),
         )
         .order_by(Manga.next_check_at.asc())
         .limit(limit * 2)

@@ -210,7 +210,13 @@ def test_mirroring_can_be_switched_off(monkeypatch):
 def test_stored_pages_are_served_as_immutable_webp(monkeypatch, fastapi_client):
     url = "https://s.example/serve.png"
     _serve(monkeypatch, {url: _png()})
-    local = pis.mirror_chapter(9, 90, [url]).urls[0]
+    # The picture route serves pages of a series that exists and may be hosted.
+    with SessionLocal() as session:
+        manga = Manga(title="Served", source_url=f"https://s.example/{uuid.uuid4().hex}")
+        session.add(manga)
+        session.commit()
+        manga_id = manga.id
+    local = pis.mirror_chapter(manga_id, 90, [url]).urls[0]
     response = fastapi_client.get(local)
     assert response.status_code == 200
     headers = {k.lower(): v for k, v in dict(response.headers).items()}

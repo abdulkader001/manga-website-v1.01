@@ -86,14 +86,13 @@ def apply_genre_filters(
 ):
     """Filter a manga query by included/excluded genres.
 
-    H3: on PostgreSQL this uses the JSONB existence operator (``genres::jsonb ?
-    'genre'`` via ``has_key``) so the query can use the ``ix_manga_genres_gin``
-    GIN index instead of forcing a full sequential scan. The previous
-    ``cast(genres, TEXT) LIKE`` approach could never use an index. Genres are
-    matched in lowercase form (they are stored/queried lowercase throughout the
-    app); if legacy rows contain mixed-case genres a one-off normalization
-    backfill is recommended. Non-Postgres backends (e.g. SQLite in tests) fall
-    back to the case-insensitive text-match, which has no index either way.
+    H3: on PostgreSQL this uses the JSONB existence operator so the query can
+    use a GIN index instead of a full sequential scan. Genres are stored as the
+    sources give them ("Action"), so both sides are lowercased (plan.md P1-6):
+    ``lower(genres::text)::jsonb ? 'action'``, which the
+    ``ix_manga_genres_ci_gin`` index (migration ``20261020_genres_ci_index``)
+    covers. Non-Postgres backends (e.g. SQLite in tests) fall back to the
+    case-insensitive text-match, which has no index either way.
     """
 
     if not include_genres and not exclude_genres:
@@ -106,7 +105,7 @@ def apply_genre_filters(
         return query
 
     if dialect_name == "postgresql":
-        genres_jsonb = cast(Manga.genres, JSONB)
+        genres_jsonb = cast(func.lower(cast(Manga.genres, Text)), JSONB)
         if include:
             query = query.filter(Manga.genres.isnot(None))
             for genre in include:

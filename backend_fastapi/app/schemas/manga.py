@@ -47,6 +47,9 @@ class MangaBase(BaseModel):
     user_rating: Optional[int] = None
     chapters_count: int = 0
     latest_chapter_number: Optional[Number] = None
+    # Where "Read first" / "Read latest" go (plan.md P1-5).
+    first_chapter_id: Optional[int] = None
+    latest_chapter_id: Optional[int] = None
     last_chapter_title: Optional[str] = None
     country: Optional[str] = None
     banner_image: Optional[str] = None
@@ -77,7 +80,6 @@ class ChapterBase(BaseModel):
     number: Optional[str] = None
     chapter_number: Optional[Number] = None
     title: Optional[str] = None
-    url: str
     read: bool
     created_at: Optional[str] = None
     release_date: Optional[str] = None
@@ -98,7 +100,6 @@ class ChapterDetailResponse(BaseModel):
     chapter_title: Optional[str] = None
     title: Optional[str] = None
     manga_title: Optional[str] = None
-    chapter_url: str
     scraped_at: Optional[str] = None
     release_date: Optional[str] = None
     views: int = 0

@@ -272,15 +272,15 @@ Route/guard table (map Appendix A): walk `build_api_router().routes` recursively
 
 | ID | Status | PR | ID | Status | PR | ID | Status | PR |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| P0-1 | done | #48 | P1-9 | todo | | P2-12 | todo | |
-| P0-2 | done | #48 | P1-10 | todo | | P2-13 | todo | |
+| P0-1 | done | #48 | P1-9 | done | #51 | P2-12 | todo | |
+| P0-2 | done | #48 | P1-10 | done | #51 | P2-13 | todo | |
 | P0-3 | done | #48 | P2-1 | todo | | P2-14 | todo | |
 | P0-4 | done | #48 | P2-2 | done | #48 | P2-15 | todo | |
-| P1-1 | todo | | P2-3 | done | #48 | P3-1 | todo | |
-| P1-2 | todo | | P2-4 | todo | | P3-2 | todo | |
-| P1-3 | todo | | P2-5 | todo | | P3-3 | todo | |
-| P1-4 | todo | | P2-6 | todo | | P3-4 | todo | |
-| P1-5 | todo | | P2-7 | todo | | P3-5 | todo | |
-| P1-6 | todo | | P2-8 | todo | | P3-6 | todo | |
-| P1-7 | todo | | P2-9 | todo | | P3-7 … P3-12 | todo (P3-9 nginx part done) | #48 |
-| P1-8 | todo | | P2-10 / P2-11 | todo | | | | |
+| P1-1 | done | #51 | P2-3 | done | #48 | P3-1 | todo (API presets part done) | #51 |
+| P1-2 | done | #51 | P2-4 | todo | | P3-2 | todo | |
+| P1-3 | done | #51 | P2-5 | todo | | P3-3 | todo | |
+| P1-4 | done | #51 | P2-6 | done | speed PR | P3-4 | todo | |
+| P1-5 | done | #51 | P2-7 | todo | | P3-5 | todo | |
+| P1-6 | done | #51 | P2-8 | todo | | P3-6 | todo | |
+| P1-7 | done | #51 | P2-9 | todo | | P3-7 … P3-12 | todo (P3-9 nginx part done; P3-12 previous/next done in the speed PR) | #48 |
+| P1-8 | done | #51 | P2-10 / P2-11 | todo | | | | |

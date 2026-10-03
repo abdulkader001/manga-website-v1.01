@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { auditUrlSecurity } from "../utils/urlValidator";
-import { apiFetch } from "../services/api";
+import { findAdSlot, loadAdSlots } from "../utils/adSlots";
 import FunctionGate from "./FunctionGate";
 
 function AdPlacementInner({ placement, className = "" }) {
@@ -22,23 +22,11 @@ function AdPlacementInner({ placement, className = "" }) {
 
   useEffect(() => {
     let isMounted = true;
-    apiFetch("/api/v1/ad-slots")
-      .then((res) => (res.ok ? res.json() : []))
-      .then((slots) => {
-        if (!isMounted || !Array.isArray(slots)) return;
-        const matching = slots.find(
-          (s) => (s.placement === placement || s.slot_key === placement) && s.enabled !== false
-        );
-        if (matching) {
-          setAd(matching);
-        } else {
-          // If deleted or not configured, strictly do not render any ad
-          setAd(null);
-        }
-      })
-      .catch(() => {
-        if (isMounted) setAd(null);
-      });
+    loadAdSlots().then((slots) => {
+      if (!isMounted) return;
+      // If deleted or not configured, strictly do not render any ad
+      setAd(findAdSlot(slots, placement));
+    });
 
     return () => {
       isMounted = false;
