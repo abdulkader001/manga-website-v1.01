@@ -64,6 +64,7 @@ _TABS: tuple[TabSpec, ...] = (
         "audit-report", "Operations & Traffic Audit", "/admin/audit-report",
         ("view_system_health", "view_full_audit", "view_scope_audit"),
     ),
+    TabSpec("error-report", "Error Report", "/admin/error-report", ("view_error_reports",)),
     TabSpec(
         "api-management", "API Management", "/admin/api-management",
         ("view_providers", "manage_providers"), owner_power=True,

@@ -40,6 +40,7 @@ const AdminPanel = React.lazy(() => import("./pages/AdminPanel"));
 const AdminSettings = React.lazy(() => import("./pages/Admin/AdminSettings"));
 const ApiManagement = React.lazy(() => import("./pages/Admin/ApiManagement"));
 const AuditReport = React.lazy(() => import("./pages/Admin/AuditReport"));
+const ErrorReport = React.lazy(() => import("./pages/Admin/ErrorReport"));
 const ChapterReports = React.lazy(() => import("./pages/Admin/ChapterReports"));
 const AdminSecurity = React.lazy(() => import("./pages/Admin/AdminSecurity"));
 const SecretVault = React.lazy(() => import("./pages/Admin/SecretVault"));
@@ -242,6 +243,14 @@ export function AppRoutes() {
           element={
             <AuthGuard requireAdmin allowSecondaryAdmins permission="view_system_health">
               <AuditReport />
+            </AuthGuard>
+          }
+        />
+        <Route
+          path="/admin/error-report"
+          element={
+            <AuthGuard requireAdmin allowSecondaryAdmins permission="view_error_reports">
+              <ErrorReport />
             </AuthGuard>
           }
         />

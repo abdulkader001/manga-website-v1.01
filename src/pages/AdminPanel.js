@@ -41,6 +41,8 @@ function QuickLink({ to, label, description, keyName }) {
         return "fas fa-heartbeat text-red-400";
       case "audit-report":
         return "fas fa-file-invoice text-emerald-400";
+      case "error-report":
+        return "fas fa-bug text-red-400";
       case "chapter-reports":
         return "fas fa-tools text-amber-400";
       case "api-management":

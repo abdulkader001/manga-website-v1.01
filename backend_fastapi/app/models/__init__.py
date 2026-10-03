@@ -76,6 +76,11 @@ from .community import (
     MemeUpload as MemeUpload,
 )
 
+# Admin -> Error Report: grouped errors with a likely cause and fix
+from .error_report import (
+    ErrorReport as ErrorReport,
+)
+
 # Settings and Admin models
 from .settings import (
     FooterSettings as FooterSettings,

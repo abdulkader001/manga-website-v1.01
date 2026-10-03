@@ -449,6 +449,31 @@ def ping():
     return "pong"
 
 
+@task_failure.connect
+def _error_report_on_failure(  # pragma: no cover - exercised by workers
+    sender=None, task_id=None, exception=None, **_
+):
+    """Admin -> Error Report: a task that failed for good gets a line there.
+
+    Same "terminal failure" test as the dead-letter handler above: an attempt
+    Celery will still retry is not an error yet.
+    """
+
+    if exception is None:
+        return
+    request = getattr(sender, "request", None)
+    retries = getattr(request, "retries", 0) or 0
+    max_retries = getattr(sender, "max_retries", 0) or 0
+    if getattr(sender, "autoretry_for", None) and max_retries and retries < max_retries:
+        return
+    from ..models.error_report import SOURCE_WORKER
+    from ..services import error_report_service
+
+    error_report_service.record_exception(
+        exception, source=SOURCE_WORKER, location=getattr(sender, "name", None) or "task"
+    )
+
+
 @task_prerun.connect
 def _refresh_vault_overrides(task=None, **_kwargs) -> None:
     """Workers read SMTP/OAuth/API settings too, so keep vault overrides current.

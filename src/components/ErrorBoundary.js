@@ -1,4 +1,5 @@
 import React from "react";
+import { reportError } from "../utils/errorReporter";
 
 export default class ErrorBoundary extends React.Component {
   constructor(props) {
@@ -12,6 +13,8 @@ export default class ErrorBoundary extends React.Component {
 
   componentDidCatch(error, errorInfo) {
     console.error("ErrorBoundary caught an error:", error, errorInfo);
+    // Admin -> Error Report: a crashed page is exactly what the owner needs to see.
+    reportError(error, { componentStack: errorInfo?.componentStack });
   }
 
   render() {
