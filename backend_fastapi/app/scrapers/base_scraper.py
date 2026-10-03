@@ -230,13 +230,17 @@ class BaseScraper:
                 if status_code in {404, 410}:
                     self.last_problem = "not_found"
                     break  # the page does not exist; retrying cannot help
-                if status_code in {403, 429}:
+                if status_code in {403, 429, 503}:
                     logger.warning(
                         f"Possible block on {self.domain}. Increasing backoff."
                     )
+                    # Wait as long as the site asks (Retry-After), else back
+                    # off; retrying sooner only extends a block.
+                    from .http_client import retry_after_seconds
+
                     time.sleep(
-                        self.delay * (attempt + 1) * 2
-                    )  # Additional backoff on blocks
+                        retry_after_seconds(e.response, self.delay * (attempt + 1) * 2)
+                    )
 
         ScraperMetrics.record_failure(self.domain)
         logger.error(f"Failed to fetch {url} after {self.retries} attempts.")

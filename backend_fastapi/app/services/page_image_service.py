@@ -5,9 +5,12 @@ client, decoded with Pillow (decompression-bomb safe), and re-encoded as WebP:
 
 * one format for everything the site serves (JPEG/PNG/GIF/AVIF/... sources all
   become WebP), which every browser, CDN and image host handles;
-* width capped (``PAGE_MAX_WIDTH``, default 1440px) -- wide enough for OCR to
-  read small lettering, and small enough that AI-vision models (which shrink
-  anything much bigger) still see the text at close to full detail;
+* a source picture that needs no change (JPEG, PNG or WebP, no wider than the
+  cap, not a spread to cut, not a strip to slice, no transparency or EXIF
+  rotation) is stored byte for byte as the source sent it: re-encoding only
+  ever loses detail, and it is the full-quality original;
+* otherwise the width is capped (``PAGE_MAX_WIDTH``, default 2000px) -- wide
+  enough for high-resolution scans and for OCR to read small lettering;
 * quality chosen per image against a bytes-per-pixel budget, but never below a
   floor that keeps text edges clean: blocky/ringing artefacts around lettering
   hurt OCR and make erasing the original text look dirty. Flat or screentone-
@@ -36,12 +39,14 @@ import io
 import os
 import re
 import shutil
+import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Optional, Sequence, Tuple
 
+import requests
 import structlog
 from PIL import Image, ImageOps, ImageStat
 
@@ -57,17 +62,30 @@ MAX_SLICE_HEIGHT = 3000
 CUT_SEARCH_WINDOW = 320
 # Quality ladder tried in order until the slice fits its byte budget. The
 # floor keeps text edges clean for OCR and for erasing the original lettering.
-QUALITY_LADDER = (90, 86, 82)
-BYTES_PER_PIXEL_BUDGET = 0.32
+QUALITY_LADDER = (94, 92, 90)
+BYTES_PER_PIXEL_BUDGET = 0.6
 DOWNLOAD_WORKERS = 4
-_FILENAME_RE = re.compile(r"^\d{4}-[a-f0-9]{10}\.webp$")
+DOWNLOAD_ATTEMPTS = 3
+RETRY_STATUSES = {429, 500, 502, 503, 504}
+_FILENAME_RE = re.compile(r"^\d{4}-[a-f0-9]{10}\.(?:webp|jpg|png)$")
+# Source formats stored untouched when nothing has to change, and the file
+# extension (and so the served Content-Type) each one keeps.
+PASSTHROUGH_FORMATS = {"JPEG": "jpg", "PNG": "png", "WEBP": "webp"}
+MEDIA_TYPES = {".webp": "image/webp", ".jpg": "image/jpeg", ".png": "image/png"}
 
 
 def max_width() -> int:
     try:
-        return max(600, int(os.getenv("PAGE_MAX_WIDTH", "1440")))
+        return max(600, int(os.getenv("PAGE_MAX_WIDTH", "2000")))
     except ValueError:
-        return 1440
+        return 2000
+
+
+def keep_originals() -> bool:
+    """Store a source picture byte for byte when it needs no change (default
+    on). Off: every page is re-encoded as WebP, as before 2026-10-03."""
+
+    return os.getenv("PAGE_KEEP_ORIGINALS", "true").strip().lower() not in {"0", "false", "no", "off"}
 
 
 def mirroring_enabled() -> bool:
@@ -120,6 +138,31 @@ class EncodedPage:
     data: bytes
     width: int
     height: int
+    ext: str = "webp"
+
+
+def media_type_for(path: Path) -> str:
+    return MEDIA_TYPES.get(path.suffix.lower(), "image/webp")
+
+
+def _passthrough_ext(image: Image.Image) -> Optional[str]:
+    """The extension to store the source bytes under unchanged, or ``None``
+    when the picture has to be re-encoded (other format, transparency to
+    flatten, EXIF rotation to apply, animation)."""
+
+    ext = PASSTHROUGH_FORMATS.get((image.format or "").upper())
+    if ext is None or getattr(image, "is_animated", False):
+        return None
+    if image.mode not in ("RGB", "L"):
+        return None
+    if "transparency" in image.info:
+        return None
+    try:
+        if image.getexif().get(0x0112, 1) not in (None, 1):
+            return None
+    except Exception:
+        return None
+    return ext
 
 
 def _flatten(image: Image.Image) -> Image.Image:
@@ -242,6 +285,7 @@ def compress_page(raw: bytes, layout: Optional[Dict[str, object]] = None) -> Lis
     """
 
     image = open_image_safely(raw, max_pixels=MAX_SOURCE_PIXELS)
+    original_ext = _passthrough_ext(image) if keep_originals() else None
     image = _flatten(image)
     layout = layout or {}
     mode = layout.get("spread_mode") or ("auto" if layout.get("split_spreads") else "never")
@@ -252,6 +296,14 @@ def compress_page(raw: bytes, layout: Optional[Dict[str, object]] = None) -> Lis
     else:
         pages = [image]
     limit = max_width()
+    if (
+        original_ext
+        and len(pages) == 1
+        and pages[0].width <= limit
+        and pages[0].height <= MAX_SLICE_HEIGHT
+    ):
+        # Nothing to change: keep the source's own file (full quality).
+        return [EncodedPage(raw, pages[0].width, pages[0].height, original_ext)]
     encoded: List[EncodedPage] = []
     for page in pages:
         if page.width > limit:
@@ -280,17 +332,39 @@ class MirrorResult:
         return self.failed < len(self.source_urls) and bool(self.source_urls)
 
 
+ORIGINAL_FIRST_ACCEPT = "image/jpeg,image/png,image/webp;q=0.9,image/*;q=0.8,*/*;q=0.5"
+
+
 def _download(url: str, referer: Optional[str], headers: Optional[Dict[str, str]]) -> bytes:
     from ..scrapers.http_client import RequestWrapper
 
-    request_headers = {"Accept": "image/avif,image/webp,image/apng,image/*,*/*;q=0.8"}
+    # Ask for the original format first: image CDNs that see webp/avif in
+    # Accept often answer with a smaller, recompressed copy.
+    request_headers = {"Accept": ORIGINAL_FIRST_ACCEPT}
     request_headers.update(headers or {})
     if referer:
         request_headers["Referer"] = referer
-    response = RequestWrapper.get(url, timeout=30, headers=request_headers, max_bytes=MAX_SOURCE_BYTES)
-    if response.status_code != 200:
+    from ..scrapers.http_client import retry_after_seconds
+
+    # Picture hosts answer a burst of downloads with 429/503 or drop a
+    # connection now and then: retry a few times, waiting as long as they
+    # ask, instead of leaving the page on the source.
+    for attempt in range(DOWNLOAD_ATTEMPTS):
+        last = attempt == DOWNLOAD_ATTEMPTS - 1
+        try:
+            response = RequestWrapper.get(url, timeout=30, headers=dict(request_headers), max_bytes=MAX_SOURCE_BYTES)
+        except requests.ConnectionError:
+            if last:
+                raise
+            time.sleep(2 ** attempt)
+            continue
+        if response.status_code == 200:
+            return response.content
+        if response.status_code in RETRY_STATUSES and not last:
+            time.sleep(retry_after_seconds(response, 2 ** attempt, cap=30))
+            continue
         raise ValueError(f"HTTP {response.status_code}")
-    return response.content
+    raise ValueError("download failed")  # pragma: no cover - loop always returns or raises
 
 
 def _fetch_and_compress(
@@ -344,7 +418,7 @@ def mirror_chapter(
             names: List[str] = []
             for piece in slices:
                 counter += 1
-                name = f"{counter:04d}-{hashlib.sha1(piece.data).hexdigest()[:10]}.webp"
+                name = f"{counter:04d}-{hashlib.sha1(piece.data).hexdigest()[:10]}.{piece.ext}"
                 (staging / name).write_bytes(piece.data)
                 result.stored_bytes += len(piece.data)
                 names.append(public_url(manga_id, chapter_id, name))

@@ -5,12 +5,59 @@ import structlog
 
 logger = structlog.get_logger(__name__)
 
+# Current desktop browsers. Old version numbers (Chrome 119 was over a year
+# old) are a common reason for bot checks.
 USER_AGENTS = [
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/119.0",
-    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:143.0) Gecko/20100101 Firefox/143.0",
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
 ]
+
+# Headers a real browser sends with every request. A request carrying only a
+# User-Agent is an easy bot signal for anti-scraping filters.
+BROWSER_HEADERS = {
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+    "Accept-Language": "en-US,en;q=0.9",
+}
+
+
+def user_agent_for(url: str) -> str:
+    """One User-Agent per website, kept for every request to it.
+
+    Like a person's browser (and like gallery-dl / Mihon), a site sees the
+    same browser on every page; a User-Agent that changes between requests
+    of one visit is a typical reason to be blocked.
+    """
+
+    import zlib
+    from urllib.parse import urlparse
+
+    host = (urlparse(url).hostname or "").lower()
+    if host.startswith("www."):
+        host = host[4:]
+    return USER_AGENTS[zlib.crc32(host.encode()) % len(USER_AGENTS)]
+
+
+def _with_browser_headers(url: str, headers: dict) -> dict:
+    merged = dict(headers or {})
+    present = {key.lower() for key in merged}
+    if "user-agent" not in present:
+        merged["User-Agent"] = user_agent_for(url)
+    for key, value in BROWSER_HEADERS.items():
+        if key.lower() not in present:
+            merged[key] = value
+    return merged
+
+
+def retry_after_seconds(response, default: float, cap: float = 60.0) -> float:
+    """Seconds a 429/503 answer asks us to wait (``Retry-After``), capped."""
+
+    value = (getattr(response, "headers", None) or {}).get("Retry-After")
+    try:
+        return max(0.0, min(cap, float(value)))
+    except (TypeError, ValueError):
+        return min(cap, default)
 
 
 class RequestWrapper:
@@ -33,9 +80,7 @@ class RequestWrapper:
         from ..services.pinned_fetch import get_pinned_following_redirects
         from ..services.url_guard import validate_scrape_url_resolved
 
-        headers = kwargs.pop("headers", {})
-        if "User-Agent" not in headers:
-            headers["User-Agent"] = random.choice(USER_AGENTS)
+        headers = _with_browser_headers(url, kwargs.pop("headers", {}))
 
         # Optional jitter delay
         jitter = random.uniform(0.1, 1.5)
@@ -75,9 +120,7 @@ class RequestWrapper:
         from ..services.pinned_fetch import get_pinned
         from ..services.url_guard import validate_scrape_url_resolved
 
-        headers = kwargs.pop("headers", {})
-        if "User-Agent" not in headers:
-            headers["User-Agent"] = random.choice(USER_AGENTS)
+        headers = _with_browser_headers(url, kwargs.pop("headers", {}))
         time.sleep(random.uniform(0.1, 1.0))
         response = get_pinned(
             url,

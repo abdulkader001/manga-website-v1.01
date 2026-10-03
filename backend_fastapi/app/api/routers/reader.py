@@ -444,7 +444,8 @@ def serve_cover(filename: str) -> Response:
 
 @router.get("/manga/pages/{manga_id}/{chapter_id}/{filename}")
 def serve_page_image(manga_id: int, chapter_id: int, filename: str) -> Response:
-    """A chapter page stored as compressed WebP. Names are content-addressed,
+    """A stored chapter page (WebP, or the source's own JPEG/PNG/WebP when it
+    needed no change). Names are content-addressed,
     so browsers and CDNs may cache them forever."""
 
     from ...services import page_image_service
@@ -454,7 +455,8 @@ def serve_page_image(manga_id: int, chapter_id: int, filename: str) -> Response:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="not_found")
     return FileResponse(
         target,
-        media_type="image/webp",
+        # WebP when re-encoded; a source JPEG/PNG kept as-is keeps its type.
+        media_type=page_image_service.media_type_for(target),
         headers={
             "Cache-Control": "public, max-age=31536000, immutable",
             "X-Content-Type-Options": "nosniff",
@@ -476,6 +478,7 @@ def proxy_image(
     from ...scrapers.http_client import USER_AGENTS
     from ...services.pinned_fetch import ResponseTooLarge, get_pinned_following_redirects
     from ...services.url_guard import validate_scrape_url_resolved
+    from ...services import page_image_service
 
     try:
         upstream = get_pinned_following_redirects(
@@ -485,7 +488,7 @@ def proxy_image(
             headers={
                 "User-Agent": USER_AGENTS[0],
                 "Referer": referer,
-                "Accept": "image/avif,image/webp,image/apng,image/*,*/*;q=0.8",
+                "Accept": page_image_service.ORIGINAL_FIRST_ACCEPT,
             },
             max_bytes=image_proxy.MAX_PROXY_IMAGE_BYTES,
         )

@@ -532,7 +532,9 @@ const api = {
       list: (params) => api.get("/admin/series", { params }),
       add: (payload) => api.post("/admin/series", typeof payload === "string" ? { url: payload } : payload),
       remove: (id) => api.del(`/admin/series/${id}`),
-      rescrape: (id) => api.post(`/admin/series/${id}/rescrape`),
+      // The server refuses a full re-scrape unless the series name is typed
+      // back (confirm_title); without it every click failed with 422.
+      rescrape: (id, confirmTitle) => api.post(`/admin/series/${id}/rescrape`, { confirm_title: confirmTitle }),
       updateSchedule: (id, schedule) => api.post(`/admin/series/${id}/schedule`, schedule),
       mirrorImages: (id) => api.post(`/admin/series/${id}/mirror-images`),
       updateLayout: (id, layout) => api.post(`/admin/series/${id}/layout`, layout),

@@ -440,7 +440,7 @@ owner, so put the Google client in `.env` first.
 | **Scraper AI** (writes parsers for unknown sites) | added in the admin panel → Series Management → Custom Parser | Not an `.env` value. |
 | **Error tracking** | `SENTRY_DSN`, `ENABLE_SENTRY` | Set `ENABLE_SENTRY=false` if unused. |
 | **Virus scanning of uploads** | `CLAMAV_HOST`, `CLAMAV_PORT` | Needs a ClamAV container. |
-| **Image storage limits** | `PAGE_MAX_WIDTH` (1440), `MIRROR_PAGE_IMAGES` (true), `STORAGE_ALERT_PERCENT` (80) | Defaults are fine. |
+| **Image storage limits** | `PAGE_MAX_WIDTH` (2000), `PAGE_KEEP_ORIGINALS` (true: source pictures that need no change are stored untouched, at full quality), `MIRROR_PAGE_IMAGES` (true), `STORAGE_ALERT_PERCENT` (80) | Defaults are fine. Both picture settings can also be changed in Admin → Secret Vault. An older `.env` with `PAGE_MAX_WIDTH=1440` keeps shrinking wide pages: change it to 2000. |
 | **Memory and speed tuning** | `GUNICORN_WORKERS`, `GUNICORN_MAX_REQUESTS`, `CELERY_MAX_TASKS_PER_CHILD`, `CELERY_MAX_MEMORY_PER_CHILD_KB`, `PAGE_PROCESSING_CONCURRENCY` | Read when a process starts (before the vault loads), so they stay in `.env`. Section 4.2. |
 
 ### 3.6 Sanity-check the file
@@ -1610,6 +1610,9 @@ command and the machine, not a broken site.
 | An imported chapter shows other series' covers or site pictures instead of its pages | Update (Section 4.1): the scraper now reads the page list that SinMH / qTcms sites (wujinmh and similar) keep in a script before looking at `<img>` tags, and drops sidebar, header and footer pictures. Then re-scrape the series (Admin → Series → Re-scrape). If it still happens, open the chapter on the source site and send its address; the site may need its own parser (Scraper AI → Custom Parser). |
 | Reader shows "Chapter Load Error" with "Too many requests" on a long chapter | Update (Section 4.1): chapter pictures now count in a separate allowance (four times the 300-a-minute API limit), so a long chapter no longer uses up the reader's API calls. Behind Caddy, every visitor still shares one allowance until the proxy fix in `plan.md` (P0-2) is done. |
 | *Notifications → Chapter Alerts & Issues* is always empty, or new-chapter alerts have no "New Chapter" label | Update (Section 4.1): the page now reads the alert types the server sends. Readers get an alert only for series they bookmarked while signed in, and only when a re-scrape or the scheduled check adds a chapter to a series that already existed. |
+| Deleting a series says it failed (or *delete all manga* stops) | Update (Section 4.1; the migration runs by itself): reading history, bookmarks and translated pages no longer block the delete. |
+| *Rescrape & sync now* in Series & AI Scraper Management says it failed | Update (Section 4.1). The button now asks you to type the series name to confirm; type it exactly. If the re-scrape then reports "aborted", the notification says why (usually the source returned fewer chapters than are stored). |
+| Stored pictures look blurry or smaller than on the source | Update (Section 4.1), check that `PAGE_MAX_WIDTH` in `.env` (or the Secret Vault) is 2000, not 1440, and that `PAGE_KEEP_ORIGINALS` isn't `false`, then re-scrape the series. Pictures that need no change are now stored exactly as the source sent them. |
 
 ---
 

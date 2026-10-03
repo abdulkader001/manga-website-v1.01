@@ -501,10 +501,10 @@ async def delete_all_manga(
     from ...utils.bounded_threadpool import run_in_db_threadpool
 
     def _purge() -> int:
-        count = db.query(func.count(Manga.id)).scalar() or 0
-        for manga in db.query(Manga).all():
-            db.delete(manga)
-        db.commit()
+        from ...services.series_delete import delete_many
+
+        ids = [row[0] for row in db.query(Manga.id).all()]
+        count, _chapters = delete_many(db, ids)
         from ...services import page_image_service
 
         page_image_service.delete_all_files()
@@ -535,8 +535,9 @@ async def purge_all_images(
     from ...utils.bounded_threadpool import run_in_db_threadpool
 
     def _purge() -> tuple:
-        ocr = db.query(OcrCache).delete(synchronize_session=False)
+        # Translations point at OCR rows: delete them first.
         translations = db.query(TranslationCache).delete(synchronize_session=False)
+        ocr = db.query(OcrCache).delete(synchronize_session=False)
         db.commit()
         return ocr, translations
 
