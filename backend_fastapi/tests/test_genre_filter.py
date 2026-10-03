@@ -97,3 +97,34 @@ def test_genre_include_exclude_behaviour(fastapi_app):
 def test_manga_title_index_declared_on_model():
     index_names = {ix.name for ix in Manga.__table__.indexes}
     assert "ix_manga_title" in index_names
+
+
+def test_title_case_genres_are_found(fastapi_app):
+    """plan.md P1-6: sources store "Action"; ?genre=action and ?genre=Action
+    both found nothing on PostgreSQL."""
+
+    session = SessionLocal()
+    try:
+        clear_content(session, commit=False)
+        session.commit()
+        session.add_all(
+            [
+                Manga(title="Up", source_url="https://x/up", genres=["Action", "Slice of Life"]),
+                Manga(title="Down", source_url="https://x/down", genres=["Horror"]),
+            ]
+        )
+        session.commit()
+        for wanted in ("action", "Action", "ACTION"):
+            items, total, _ = get_manga_list(session, None, None, None, [wanted], [], "new", 1, 20)
+            assert {m.title for m in items} == {"Up"}, wanted
+        items, total, _ = get_manga_list(session, None, None, None, ["slice of life"], ["horror"], "new", 1, 20)
+        assert {m.title for m in items} == {"Up"}
+        items, total, _ = get_manga_list(session, None, None, None, [], ["Action"], "new", 1, 20)
+        assert {m.title for m in items} == {"Down"}
+    finally:
+        session.close()
+
+
+def test_postgres_filter_matches_the_case_insensitive_index():
+    sql = _compile("postgresql", postgresql.dialect())
+    assert "lower(CAST(manga.genres AS TEXT))" in sql
