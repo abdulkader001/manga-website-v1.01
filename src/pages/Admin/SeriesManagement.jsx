@@ -510,9 +510,21 @@ export default function SeriesManagement() {
   };
 
   const handleRescrape = async (id, title) => {
+    const typed = window.prompt(
+      `Re-scrape every chapter of "${title}" from the source?\nType the series name to confirm:`,
+      ""
+    );
+    if (typed === null) return;
+    if (typed.trim() !== (title || "").trim()) {
+      setNotice({ type: "error", message: "Re-scrape cancelled: the name you typed doesn't match the series name." });
+      return;
+    }
     try {
-      const res = await api.admin.series.rescrape(id);
-      setNotice({ type: "success", message: `✅ ${res?.message || `Re-scraped "${title}" successfully!`}` });
+      const res = await api.admin.series.rescrape(id, typed.trim());
+      setNotice({
+        type: "success",
+        message: `✅ ${res?.message || `Re-scrape of "${title}" started. Chapters are re-fetched in the background.`}`,
+      });
       queryClient.invalidateQueries({ queryKey: ["mangaCatalogAdmin"] });
     } catch (err) {
       setNotice({ type: "error", message: "Re-scrape failed: " + err.message });
@@ -536,6 +548,7 @@ export default function SeriesManagement() {
   };
 
   const handleDelete = async (id, title) => {
+    if (!window.confirm(`Delete "${title}", all its chapters and stored pictures? This can't be undone.`)) return;
     try {
       await api.admin.series.remove(id);
       queryClient.invalidateQueries({ queryKey: ["mangaCatalogAdmin"] });

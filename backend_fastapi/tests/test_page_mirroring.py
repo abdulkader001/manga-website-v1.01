@@ -41,6 +41,9 @@ def _jpeg(size=(1800, 2400)) -> bytes:
 @pytest.fixture(autouse=True)
 def storage(tmp_path, monkeypatch, fastapi_app):
     monkeypatch.setenv("PAGE_STORAGE_DIR", str(tmp_path / "pages"))
+    # These tests cover the re-encoding path; keeping untouched source files
+    # (the default) is covered in test_page_originals.py.
+    monkeypatch.setenv("PAGE_KEEP_ORIGINALS", "false")
     return tmp_path / "pages"
 
 

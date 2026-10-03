@@ -2,7 +2,15 @@ import { formatUtcTime } from "../utils/gstTime";
 import React, { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router";
 import api from "../services/api";
-import { targetPathFor } from "../utils/notificationTargets";
+import {
+  isBroadcast,
+  isChapterAlert,
+  isChapterFixed,
+  isChapterProblem,
+  isNewChapterAlert,
+  isUnread,
+  targetPathFor,
+} from "../utils/notificationTargets";
 
 const PAGE_SIZE = 20;
 
@@ -56,7 +64,7 @@ export default function NotificationsPage() {
   };
 
   const handleItemClick = async (note) => {
-    if (!note.read) {
+    if (isUnread(note)) {
       try {
         await api.notifications.markRead(note.id);
         setItems((prev) =>
@@ -80,19 +88,11 @@ export default function NotificationsPage() {
     }
   };
 
-  const chapterIssueCount = items.filter(
-    (item) => item.category === "chapter_issue" || item.type === "chapter_issue" || item.type === "chapter_resolution"
-  ).length;
+  const chapterIssueCount = items.filter(isChapterAlert).length;
 
   const visibleItems = items.filter((item) => {
-    if (filter === "unread") return !item.read && !item.is_read;
-    if (filter === "chapter_issues") {
-      return (
-        item.category === "chapter_issue" ||
-        item.type === "chapter_issue" ||
-        item.type === "chapter_resolution"
-      );
-    }
+    if (filter === "unread") return isUnread(item);
+    if (filter === "chapter_issues") return isChapterAlert(item);
     if (filter === "administrative") return item.category === "administrative";
     return true;
   });
@@ -102,7 +102,7 @@ export default function NotificationsPage() {
     const body = (note.body || note.message || "").toLowerCase();
     const type = (note.data?.report_type || "").toLowerCase();
 
-    if (note.type === "chapter_resolution") {
+    if (isChapterFixed(note)) {
       return (
         <span className="flex-shrink-0 px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-emerald-600 text-white flex items-center gap-1">
           <i className="fas fa-check-circle"></i> Resolved
@@ -137,7 +137,7 @@ export default function NotificationsPage() {
         </span>
       );
     }
-    if (note.category === "chapter_issue" || note.type === "chapter_issue") {
+    if (isChapterProblem(note)) {
       return (
         <span className="flex-shrink-0 px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-rose-700 text-white flex items-center gap-1">
           <i className="fas fa-bug"></i> Chapter Alert
@@ -172,7 +172,7 @@ export default function NotificationsPage() {
       <div className="flex flex-wrap gap-2">
         {[
           { key: "all", label: "All", count: items.length },
-          { key: "unread", label: "Unread", count: items.filter((n) => !n.read && !n.is_read).length },
+          { key: "unread", label: "Unread", count: items.filter(isUnread).length },
           { key: "chapter_issues", label: "🚨 Chapter Alerts & Issues", count: chapterIssueCount },
           { key: "administrative", label: "Administrative" },
         ].map((tab) => (
@@ -224,10 +224,7 @@ export default function NotificationsPage() {
         )}
 
         {visibleItems.map((note) => {
-          const isIssue =
-            note.category === "chapter_issue" ||
-            note.type === "chapter_issue" ||
-            note.type === "chapter_resolution";
+          const isIssue = isChapterProblem(note) || isChapterFixed(note);
 
           return (
             <div
@@ -240,15 +237,15 @@ export default function NotificationsPage() {
               }}
               className={`grid gap-2 rounded-2xl border p-4 cursor-pointer transition shadow-md ${
                 isIssue
-                  ? note.type === "chapter_resolution"
+                  ? isChapterFixed(note)
                     ? "bg-emerald-950/20 border-emerald-500/30 hover:border-emerald-500/50"
                     : "bg-red-950/20 border-red-500/30 hover:border-red-500/50"
                   : "bg-[#15171c] border-[#262a33] hover:border-gray-600"
-              } ${note.read ? "opacity-75" : "border-l-4 border-l-[#00AEF0]"}`}
+              } ${isUnread(note) ? "border-l-4 border-l-[#00AEF0]" : "opacity-75"}`}
             >
               <div className="flex items-start justify-between gap-3">
                 <div className="flex flex-wrap items-center gap-2 min-w-0">
-                  {!note.read && !note.is_read && (
+                  {isUnread(note) && (
                     <span
                       className="h-2 w-2 flex-shrink-0 rounded-full bg-[#00AEF0] animate-pulse"
                       aria-hidden="true"
@@ -265,12 +262,12 @@ export default function NotificationsPage() {
                       Admin
                     </span>
                   )}
-                  {(note.category === "announcement" || note.type === "popup" || note.type === "system") && (
+                  {isBroadcast(note) && (
                     <span className="flex-shrink-0 px-1.5 py-0.5 rounded text-[10px] font-bold uppercase bg-purple-600 text-white">
                       Broadcast
                     </span>
                   )}
-                  {note.category === "chapter_release" && (
+                  {isNewChapterAlert(note) && (
                     <span className="flex-shrink-0 px-1.5 py-0.5 rounded text-[10px] font-bold uppercase bg-[#00AEF0] text-white">
                       New Chapter
                     </span>
@@ -300,7 +297,7 @@ export default function NotificationsPage() {
 
               <div className="flex items-center justify-between pt-1 text-[11px] text-[#8b93a3]">
                 <span>{formatTimestamp(note.created_at)}</span>
-                {note.link && (
+                {note.target_type === "chapter" && targetPathFor(note) && (
                   <span className="text-[#00AEF0] font-semibold hover:underline flex items-center gap-1">
                     <span>Inspect Chapter</span>
                     <i className="fas fa-chevron-right text-[9px]"></i>

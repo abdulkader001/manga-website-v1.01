@@ -52,10 +52,12 @@ base URL with the import, or by using the Custom Parser panel.
 
 ## Pictures, page order and layouts
 
-Every chapter's pictures are downloaded when the chapter is scraped, compressed
-to **WebP** and served from this site (nginx serves the files straight from the
-storage volume, cached for a year). Width is capped (`PAGE_MAX_WIDTH`, default
-1280px), quality never drops below a floor that keeps text edges clean for OCR
+Every chapter's pictures are downloaded when the chapter is scraped and served
+from this site (nginx serves the files straight from the storage volume, cached
+for a year). A JPEG/PNG/WebP that needs no change is stored exactly as the
+source sent it (`PAGE_KEEP_ORIGINALS`, default on); everything else is
+re-encoded to **WebP**. Width is capped (`PAGE_MAX_WIDTH`, default 2000px),
+quality never drops below a floor that keeps text edges clean for OCR
 and for erasing the original lettering, flat art is stored losslessly, and very
 tall strips are cut into slices of at most 3000px on blank rows. The stored
 file is the one picture the reader shows *and* OCR reads, so detected text

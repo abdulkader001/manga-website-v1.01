@@ -251,6 +251,10 @@ def test_mkzhan_style_image_api():
         images = scraper._extract_page_images(_soup("<div></div>"), config["page_images"], "https://www.mkzhan.com/12/345.html", config)
     assert images == ["https://img.example/1.jpg", "https://img.example/2.jpg"]
     assert "chapter_id=345&comic_id=12" in body.call_args[0][0]
+    # The 2026 site links chapters as /<comic_id>/<chapter_id>/ (no .html).
+    with mock.patch.object(scraper, "_fetch_body", return_value=payload.encode()) as body:
+        scraper._extract_page_images(_soup("<div></div>"), config["page_images"], "https://www.mkzhan.com/208645/1067202/", config)
+    assert "chapter_id=1067202&comic_id=208645" in body.call_args[0][0]
 
 
 def test_image_api_refuses_other_sites():

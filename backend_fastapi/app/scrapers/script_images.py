@@ -218,6 +218,20 @@ DECODERS = {
 }
 
 
+def cms_images(soup: BeautifulSoup, page_url: str) -> List[str]:
+    """Pages from a CMS whose script list is unambiguous (SinMH, qTcms).
+
+    Unlike :func:`script_array_images` these look for a named variable, so a
+    hit is the chapter's page list and never some other array of pictures.
+    """
+
+    for decoder in (sinmh_images, qtcms_images):
+        found = decoder(soup, page_url)
+        if found:
+            return found
+    return []
+
+
 def auto_images(soup: BeautifulSoup, page_url: str) -> List[str]:
     """First decoder that finds images, most specific first."""
 

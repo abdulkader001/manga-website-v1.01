@@ -2652,10 +2652,11 @@ def delete_series(
             status_code=status.HTTP_404_NOT_FOUND, detail="Manga not found"
         )
 
-    deleted_chapters = db.query(Chapter).filter(Chapter.manga_id == manga.id).delete()
-    db.delete(manga)
-    db.commit()
     from ...services import page_image_service
+    from ...services.series_delete import delete_series as delete_series_rows
+
+    deleted_chapters = delete_series_rows(db, manga)
+    db.commit()
 
     page_image_service.delete_series_files(manga_id)
 

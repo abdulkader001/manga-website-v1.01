@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import re
 import time
 from typing import Optional
 
@@ -40,6 +41,14 @@ MAX_STRIKE_EXPONENT = 10  # caps the doubling well before it would overflow
 # traffic spike into an outage. These paths carry no state and leak nothing,
 # so they are exempt.
 EXEMPT_PATHS = frozenset({"/health", "/healthz", "/metrics"})
+
+# Chapter pictures (mirrored pages, covers and the signed proxy for pages not
+# mirrored yet) are one request per page: a single 60-page chapter used most
+# of a reader's 300-a-minute budget, so the chapter's own API call (and every
+# other click) then failed with "Too many requests". Pictures count in a
+# bucket of their own, with this many times the generic allowance.
+IMAGE_PATH_RE = re.compile(r"^/api(?:/v1)?/(?:images/proxy$|manga/(?:pages|covers)/)")
+IMAGE_LIMIT_MULTIPLIER = 4
 
 
 class RateLimitMiddleware(BaseHTTPMiddleware):
@@ -106,7 +115,11 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             return await call_next(request)
 
         identifier = self._identify_requester(request)
-        allowed, retry_after = await self._consume(request, identifier)
+        limit = self.limit
+        if request.method == "GET" and IMAGE_PATH_RE.match(request.url.path):
+            identifier = f"img:{identifier}"
+            limit = self.limit * IMAGE_LIMIT_MULTIPLIER
+        allowed, retry_after = await self._consume(request, identifier, limit)
         if not allowed:
             headers = {"Retry-After": str(max(1, int(retry_after)))}
             return JSONResponse(
@@ -124,10 +137,13 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         # that used to let any caller pick a fresh rate-limit bucket for free.
         return resolve_client_ip(request)
 
-    async def _consume(self, request: Request, identifier: str) -> tuple[bool, int]:
+    async def _consume(
+        self, request: Request, identifier: str, limit: Optional[int] = None
+    ) -> tuple[bool, int]:
+        limit = self.limit if limit is None else limit
         redis_client = self._redis(request)
         if redis_client is not None:
-            allowed, retry_after = await self._consume_redis(redis_client, identifier)
+            allowed, retry_after = await self._consume_redis(redis_client, identifier, limit)
             if allowed is not None:
                 self._mark_healthy(request)
                 return allowed, retry_after
@@ -135,7 +151,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             # limiting, but make the degraded state loudly visible (M1).
             self._mark_degraded(request)
 
-        return await self._consume_memory(identifier)
+        return await self._consume_memory(identifier, limit)
 
     def _mark_degraded(self, request: Request) -> None:
         if not self.degraded:
@@ -169,8 +185,9 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         return client if isinstance(client, Redis) else None
 
     async def _consume_redis(
-        self, client: Redis, identifier: str
+        self, client: Redis, identifier: str, limit: Optional[int] = None
     ) -> tuple[Optional[bool], int]:
+        limit = self.limit if limit is None else limit
         block_key = f"ratelimit:block:{identifier}"
         try:
             async with asyncio.timeout(self.redis_timeout):
@@ -193,8 +210,8 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             return None, self.window
 
         current = int(count)
-        if current <= self.limit:
-            return True, max(self.limit - current, 0)
+        if current <= limit:
+            return True, max(limit - current, 0)
 
         retry_after = await self._escalate_redis(client, identifier, remaining_window)
         return False, retry_after
@@ -214,7 +231,10 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             return fallback_retry_after
         return block_seconds
 
-    async def _consume_memory(self, identifier: str) -> tuple[bool, int]:
+    async def _consume_memory(
+        self, identifier: str, limit: Optional[int] = None
+    ) -> tuple[bool, int]:
+        limit = self.limit if limit is None else limit
         now = time.monotonic()
         lock = self._locks.get(identifier)
         if lock is None:
@@ -235,8 +255,8 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             count += 1
             self._buckets[identifier] = (expires_at, count)
 
-            if count <= self.limit:
-                return True, max(self.limit - count, 0)
+            if count <= limit:
+                return True, max(limit - count, 0)
 
             decay_at, strikes = self._strikes.get(identifier, (0.0, 0))
             if decay_at <= now:

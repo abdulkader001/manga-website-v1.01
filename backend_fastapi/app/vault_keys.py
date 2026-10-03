@@ -194,6 +194,9 @@ SPECS = (
     # Images, uploads & storage
     SecretSpec("PAGE_MAX_WIDTH", _G_IMG, "Stored page width (px)", kind="int"),
     SecretSpec("MIRROR_PAGE_IMAGES", _G_IMG, "Store chapter pictures on this server", kind="bool"),
+    SecretSpec(
+        "PAGE_KEEP_ORIGINALS", _G_IMG, "Keep source pictures unchanged when possible (full quality)", kind="bool"
+    ),
     SecretSpec("STORAGE_ALERT_PERCENT", _G_IMG, "Disk-full warning at (%)", kind="number"),
     SecretSpec("STORAGE_ALERT_BYTES", _G_IMG, "Storage warning above (bytes)", kind="number"),
     SecretSpec("PROFILE_IMAGE_MAX_BYTES", _G_IMG, "Max avatar upload (bytes)", kind="number"),

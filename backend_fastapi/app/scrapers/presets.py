@@ -182,10 +182,11 @@ _register(
     {
         **_static(".chapter__list a, #chapter-list a, a.j-chapter-link", "img.lazy-read, .rd-article__pic img", attr="data-src", headers=_ZH),
         # The reader builds its pages from a JSON API keyed by the ids in
-        # the chapter URL (/<comic_id>/<chapter_id>.html).
+        # the chapter URL: /<comic_id>/<chapter_id>/ on the 2026 site (seen
+        # in the owner's saved homepage), /<comic_id>/<chapter_id>.html before.
         "image_api": {
             "url": "https://comic.mkzhan.com/chapter/content/v1/?chapter_id={chapter_id}&comic_id={comic_id}&format=1&quality=1&type=1",
-            "params_regex": r"/(?P<comic_id>\d+)/(?P<chapter_id>\d+)\.html",
+            "params_regex": r"/(?P<comic_id>\d+)/(?P<chapter_id>\d+)(?:\.html|/|$)",
             "path": "data.page",
             "field": "image",
         },

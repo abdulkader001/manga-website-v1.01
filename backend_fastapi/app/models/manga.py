@@ -365,8 +365,8 @@ class ReadHistory(Base):
     )
     id = Column(Integer, primary_key=True)
     user_id = Column(Integer, ForeignKey("users.id"))
-    manga_id = Column(Integer, ForeignKey("manga.id"))
-    chapter_id = Column(Integer, ForeignKey("chapters.id"))
+    manga_id = Column(Integer, ForeignKey("manga.id", ondelete="CASCADE"))
+    chapter_id = Column(Integer, ForeignKey("chapters.id", ondelete="CASCADE"))
     last_read_at = Column(DateTime, nullable=False, server_default=func.now())
 
     user = relationship("User", lazy="selectin", back_populates="read_history")
@@ -383,8 +383,8 @@ class Bookmark(Base):
     __table_args__ = (Index("ix_bookmarks_user_id_manga_id", "user_id", "manga_id"),)
     id = Column(Integer, primary_key=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
-    manga_id = Column(Integer, ForeignKey("manga.id"))
-    chapter_id = Column(Integer, ForeignKey("chapters.id"))
+    manga_id = Column(Integer, ForeignKey("manga.id", ondelete="CASCADE"))
+    chapter_id = Column(Integer, ForeignKey("chapters.id", ondelete="CASCADE"))
     created_at = Column(DateTime, nullable=False, server_default=func.now())
 
     user = relationship("User", lazy="selectin", back_populates="bookmarks")

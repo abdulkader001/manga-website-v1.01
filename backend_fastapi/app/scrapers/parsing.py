@@ -141,6 +141,17 @@ def image_url(tag: Tag, base_url: str, preferred_attr: Optional[str] = None) -> 
     """The real image URL of an ``<img>``/``<amp-img>``/``<source>`` tag."""
 
     attrs = ((preferred_attr,) if preferred_attr else ()) + IMAGE_ATTRS
+    if preferred_attr != "src" and any(tag.get(a) for a in SRCSET_ATTRS):
+        # A responsive image: ``src`` is usually a small fallback, the
+        # largest ``srcset`` entry is the full-resolution picture. Lazy-load
+        # attributes (data-src...) still come first.
+        attrs = tuple(a for a in attrs if a != "src")
+        found = _image_from_attrs(tag, base_url, attrs) or _image_from_srcset(tag, base_url)
+        return found or _image_from_attrs(tag, base_url, ("src",))
+    return _image_from_attrs(tag, base_url, attrs) or _image_from_srcset(tag, base_url)
+
+
+def _image_from_attrs(tag: Tag, base_url: str, attrs) -> Optional[str]:
     for attr in attrs:
         value = tag.get(attr)
         if isinstance(value, list):
@@ -153,6 +164,10 @@ def image_url(tag: Tag, base_url: str, preferred_attr: Optional[str] = None) -> 
         url = absolute(base_url, value)
         if url:
             return url
+    return None
+
+
+def _image_from_srcset(tag: Tag, base_url: str) -> Optional[str]:
     for attr in SRCSET_ATTRS:
         value = tag.get(attr)
         if value:

@@ -16,6 +16,7 @@ fails on others is a failure, not a success (1G.9.4).
 
 from __future__ import annotations
 
+import re
 from typing import Any, Dict, List, Optional
 from urllib.parse import urljoin, urlparse
 
@@ -62,49 +63,93 @@ def _soup(html: str):
     return BeautifulSoup(html, "html.parser")
 
 
+# Path words that mark a list, a filter or an account page, not a series.
+_NOT_SERIES = re.compile(
+    r"(^|[/_?&=-])(list|lists|rank|ranking|top|category|categories|classify|sort|tags?|genres?|"
+    r"search|login|logout|register|signup|user|my|update|updates|latest|new|help|about|news|"
+    r"custom|author|history|bookshelf|subscription|premium|contact|faq|privacy|terms|app|"
+    r"download|feedback|recharge|pay|vip)([/_.?&=-]|$)",
+    re.I,
+)
+
+
+def _link_shape(path: str, query: str) -> str:
+    """The shape of a URL, so links to different series fall in one group:
+    ``/comic/12/`` and ``/comic/98/`` -> ``/comic/#/``; ``/mh/AbC9`` ->
+    ``/mh/*``; ``/12.html`` -> ``/#.html``. The first word stays literal
+    (``/manhua/`` and ``/category/`` are different groups)."""
+
+    segments = path.split("/")
+    out: List[str] = []
+    for index, segment in enumerate(segments):
+        if not segment:
+            out.append("")
+            continue
+        stem, dot, ext = segment.rpartition(".") if "." in segment else (segment, "", "")
+        ext = ("." + ext) if dot and ext.isalpha() and len(ext) <= 5 else ""
+        stem = segment[: len(segment) - len(ext)] if ext else segment
+        if stem.isdigit():
+            token = "#"
+        elif index == 1 and len(segments) > 2 and re.fullmatch(r"[a-z]+", stem, re.I):
+            token = stem.lower()
+        else:
+            token = "*"
+        out.append(token + ext)
+    shape = "/".join(out)
+    if query:
+        keys = sorted(part.split("=", 1)[0].lower() for part in query.split("&") if part)
+        shape += "?" + "&".join(keys)
+    return shape
+
+
 def _find_series_links(
     base_url: str, listing_html: str, *, limit: int = 5
 ) -> List[str]:
     """Links to series pages found on a homepage or a list of series.
 
-    First by well-known URL fragments (``/manga/``, ``/comic/``...). When none
-    match, the biggest group of same-shaped links that wrap a cover image
-    (``/12345/``, ``/b/slug.html`` with an <img>) is taken: that is what a
-    grid of series covers looks like on any site, whatever its URLs.
+    Every same-site link is grouped by URL shape (``/comic/#/``, ``/mh/*``,
+    ``/list?toon``). List, filter and account pages are left out. The group
+    with the most series-like links wins: links that wrap a cover picture
+    count double, and a well-known series word (``/manga/``, ``/comic/``,
+    ``titleId=``...) doubles the group's score. A group with no such word
+    needs at least three links with a cover to count, which is what a grid
+    of series covers looks like on any site, whatever its URLs.
     """
-
-    import re
 
     from ..scrapers.definition_guard import site_of
 
     host = urlparse(base_url).hostname or ""
-    links: List[str] = []
-    shapes: Dict[str, List[str]] = {}
+    groups: Dict[str, Dict[str, Any]] = {}
     for a in _soup(listing_html).find_all("a", href=True):
-        href = urljoin(base_url, a["href"])
+        href = urljoin(base_url, a["href"]).split("#", 1)[0]
         parsed = urlparse(href)
         if parsed.scheme not in ("http", "https") or site_of(parsed.hostname or "") != site_of(host):
             continue
         if parsed.path in ("", "/") and not parsed.query:
             continue
         target = (parsed.path + ("?" + parsed.query if parsed.query else "")).lower()
-        if any(hint in target for hint in _SERIES_HINTS):
-            if href not in links:
-                links.append(href)
-            if len(links) >= limit:
-                break
+        if _NOT_SERIES.search(target) and not any(hint in target for hint in _SERIES_HINTS):
             continue
-        if a.find(["img", "amp-img"]) is not None:
-            shape = re.sub(r"[^/?=&]+", lambda m: "#" if m.group(0).isdigit() else "*", target)
-            shapes.setdefault(shape, [])
-            if href not in shapes[shape]:
-                shapes[shape].append(href)
-    if links:
-        return links
-    groups = sorted(shapes.values(), key=len, reverse=True)
-    if groups and len(groups[0]) >= 3:
-        return groups[0][:limit]
-    return []
+        shape = _link_shape(parsed.path, parsed.query)
+        group = groups.setdefault(shape, {"links": [], "covers": set(), "hint": False})
+        if href not in group["links"]:
+            group["links"].append(href)
+        if a.find(["img", "amp-img"]) is not None or "cover" in " ".join(a.get("class") or []):
+            group["covers"].add(href)
+        if any(hint in target for hint in _SERIES_HINTS):
+            group["hint"] = True
+
+    def score(group: Dict[str, Any]) -> float:
+        value = len(group["links"]) + 2 * len(group["covers"])
+        return value * 2 if group["hint"] else value
+
+    eligible = [g for g in groups.values() if g["hint"] or len(g["covers"]) >= 3]
+    if not eligible:
+        return []
+    best = max(eligible, key=score)
+    covered = [link for link in best["links"] if link in best["covers"]]
+    rest = [link for link in best["links"] if link not in best["covers"]]
+    return (covered + rest)[:limit]
 
 
 def _test_series_selectors(html: str, selectors: Dict[str, str]) -> Dict[str, Any]:

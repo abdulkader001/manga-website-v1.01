@@ -256,7 +256,7 @@ export default function ChapterReports() {
                     <button
                       type="button"
                       onClick={() => rescrapeSingleMutation.mutate(report.id)}
-                      disabled={isBusy || rescrapeSingleMutation.isLoading}
+                      disabled={isBusy || rescrapeSingleMutation.isPending}
                       className="px-3.5 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-black font-extrabold text-xs transition flex items-center gap-1.5 shadow-md disabled:opacity-50 active:scale-95"
                       title="Re-scrape and rebuild pages strictly for this single chapter"
                     >
@@ -268,7 +268,7 @@ export default function ChapterReports() {
                       <button
                         type="button"
                         onClick={() => resolveMutation.mutate(report.id)}
-                        disabled={resolveMutation.isLoading}
+                        disabled={resolveMutation.isPending}
                         className="px-3 py-2 rounded-xl bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/40 text-emerald-300 font-bold text-xs transition flex items-center gap-1"
                         title="Mark issue resolved"
                       >
@@ -280,7 +280,7 @@ export default function ChapterReports() {
                     <button
                       type="button"
                       onClick={() => deleteMutation.mutate(report.id)}
-                      disabled={deleteMutation.isLoading}
+                      disabled={deleteMutation.isPending}
                       className="px-2.5 py-2 rounded-xl bg-[#101216] hover:bg-red-500/20 border border-[#262a33] hover:border-red-500/40 text-gray-400 hover:text-red-400 text-xs transition"
                       title="Delete report"
                     >
