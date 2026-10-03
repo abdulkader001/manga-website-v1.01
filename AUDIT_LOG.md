@@ -36,13 +36,13 @@ Contents
 | Layer | Holds | Who changes it | Undo |
 | --- | --- | --- | --- |
 | `.env` on the server | Foundation only: database/Redis, signing and encryption keys, `INTEGRATIONS_SECRET`, admin identity (`MAIN_ADMIN_EMAIL_HASH` only), the Google sign-in client (`GOOGLE_OAUTH_CLIENT_ID` / `_SECRET`, needed before the owner can open the vault; may be moved into it afterwards), starting site address | Whoever has the server | Edit the file and recreate the containers |
-| **Secret Vault** (Admin → Secret Vault) | Everything else: Google/Microsoft sign-in, SMTP/magic links, OCR/translation, API keys, limits, Sentry, **website domain**, the **backup** schedule, password and storage keys (`BACKUP_*`, set from Storage & Backups), **Geolock** (`GEOLOCK_*`, set from Geolock) and the stored-picture settings (`PAGE_MAX_WIDTH`, `PAGE_KEEP_ORIGINALS`, `MIRROR_PAGE_IMAGES`) | Main admin only, with an authenticator code and a 10-minute unlock | Remove the value and it falls back to `.env`. `VAULT_PRELOAD_DISABLED=true` skips the vault if a bad value stops start-up |
+| **Secret Vault** (Admin → Secret Vault) | Everything else: Google/Microsoft sign-in, SMTP/magic links, OCR/translation, API keys, limits, Sentry, **website domain**, the **backup** schedule, password and storage keys (`BACKUP_*`, set from Storage & Backups), **Geolock** (`GEOLOCK_*`, set from Geolock) and the stored-picture settings (`PAGE_MAX_WIDTH`, `PAGE_KEEP_ORIGINALS`, `MIRROR_PAGE_IMAGES`) | Main admin only, with an authenticator code and a 10-minute unlock. `ADMIN_CODE_VALID_HOURS` (how long an entered code keeps the admin area open, default 12) lives here too | Remove the value and it falls back to `.env`. `VAULT_PRELOAD_DISABLED=true` skips the vault if a bad value stops start-up |
 | **Admin Settings** (database) | Site name/logo/footer, donations, session policy, the default reader mode | Main admin (an Admin only if the owner switched Admin Settings on) | Change it back in the page |
 | **Site Functions** (database, Admin → Site Functions) | The on/off switch of every main website function: sign-in required (starts **off**), maintenance, new accounts, each sign-in method, comments, community, reports, notifications, OCR, translation, ads, support links, sitemap/RSS, scraping, and the two IP-privacy switches. **Owner only, never delegable** (no permission opens it) | The owner | Switch it back, or `cli_bootstrap functions-reset` |
 
 ### People and roles
 
-- **Main admin**: one owner. Claims the seat by signing in with **Google** once, using the e-mail whose Argon2id hash is `MAIN_ADMIN_EMAIL_HASH` in `.env` (Google must report the address verified, and the site must have no owner yet). No admin password, no admin page, nothing one-time to burn. Ownership never passes: once an owner exists, a changed hash promotes nobody. Then they set up an authenticator in **Admin**; admin features stay shut until they have, and every admin page asks for a fresh code. A magic link or Microsoft sign-in with the owner's e-mail never promotes (it reaches the already-claimed account). Lost phone: `cli_bootstrap reset-2fa`, sign in with Google, enrol again.
+- **Main admin**: one owner. Claims the seat by signing in with **Google** once, using the e-mail whose Argon2id hash is `MAIN_ADMIN_EMAIL_HASH` in `.env` (Google must report the address verified, and the site must have no owner yet). No admin password, no admin page, nothing one-time to burn. Ownership never passes: once an owner exists, a changed hash promotes nobody. Then they set up an authenticator in **Admin**; admin features stay shut until they have, and admin pages then ask for a code once every `ADMIN_CODE_VALID_HOURS` (12 by default). A magic link or Microsoft sign-in with the owner's e-mail never promotes (it reaches the already-claimed account). Lost phone: `cli_bootstrap reset-2fa`, sign in with Google, enrol again.
 - **Sub-admin**: a user with per-person permission toggles (Role Management). Sees only **their own** rows in the admin audit log unless granted *See the full audit log* (`view_full_audit`). Previews, imports and re-scrapes use the Scraper AI only for a sub-admin who holds it.
 - **Admin** (`UserRole.CO_ADMIN`; at most **two**, `MAX_ADMINS`): the owner's right hand. Holds every power except Admin Settings, the cache and "delete all manga" (`ADMIN_OFF_BY_DEFAULT`) until the owner switches them on; only the owner changes an Admin's toggles (switching a site-owner power on needs the owner's authenticator code). Has power over sub-admins and users only (`permissions_service.assert_may_act_on`, `authorize_change`): never over another Admin, themselves or the owner. Sees sub-admins' and users' e-mail, never an Admin's or the owner's. Needs an authenticator and a fresh code to use site-owner powers (`dependencies/powers.py`). Appoints sub-admins from a shared pool of **50** seats (`SUB_ADMIN_POOL`; an equal share unless the owner sets it). Keeps a **succession line** of up to two sub-admins (`admin_successors`); only the owner makes, removes or hands over an Admin seat (`services/admin_roles.py`, `api/routers/roles_admins.py`). `UserRole.ADMIN` is only the old name of the owner tier.
 - **Sub-admin**: per-person toggles set by an Admin or the owner, never above the owner's **ceiling** (`system_settings.sub_admin_blocked_permissions`) and never a site-owner power. Power over users only. Custom roles (presets) are created by the owner only.
@@ -139,9 +139,60 @@ exceptions; for those, restore the database backup taken before the update.
 
 ## Change entries
 
-### 2026-10-03 — PR #NN: the site no longer freezes when several readers arrive at once; lighter pages
+### 2026-10-03 — PR #NN: the authenticator code lasts 12 hours; security hardening
 
-Merge SHA: fill in when known (the next PR fills it in). Branch `claude/project-thread-v7ek3a`.
+Merge SHA: fill in when known (the next PR fills it in). Branch `claude/project-thread-cu8n68`.
+
+The owner said the website asks for the authenticator code again after a few minutes and wanted it once a day or every 12 hours. They also asked to close the right-click "Inspect" gap in text boxes, to keep the admin screens out of what visitors download, and to go through a 19-point security checklist.
+
+| Change | Why | Main files |
+| --- | --- | --- |
+| **An entered authenticator code keeps the admin area open for 12 hours** (`ADMIN_CODE_VALID_HOURS`, Secret Vault, 1-168; `.env` fallback). Admin → Security shows the real number. The vault's own 10-minute unlock for changing or revealing a value is unchanged | The step-up cookie was fixed at 30 minutes | `services/admin_second_factor.py`, `routers/admin_2fa.py`, `core/settings.py`, `vault_keys.py`, `src/pages/Admin/AdminSecurity.jsx`, `.env.example` |
+| **Right-click in a text box opens the site's own Cut / Copy / Paste / Select all menu**, not the browser's (phones keep their own text tools). **Cmd+Option+I/J/C/U** on a Mac and Firefox's Ctrl+Shift+K/M/E are blocked too; Ctrl+Alt (AltGr) is left alone so characters like € still type | Text boxes got the browser menu, so "Inspect" was one click away; the Mac shortcuts were never caught. This is a speed bump only: the browser menu and switching JavaScript off still open the tools | `src/components/AntiTamperGuard.jsx` |
+| **The admin screens' code is only sent to a signed-in admin.** The build puts admin-only code in `/assets/admin/`; nginx asks `GET /api/v1/admin/2fa/asset-access` first (204 / 401 / 403, reads the sign-in cookies, refresh cookie included so an hour-old session still loads) and serves it `private` so a CDN never keeps a copy | Visitors downloaded every admin page's code with the site | `vite.config.ts`, `deployment/nginx/site.conf`, `routers/admin_2fa.py` |
+| **Source maps are off unless `GENERATE_SOURCEMAP=true`** (the Docker build already turned them off) | A plain `npm run build` shipped the original source | `vite.config.ts` |
+| **CORS on a live site names its own addresses only**: with none set it answers no other website; `*` is dropped in production; methods and headers are listed instead of `*` | Production fell back to `*` when nothing was set | `bootstrap/middleware.py` |
+| **Google sign-in with an address Google hasn't verified is refused** unless it matches the account's own Google id | Anyone could add someone else's address to a Google account and sign in as them | `services/oauth_service.py` |
+| **Logs never hold a full e-mail address or a sign-in link on a live site** (`jo***@example.com`; the console e-mail backend prints the link only in development) | Magic-link and notification logs printed the address, and the console backend printed the link itself | `services/email_service.py` |
+| **OCR uploads stop being read at the size limit** (413) | The whole upload was read into memory before any check | `routers/ocr.py` |
+| **No token in `localStorage`**: the CSRF header is read from its cookie only, and the old stored copy is removed | The checklist asks for no tokens in browser storage | `src/services/api.js` |
+| Tests: 12-hour default and the setting's limits; the admin-assets check (guest, reader, admin, refresh cookie, wrong token); CORS in production and development; unverified Google address; the guard's shortcuts, AltGr and the text-box menu | Prove it | `tests/test_admin_second_factor.py`, `tests/test_cors_policy.py`, `tests/test_google_email_verified.py`, `tests/test_route_audit.py`, `tests/test_owner_google_sign_in.py`, `src/components/AntiTamperGuard.test.jsx` |
+
+**The 19-point checklist**, as checked on this branch:
+
+| Point | Result |
+| --- | --- |
+| Row-level security (RLS) | Not used: the site is one server program with one database login, not a browser talking to the database. Every row is checked on the server (owner, role, the reader's own data). Turning on Postgres RLS would need a per-request database role; not done |
+| CORS | Tightened (above) |
+| Parameterised SQL | Checked: queries go through SQLAlchemy with bound values. The only f-string SQL is in migrations, with fixed table names |
+| Verify e-mail addresses | Magic links prove the inbox; Microsoft work accounts can't take over an address; Google now must verify (above) |
+| Tokens out of `localStorage` | Sign-in tokens were already HttpOnly cookies; the CSRF copy removed (above) |
+| `.env` out of git | Checked: `.gitignore` has `.env`; only `.env.example` files are tracked |
+| Validate form input | Checked: every write route takes a Pydantic model; no route reads raw JSON |
+| Protect admin routes | Checked by `test_route_audit.py` (every `/admin` route has an admin gate or a named power); admin code now also gated (above) |
+| No production debugging | Checked: API docs off in production, error responses carry no traceback; source maps off (above) |
+| API secrets on the server | Checked: the built site contains no key-like strings; keys live in the Secret Vault |
+| Claude Code security review | Run on this branch's changes; findings fixed before the PR |
+| Rate limits | Checked: global limiter plus per-route limits on sign-in, codes, uploads and reports; nginx limits sign-in paths |
+| Validate requests | Same as form input |
+| Validate file uploads | Logos, avatars and memes are size-capped and re-encoded with Pillow; OCR now stops at its limit (above) |
+| No sensitive data in logs | Fixed (above); IP addresses were already kept out of logs |
+| Hash passwords | There are no reader or admin passwords (magic link, Google, Microsoft). E-mail lookups use Argon2id; the backup password is encrypted in the vault |
+| Verify webhook signatures | The site receives no webhooks |
+| Server-side permissions | Checked: every power is resolved on the server per request (`require_power`, `require_permission`) |
+| Block XSS | Checked: React escapes output; the only raw HTML (ad code) is sanitised on save and the CSP allows no inline script |
+| Update dependencies | `npm audit --omit=dev`: 0. Five dev-only (build tool) advisories in `braces`. `pip-audit`: `ecdsa` 0.19.2 (PYSEC-2026-1325, no fixed version yet; pulled in by `python-jose`, which this site uses for HS256 only, so the affected code never runs) |
+
+- **Database:** none.
+- **Settings:** new vault key `ADMIN_CODE_VALID_HOURS` (default 12, `.env` fallback). Nothing moved between `.env`, the vault and Admin Settings. The `web` image must be rebuilt for the admin-assets gate.
+- **Check:** after `docker compose up -d --build`: enter a code in Admin and it isn't asked again that day; Admin → Security says "every 12 hours". In a private window `curl -sI https://your-domain/assets/admin/<any file>` answers 401; signed in as an admin the admin pages load. Right-click in the search box shows the small menu. Locally: `pytest backend_fastapi/tests/test_admin_second_factor.py backend_fastapi/tests/test_cors_policy.py backend_fastapi/tests/test_google_email_verified.py`, `npx vitest run src/components/AntiTamperGuard.test.jsx`.
+- **Undo:** `git revert -m 1 <merge>` and rebuild `web` and `backend`. Nothing is lost; admins are asked for a code every 30 minutes again.
+
+---
+
+### 2026-10-03 — PR #52: the site no longer freezes when several readers arrive at once; lighter pages
+
+Merge `7c83b99`. Branch `claude/project-thread-v7ek3a`.
 
 The owner said the site feels clunky and its responses are slow, and asked to look into it after PR #48. A load test on a local copy (PostgreSQL 16, Redis, 1,000 series with 150,000 chapters) found that the API **froze**: one worker stopped answering at 50 concurrent requests with the full-size pool, and at 12 with the small-server pool (4 + 4). One homepage visit sends about 12 API calls at once. A stack dump showed the event loop waiting for a database connection. Findings in `/mnt/project-files/speed/findings.md` (project files).
 

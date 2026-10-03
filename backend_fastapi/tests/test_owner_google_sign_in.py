@@ -52,9 +52,12 @@ def test_verified_google_sign_in_with_the_owner_email_claims_the_seat(fresh_site
 
 
 def test_an_unverified_google_address_never_claims_it(fresh_site):
+    # Google sign-in with an unverified address is refused outright (security
+    # checklist, 2026-10-03), so it can neither claim the seat nor an account.
     with SessionLocal() as session:
-        user = _google(session, OWNER, verified=False)
-        assert user.role == UserRole.USER and not user.is_main_admin
+        with pytest.raises(oauth_service.OAuthUserError):
+            _google(session, OWNER, verified=False)
+        assert get_user_by_email(session, OWNER) is None
 
 
 def test_other_addresses_stay_readers(fresh_site):

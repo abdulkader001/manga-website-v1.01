@@ -206,3 +206,29 @@ def test_code_window_follows_the_setting(monkeypatch):
     assert sf.step_up_hours() == sf.DEFAULT_STEP_UP_HOURS
     monkeypatch.setattr(settings, "admin_code_valid_hours", 10_000, raising=False)
     assert sf.step_up_hours() == sf.MAX_STEP_UP_HOURS
+
+
+def test_admin_screens_code_goes_to_admins_only(fastapi_client):
+    from backend_fastapi.app.core.security import create_refresh_token
+
+    path = "/api/admin/2fa/asset-access"
+    assert fastapi_client.get(path).status_code == 401
+
+    with SessionLocal() as session:
+        reader = User(email=f"r-{uuid.uuid4().hex}@example.com", is_active=True, role=UserRole.USER, provider="magic_link")
+        session.add(reader)
+        session.commit()
+        reader_id = reader.id
+    reader_cookie = {"Cookie": f"access_token_cookie={create_access_token(str(reader_id))}"}
+    assert fastapi_client.get(path, headers=reader_cookie).status_code == 403
+
+    uid, _ = _admin()
+    access = {"Cookie": f"access_token_cookie={create_access_token(str(uid))}"}
+    assert fastapi_client.get(path, headers=access).status_code == 204
+    # An hour later the access cookie is gone but the refresh cookie still counts.
+    refresh = {"Cookie": f"refresh_token_cookie={create_refresh_token(str(uid))}"}
+    assert fastapi_client.get(path, headers=refresh).status_code == 204
+    # An access token in the refresh slot (or junk) does not.
+    wrong = {"Cookie": f"refresh_token_cookie={create_access_token(str(uid))}"}
+    assert fastapi_client.get(path, headers=wrong).status_code == 401
+

@@ -77,7 +77,7 @@ Routers are mounted three times: `/api/v1` (canonical, documented), `/` and `/ap
 * Readers: **e-mail magic link, Google, Microsoft** — no passwords. One inbox = one account for life (canonical e-mail identity, `users.email_lookup_hash`). New accounts can be switched off (Site Function `new_registration`).
 * Cookies: `access_token_cookie` (1 h), `refresh_token_cookie` (14 days by default, 1–30 set by the owner), `csrf_token` (readable by JS; sent back as `X-CSRF-Token`). `Authorization: Bearer` is also accepted (tests use it). Revoked tokens are listed in `revoked_tokens` (`/auth/logout?all=true` revokes every session).
 * Frontend: `src/services/api.js` sends cookies + CSRF header, retries once after `POST /auth/refresh` on a 401 (only if a session existed), dispatches `admin-step-up-required` (403 `REVERIFICATION_REQUIRED`) and `region-blocked` (451) events.
-* Admin area: the owner **must** enrol an authenticator (TOTP) before any admin page opens; every admin route then needs a **30-minute step-up cookie** (`services/admin_second_factor.py`, `routers/admin_2fa.py`, wrapper `components/AdminSecondFactor.jsx`). Owner powers additionally need a *fresh* code (`dependencies/powers.py`).
+* Admin area: the owner **must** enrol an authenticator (TOTP) before any admin page opens; every admin route then needs a **step-up cookie** (12 hours, `ADMIN_CODE_VALID_HOURS`) (`services/admin_second_factor.py`, `routers/admin_2fa.py`, wrapper `components/AdminSecondFactor.jsx`). Owner powers additionally need a *fresh* code (`dependencies/powers.py`).
 
 ### 2.4 Who may do what (roles, powers, switches)
 

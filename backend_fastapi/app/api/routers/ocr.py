@@ -108,10 +108,20 @@ def _resolved_provider_config(
 
 
 async def _read_upload(file: UploadFile | None) -> bytes:
+    """Read an upload, refusing it as soon as it passes the OCR size limit."""
+
     if file is None:
         return b""
-    data = await file.read()
-    await file.close()
+    try:
+        data = await file.read(MAX_FILE_BYTES + 1)
+    finally:
+        await file.close()
+    if len(data) > MAX_FILE_BYTES:
+        raise ApiError(
+            ErrorCode.PAYLOAD_TOO_LARGE,
+            "That picture is too large.",
+            details={"reason": "file_too_large", "max_bytes": MAX_FILE_BYTES},
+        )
     return data
 
 

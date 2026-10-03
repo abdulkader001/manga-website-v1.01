@@ -1,6 +1,20 @@
 import { defineConfig, transformWithEsbuild } from 'vite';
 import react from '@vitejs/plugin-react';
 
+// Code that only the admin area uses goes to assets/admin/, which nginx hands
+// out only to a signed-in admin (deployment/nginx/site.conf), so a visitor
+// never downloads the admin screens.
+const ADMIN_SOURCE = /[\\/]src[\\/]pages[\\/](?:Admin[\\/]|AdminPanel\.)/;
+
+// A lazy chunk whose entry is an admin page holds only what that page alone
+// needs (anything the public site also uses lands in a shared chunk), so it
+// is admin-only even when it pulls in a component from src/components.
+function isAdminOnlyChunk(chunk: { facadeModuleId?: string | null; moduleIds?: readonly string[] }): boolean {
+  if (chunk.facadeModuleId && ADMIN_SOURCE.test(chunk.facadeModuleId)) return true;
+  const own = (chunk.moduleIds || []).filter((id) => !id.includes('node_modules') && !id.startsWith('\0'));
+  return own.length > 0 && own.every((id) => ADMIN_SOURCE.test(id));
+}
+
 export default defineConfig({
   plugins: [
     {
@@ -32,6 +46,13 @@ export default defineConfig({
   },
   build: {
     outDir: 'dist',
-    sourcemap: process.env.GENERATE_SOURCEMAP !== 'false',
+    // Source maps carry the original source; only build them when asked to.
+    sourcemap: process.env.GENERATE_SOURCEMAP === 'true',
+    rollupOptions: {
+      output: {
+        chunkFileNames: (chunk) =>
+          isAdminOnlyChunk(chunk) ? 'assets/admin/[name]-[hash].js' : 'assets/[name]-[hash].js',
+      },
+    },
   },
 });

@@ -884,8 +884,10 @@ Set it up (the same steps with more detail: `guide/`, Steps 6–7):
 6. Open **Admin**. It asks you to set up an authenticator app (Google
    Authenticator, Aegis, 1Password…): add the setup key it shows (**+ → Enter a
    setup key**, type *Time based*) and type the 6-digit code. Admin pages stay
-   shut until you have. From then on every admin page, Admin Settings and the
-   Secret Vault ask for a fresh code.
+   shut until you have. From then on admin pages ask for a code once every
+   **12 hours** (change it with `ADMIN_CODE_VALID_HOURS` in the Secret Vault,
+   group *Sign-in sessions & scanning*, 1-168 hours). Changing or revealing a
+   Secret Vault value still asks for its own fresh code (a 10-minute unlock).
 7. Move the rest of the settings (SMTP, OCR, API keys…) into the Secret Vault
    (6.1). You may move the Google client there too and delete it from `.env`.
    Until e-mail works, you can make a sign-in link on the server (see "Other
@@ -1597,6 +1599,9 @@ command and the machine, not a broken site.
 | Ports 8000/8080 answer from the internet although `ufw` blocks them | Docker bypasses `ufw` for published ports. Add the server file from Section 8 step 5 (binds them to `127.0.0.1`) and `docker compose up -d --force-recreate`. |
 | `pip install` says `externally-managed-environment` (Ubuntu 24.04 and newer) | Python packages must go into a virtual environment (Section 5, Step 5). Don't use `--break-system-packages`. |
 | Developer mode: `magic: command not found`, or CORS errors after `source .env` | Don't `source` the settings file; use `dotenv -f .env.dev run -- <command>` (Section 5). |
+| Admin pages ask for the authenticator code again too soon | The code lasts `ADMIN_CODE_VALID_HOURS` (default 12). Check the value in Admin → Secret Vault → *Sign-in sessions & scanning*. Signing out, "sign out everywhere", or clearing the browser's cookies also asks again. Before this change it was 30 minutes. |
+| An admin page stays blank or says it couldn't load after an update, and the network tab shows `/assets/admin/…` answering `401` | The admin screens' code is only sent to a signed-in admin. Sign in again. If it still fails, the `web` image is older than the backend: `docker compose build web backend && docker compose up -d`. |
+| Right-click in a text box shows a small Cut / Copy / Paste menu instead of the browser's | Intended: the browser menu has "Inspect". Keyboard shortcuts (Ctrl+C / Ctrl+V) work as always, and phones keep their own text tools. Paste from the small menu may ask the browser for permission once. |
 | Every page loads but nothing on it works; the browser says `ERR_TOO_MANY_REDIRECTS`, or `curl -sI https://your-domain/api/v1/config/site-access` answers `307` to the same address | The `web` image is older than PR #48, whose nginx replaced Caddy's "this was HTTPS" mark. Rebuild it: `docker compose build web && docker compose up -d web`. Still looping: Caddy must connect from this machine (`reverse_proxy 127.0.0.1:8080`); a proxy elsewhere needs its range added to the `set_real_ip_from` lines and the `geo` block in `deployment/nginx/nginx.conf`, and to `TRUSTED_PROXY_CIDRS` in `.env`. |
 | Everyone gets `429 Too Many Requests` at once, or Geolock blocks nobody | The site sees every visitor as the same address. Same cause and fix as the row above (rebuild `web`). A CDN such as Cloudflare in front of Caddy also needs Caddy's `trusted_proxies` set to the CDN's ranges, those ranges added to `set_real_ip_from` in `deployment/nginx/nginx.conf`, and `real_ip_recursive on;` there. |
 | Deleting a series, "Delete all manga" or "Purge all images" fails with an error | The database is missing migration `20261018_cascade_series_children`. Run `docker compose run --rm manga-stack-migrate` and check `docker compose exec backend alembic current` ends with `20261018_cascade_series_children`. |
@@ -1697,6 +1702,7 @@ command and the machine, not a broken site.
 - [ ] The site runs with Docker Compose behind Caddy (the host-nginx / systemd / certbot files are gone); if you set those up earlier, move to Section 8 and disable the old `manga-*.service` units
 - [ ] Takedown checked once on a test series (Admin → Series → 🚫): after *Taken down* its page and cover addresses answer 404
 - [ ] Speed check after an update: open the homepage in two or three browsers at once; every page loads, and Admin → Error Report shows no *pool is full* entries (Section 4.2)
+- [ ] Security check after an update: in a private (signed-out) window, `https://your-domain/assets/admin/` files answer `401`; admin pages ask for the authenticator code once per `ADMIN_CODE_VALID_HOURS` (default 12)
 - [ ] **Admin → Error Report** opened after setup and after every update: no open errors, or each one dealt with and marked fixed (Section 6.6)
 - [ ] `AUDIT_LOG.md` read; a backup taken before every update (Section 12)
 

@@ -145,15 +145,34 @@ def describe_backend() -> dict[str, str | bool]:
     }
 
 
+def _mask_email(email: Optional[str]) -> str:
+    """``jo***@example.com``: enough to tell deliveries apart, not the address."""
+
+    if not email or "@" not in email:
+        return "<no address>"
+    local, _, domain = email.partition("@")
+    return f"{local[:2]}***@{domain}"
+
+
+def _is_production() -> bool:
+    try:
+        from ..core.settings import settings
+
+        return bool(getattr(settings, "force_https_redirects", False))
+    except Exception:  # pragma: no cover - settings always import in the app
+        return True
+
+
 def send_magic_link_email(
     email: str, magic_link: str, *, locale: Optional[str] = None
 ) -> None:  # noqa: ARG001
     """Send a one-time magic login link to ``email`` using the configured backend."""
 
     config = _load_email_config()
-    safe_email = email or ""
+    # Never the full address or the link itself: logs are read by more people
+    # than the inbox is, and the link signs its holder in.
+    safe_email = _mask_email(email)
     logger.info("Sending magic link to %s", safe_email)
-    logger.debug("Magic link for %s: %s", safe_email, "<redacted>")
 
     backend = (config.backend or "console").strip().lower()
 
@@ -199,7 +218,11 @@ def send_magic_link_email(
             "EMAIL_BACKEND '%s' selected; magic links will be logged only. Configure SMTP to deliver real email.",
             backend,
         )
-        logger.info("Magic link email (console backend) -> %s", magic_link)
+        if _is_production():
+            logger.warning("Magic link for %s not delivered: no SMTP server is set up", safe_email)
+        else:
+            # Local development only: the link is the only way to sign in.
+            logger.info("Magic link email (console backend) -> %s", magic_link)
         return
 
     message = (
@@ -243,7 +266,7 @@ def send_notification_email(email: str, subject: str, body: str) -> None:
         return
 
     if backend in {"console", "log", "stdout"}:
-        logger.info("Notification email (console backend) -> %s: %s", email, subject)
+        logger.info("Notification email (console backend) -> %s: %s", _mask_email(email), subject)
         return
 
     logger.warning("EMAIL_BACKEND '%s' is not supported for notifications.", backend)
