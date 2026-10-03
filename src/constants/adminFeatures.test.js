@@ -13,7 +13,7 @@ describe("admin hub tiles (F-97)", () => {
   it("shows an Admin the tiles their toggles allow, never the owner-only Site Functions", () => {
     const shown = keys(visibleAdminLinks(ADMIN_FEATURE_LINKS, { isSecondaryAdmin: true, can: () => true }));
     expect(shown).not.toContain("functions");
-    for (const tile of ["users", "roles", "settings", "api-management", "vault", "backups", "geolock", "audit-report", "ads"]) {
+    for (const tile of ["users", "roles", "settings", "api-management", "vault", "backups", "geolock", "audit-report", "error-report", "ads"]) {
       expect(shown).toContain(tile);
     }
     const backupsOnly = (key) => key === "manage_backups";

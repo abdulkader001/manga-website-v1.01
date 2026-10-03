@@ -9,7 +9,7 @@ are asserted explicitly below.
 from __future__ import annotations
 
 import pytest
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
 
 from backend_fastapi.app.bootstrap.middleware import configure_middleware
@@ -198,7 +198,8 @@ def test_forwarded_proto_prevents_redirect_loop():
     def ping() -> dict[str, bool]:
         return {"ok": True}
 
-    with TestClient(app) as client:
+    # The web nginx reaches the backend from the Docker network.
+    with TestClient(app, client=("172.18.0.5", 41000)) as client:
         response = client.get(
             "http://testserver/ping",
             headers={"X-Forwarded-Proto": "https"},
@@ -215,3 +216,45 @@ def test_forwarded_proto_prevents_redirect_loop():
     assert plain.status_code in (redirect := (301, 307, 308)), (
         f"expected one of {redirect}, got {plain.status_code}"
     )
+
+
+def test_forwarded_headers_from_an_untrusted_peer_are_ignored():
+    """plan.md P2-2: only our own proxy may say the request was https.
+
+    Someone reaching the backend port from the internet could otherwise claim
+    https (skipping the redirect) or another host and port.
+    """
+
+    settings = get_settings().model_copy(update={"force_https_redirects": True})
+
+    app = FastAPI()
+    configure_middleware(app, settings)
+
+    @app.get("/ping")
+    def ping(request: Request) -> dict[str, object]:
+        return {"scheme": request.url.scheme, "server": list(request.scope["server"])}
+
+    spoofed = {
+        "X-Forwarded-Proto": "https",
+        "X-Forwarded-Host": "evil.example",
+        "X-Forwarded-Port": "443",
+    }
+    with TestClient(app, client=("203.0.113.9", 41000)) as client:
+        response = client.get("http://testserver/ping", headers=spoofed, follow_redirects=False)
+    assert response.status_code in (301, 307, 308)
+    assert "evil.example" not in str(response.headers)
+
+    settings_off = get_settings().model_copy(update={"force_https_redirects": False})
+    app_off = FastAPI()
+    configure_middleware(app_off, settings_off)
+    app_off.add_api_route("/ping", ping)
+
+    with TestClient(app_off, client=("203.0.113.9", 41000)) as client:
+        body = client.get("http://testserver/ping", headers=spoofed).json()
+    assert body["scheme"] == "http"
+    assert body["server"][0] != "evil.example"
+
+    with TestClient(app_off, client=("172.18.0.5", 41000)) as client:
+        body = client.get("http://testserver/ping", headers=spoofed).json()
+    assert body["scheme"] == "https"
+    assert body["server"] == ["evil.example", 443]

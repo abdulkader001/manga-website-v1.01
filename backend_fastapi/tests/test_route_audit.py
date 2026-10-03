@@ -112,6 +112,7 @@ PRIMARY_CALL = {
     "ads": ("GET", "/admin/ads"),
     "health": ("GET", "/health"),
     "audit-report": ("GET", "/admin/audit-report"),
+    "error-report": ("GET", "/admin/error-reports"),
     "api-management": ("GET", "/admin/api-registry"),
     "settings": ("GET", "/admin/settings"),
     "vault": ("GET", "/admin/vault"),
@@ -191,6 +192,9 @@ PUBLIC = {
     ("GET", "/config/providers"), ("GET", "/config/site-functions"), ("GET", "/config/site-access"),
     ("GET", "/version"), ("GET", "/system/state"), ("GET", "/system/health"),
     ("GET", "/user/overlay-fonts"), ("GET", "/social-links"), ("GET", "/geo/status"),
+    # Readers' browsers report their script errors to Admin -> Error Report,
+    # guests included; rate-limited, and nothing identifying is stored.
+    ("POST", "/errors/report"),
 }
 SIGNED_IN = {"get_current_user", "get_optional_user", "require_admin_user", "require_main_admin_user", "require_processing_user"}
 

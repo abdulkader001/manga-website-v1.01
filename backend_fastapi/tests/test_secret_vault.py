@@ -331,7 +331,7 @@ def test_domain_derives_every_address():
     derived = derived_from_domain("new-site.net")
     assert derived["FRONTEND_URL"] == "https://new-site.net"
     assert json.loads(derived["CORS_ALLOWED_ORIGINS"]) == ["https://new-site.net", "https://www.new-site.net"]
-    assert derived["MAGIC_LINK_REDIRECT_URL"] == "https://new-site.net/auth/magic-complete"
+    assert derived["MAGIC_LINK_REDIRECT_URL"] == "https://new-site.net/"
     assert derived["GOOGLE_OAUTH_REDIRECT_URI"] == "https://new-site.net/api/auth/google/callback"
     # a value saved explicitly wins over the derived one
     merged = with_domain({"SITE_DOMAIN": "new-site.net", "FRONTEND_URL": "https://custom.example"})
@@ -348,7 +348,7 @@ def test_changing_the_domain_moves_the_live_settings_and_back(fastapi_app, monke
             vault.store(db, "SITE_DOMAIN", "https://New-Site.net/", actor_id=None)
         assert settings.frontend_url == "https://new-site.net"
         assert settings.cors_allowed_origins == ["https://new-site.net", "https://www.new-site.net"]
-        assert settings.magic_link_redirect_url == "https://new-site.net/auth/magic-complete"
+        assert settings.magic_link_redirect_url == "https://new-site.net/"
         assert os.environ["FRONTEND_URL"] == "https://new-site.net"
 
         with SessionLocal() as db:

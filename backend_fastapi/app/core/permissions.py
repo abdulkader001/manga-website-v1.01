@@ -116,6 +116,7 @@ _CATALOGUE: dict[str, tuple[Group, bool, bool]] = {
     "view_scope_audit": (Group.OBSERVABILITY, True, True),
     "view_full_audit": (Group.OBSERVABILITY, True, False),
     "view_system_health": (Group.OBSERVABILITY, True, False),
+    "view_error_reports": (Group.OBSERVABILITY, True, False),
 }
 
 
@@ -234,6 +235,7 @@ DESCRIPTIONS: dict[str, str] = {
     "view_scope_audit": "See the audit log for their own actions.",
     "view_full_audit": "See the full audit log.",
     "view_system_health": "System health, diagnostics, server stats and the security report.",
+    "view_error_reports": "Error Report: errors the site hit, their likely cause and fix; mark them fixed.",
 }
 
 ALL_PERMISSIONS: tuple[str, ...] = tuple(_CATALOGUE.keys())

@@ -264,7 +264,7 @@ def derived_from_domain(domain: str) -> Dict[str, str]:
         "FRONTEND_URL": base,
         "ALLOWED_ORIGINS": ",".join(origins),
         "CORS_ALLOWED_ORIGINS": json.dumps(origins),
-        "MAGIC_LINK_REDIRECT_URL": f"{base}/auth/magic-complete",
+        "MAGIC_LINK_REDIRECT_URL": f"{base}/",
         "GOOGLE_OAUTH_REDIRECT_URI": f"{base}/api/auth/google/callback",
         "MICROSOFT_OAUTH_REDIRECT_URI": f"{base}/api/v1/auth/microsoft/callback",
     }
