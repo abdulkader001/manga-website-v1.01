@@ -226,3 +226,14 @@ def sample_data(db_session):
     db_session.commit()
 
     return {"user": user, "manga": manga, "chapter": chapter}
+
+
+@pytest.fixture(autouse=True)
+def _fresh_site_pacing():
+    """Each test starts with no learned per-site delay (scrapers/throttle)."""
+
+    from backend_fastapi.app.scrapers import throttle
+
+    throttle.reset()
+    yield
+    throttle.reset()

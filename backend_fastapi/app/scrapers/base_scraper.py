@@ -19,7 +19,7 @@ import requests
 from bs4 import BeautifulSoup
 from .config import ConfigManager
 from .schemas import MangaSchema, ScrapedChapterSchema
-from . import parsing
+from . import parsing, throttle
 
 logger = structlog.get_logger(__name__)
 
@@ -197,11 +197,14 @@ class BaseScraper:
                 time.sleep(5)
 
             try:
-                # Local Delay Rate limit with jitter
-                delay = self.delay * (attempt + 1) + random.uniform(0.1, 1.0)
+                # Local delay with jitter, stretched by the site's own pace
+                # (AutoThrottle: slow answers and push-back slow us down).
+                delay = throttle.delay_for(self.domain, self.delay * (attempt + 1)) + random.uniform(0.1, 1.0)
                 time.sleep(delay)
 
+                sent = time.time()
                 response = RequestWrapper.get(url, timeout=10, headers=dict(headers))
+                throttle.record(self.domain, time.time() - sent, response.status_code)
                 if is_bot_challenge(response.status_code, response.content):
                     # A CAPTCHA / "checking your browser" page. Retrying only
                     # hammers the site; report it plainly instead.
@@ -231,6 +234,7 @@ class BaseScraper:
                     self.last_problem = "not_found"
                     break  # the page does not exist; retrying cannot help
                 if status_code in {403, 429, 503}:
+                    throttle.record(self.domain, 0.0, status_code)
                     logger.warning(
                         f"Possible block on {self.domain}. Increasing backoff."
                     )
@@ -284,11 +288,13 @@ class BaseScraper:
         delay = float(getattr(self, "delay", 0) or 0)
         for attempt in range(retries):
             try:
-                time.sleep(delay * (attempt + 1))
+                time.sleep(throttle.delay_for(self.domain, delay * (attempt + 1)))
+                sent = time.time()
                 if method == "POST":
                     response = RequestWrapper.post(url, timeout=10, headers=dict(headers), data=data or {})
                 else:
                     response = RequestWrapper.get(url, timeout=10, headers=dict(headers))
+                throttle.record(self.domain, time.time() - sent, getattr(response, "status_code", None))
                 response.raise_for_status()
                 return response.content
             except requests.RequestException as e:

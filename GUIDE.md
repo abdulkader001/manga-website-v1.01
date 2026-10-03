@@ -1612,6 +1612,8 @@ command and the machine, not a broken site.
 | *Notifications → Chapter Alerts & Issues* is always empty, or new-chapter alerts have no "New Chapter" label | Update (Section 4.1): the page now reads the alert types the server sends. Readers get an alert only for series they bookmarked while signed in, and only when a re-scrape or the scheduled check adds a chapter to a series that already existed. |
 | *Rescrape & sync now* in Series & AI Scraper Management says it failed | Update (Section 4.1). The button now asks you to type the series name to confirm; type it exactly. If the re-scrape then reports "aborted", the notification says why (usually the source returned fewer chapters than are stored). |
 | Stored pictures look blurry or smaller than on the source | Update (Section 4.1), check that `PAGE_MAX_WIDTH` in `.env` (or the Secret Vault) is 2000, not 1440, and that `PAGE_KEEP_ORIGINALS` isn't `false`, then re-scrape the series. Pictures that need no change are now stored exactly as the source sent them. |
+| A source site gets slower to scrape after a while, or a scrape pauses before going on | Expected: the scraper now paces each site by how fast it answers, and waits longer (5 to 30 seconds) after the site answers "too many requests" or "forbidden". That keeps the server from being blocked. If a site blocks you anyway, wait an hour before scraping it again. |
+| *Custom Parser* on a homepage picks a list or category page instead of a series | Update (Section 4.1). If it still does, paste the address of one series page instead. The sites the owner chose, and what is known about each, are listed in `backend_fastapi/app/scrapers/reference/sites.py`. |
 
 ---
 

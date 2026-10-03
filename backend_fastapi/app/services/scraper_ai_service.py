@@ -354,6 +354,9 @@ def build_prompt(
     digest = ai_playbook.script_digest(html_content)
     if digest:
         parts += ["", "SCRIPT EXCERPTS (scripts are removed from the HTML below):", digest]
+    reference = _reference_notes(page_url)
+    if reference:
+        parts += ["", "WHAT WE ALREADY KNOW ABOUT THIS SITE (start from this):", reference]
     if hints:
         parts += ["", "ANALYSIS HINTS:", hints]
     if feedback:
@@ -367,6 +370,33 @@ def build_prompt(
         "PAGE_HTML>>>",
     ]
     return "\n".join(parts)
+
+
+def _reference_notes(page_url: Optional[str]) -> str:
+    """The reference notes for a site the owner chose (scrapers/reference)
+    and its built-in parser, so the AI adjusts a known starting point
+    instead of guessing from scratch."""
+
+    import json
+    from urllib.parse import urlparse
+
+    from ..scrapers import presets
+    from ..scrapers.reference import notes_for
+
+    host = urlparse(page_url or "").hostname or ""
+    if not host:
+        return ""
+    lines = []
+    notes = notes_for(host)
+    if notes:
+        lines.append(notes)
+    preset = presets.preset_for_domain(host)
+    if preset:
+        lines.append(
+            "Built-in parser for this site (it failed or is being replaced; keep the keys "
+            "that still match the page, fix the rest):\n" + json.dumps(preset, ensure_ascii=False)[:2500]
+        )
+    return "\n".join(lines)
 
 
 def _parse_answer(content: str) -> Optional[Any]:
