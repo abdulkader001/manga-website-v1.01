@@ -457,6 +457,7 @@ export default function ChapterViewer() {
                   referrerPolicy="no-referrer"
                   loading="lazy"
                   decoding="async"
+                  onLoad={(e) => e.currentTarget.classList.add("page-loaded")}
                   onError={(e) => {
                     e.currentTarget.onerror = null;
                     e.currentTarget.src = PAGE_PLACEHOLDER;

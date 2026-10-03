@@ -178,6 +178,14 @@
   -webkit-user-drag: none;
 }
 
+/* Until a page has loaded it holds a screen's height, so loading="lazy" only
+   fetches the pages near the reader instead of all of them at once (a
+   0-pixel image counts as "in view"). */
+#chapter-reader img:not(.page-loaded) {
+  min-height: 100vh;
+  background: #111318;
+}
+
 /* Chapter Mini Actions */
 #chapter-mini-actions {
   display: flex;

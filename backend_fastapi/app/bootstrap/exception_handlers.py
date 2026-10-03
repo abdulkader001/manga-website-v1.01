@@ -15,11 +15,14 @@ Every response body an error can produce is emitted from this single module:
 
 from __future__ import annotations
 
+import time
+
 import structlog
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from starlette.concurrency import run_in_threadpool
+from sqlalchemy.exc import TimeoutError as PoolTimeout
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from ..core.api_errors import ApiError, ErrorCode, error_body
@@ -84,7 +87,33 @@ async def _report(request: Request, exc: Exception, kind: str | None = None) -> 
     )
 
 
+# A burst that empties the connection pool raises one PoolTimeout per waiting
+# request; the error report needs to know it happened, not get one database
+# write per request while the pool is already short.
+POOL_BUSY_REPORT_INTERVAL_SECONDS = 30.0
+_pool_busy_reported_at = {"t": float("-inf")}
+
+
 def configure_exception_handlers(app: FastAPI) -> None:
+    @app.exception_handler(PoolTimeout)
+    async def _handle_pool_timeout(request: Request, exc: PoolTimeout):
+        # Every pooled database connection stayed busy for the whole
+        # SQLALCHEMY_POOL_TIMEOUT: the server is overloaded for a moment. Say
+        # so (503 + Retry-After) instead of a generic 500.
+        logger.warning("database_pool_busy", path=request.url.path, method=request.method)
+        now = time.monotonic()
+        if now - _pool_busy_reported_at["t"] >= POOL_BUSY_REPORT_INTERVAL_SECONDS:
+            _pool_busy_reported_at["t"] = now
+            await _report(request, exc)
+        return JSONResponse(
+            status_code=ErrorCode.SERVICE_UNAVAILABLE.status,
+            content=error_body(
+                ErrorCode.SERVICE_UNAVAILABLE,
+                "The server is busy. Please try again in a moment.",
+            ),
+            headers={"Retry-After": "2"},
+        )
+
     @app.exception_handler(ApiError)
     async def _handle_api_error(request: Request, exc: ApiError):
         # A 5xx API error is the server or an outside service failing (a

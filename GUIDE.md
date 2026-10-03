@@ -650,6 +650,17 @@ Each API worker translates at most `PAGE_PROCESSING_CONCURRENCY` pages at the
 same time (default 2); the rest wait their turn while the site keeps answering
 other visitors. Raise it on a server with more CPU cores.
 
+Each API worker has a small pool of database connections
+(`SQLALCHEMY_POOL_SIZE` + `SQLALCHEMY_MAX_OVERFLOW`: 4 + 4 in the small profile).
+A request gives its connection back as soon as the sign-in and site checks are
+done, so a burst of visitors queues briefly instead of freezing the worker. If
+every connection stays busy for `SQLALCHEMY_POOL_TIMEOUT` seconds (default 10),
+that visitor gets "The server is busy. Please try again in a moment." (HTTP 503)
+and **Admin → Error Report** shows a *database connection pool is full* entry.
+Seeing it often means the server needs more: raise the pool sizes in
+`docker-compose.small.yml` (keep workers × pool under Postgres'
+`max_connections`), add an API worker, or move to the full profile.
+
 ---
 
 ## 5. Developer mode: run the app without Docker (only if you edit the code)
@@ -1655,6 +1666,9 @@ command and the machine, not a broken site.
 | Pictures of a taken-down series still open | Update (Section 4.1): *Taken down* now deletes the stored pages and cover. For a series taken down before the update, set it to *Online* and then *Taken down* again. A browser or CDN that kept a copy may still show it until its cache expires; purge the CDN. |
 | Browse lost the tag, chapter-count, rating and "50+ chapters" filters | On purpose: they only filtered the 50 series on screen and hid the rest. Search, sort, status, type and the genre filters now cover the whole catalogue. |
 | `/browse?genre=Action` (or a genre link) shows nothing on PostgreSQL | Update and run the migrations (Section 4.1); genres are now matched whatever their capitals. |
+| The site hangs for a minute when several people open it at once, then guests are told to sign in (or see "Something went wrong") | Fixed by the update after PR #51: the sign-in and site checks no longer block the API worker while they wait for the database. Update (Section 4.1). |
+| "The server is busy. Please try again in a moment." (HTTP 503) | Every database connection of an API worker stayed busy for 10 s: more visitors than the server can serve at once. A reload a moment later works. If it happens often, see Section 4.2 (pool sizes, more API workers). Admin → Error Report counts it. |
+| Readers' phones still hold lots of manga pictures | Old service worker. After the update the site's new service worker deletes that copy on the next visit; it now keeps only up to 300 covers, and chapter pages are left to the browser's normal cache. |
 | You installed with `deployment/manga-site.conf` or the `manga-*.service` units | Those files were removed (they could not start and their worker skipped the e-mail queue). Move to Docker + Caddy (Section 8), then `sudo systemctl disable --now manga-api manga-worker manga-beat manga-frontend`. |
 
 ---
@@ -1682,6 +1696,7 @@ command and the machine, not a broken site.
 - [ ] Admins (optional): at most two trusted sub-admins with an authenticator, made Admins in Role Management; set their seats, the sub-admin ceiling and each Admin's succession line; automatic succession on if you want idle Admins replaced (Section 6.3)
 - [ ] The site runs with Docker Compose behind Caddy (the host-nginx / systemd / certbot files are gone); if you set those up earlier, move to Section 8 and disable the old `manga-*.service` units
 - [ ] Takedown checked once on a test series (Admin → Series → 🚫): after *Taken down* its page and cover addresses answer 404
+- [ ] Speed check after an update: open the homepage in two or three browsers at once; every page loads, and Admin → Error Report shows no *pool is full* entries (Section 4.2)
 - [ ] **Admin → Error Report** opened after setup and after every update: no open errors, or each one dealt with and marked fixed (Section 6.6)
 - [ ] `AUDIT_LOG.md` read; a backup taken before every update (Section 12)
 

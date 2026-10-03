@@ -32,7 +32,21 @@ def _extract_token(
     return request.cookies.get(ACCESS_TOKEN_COOKIE)
 
 
-async def _resolve_user(
+def release_connection(db: Session) -> None:
+    """Hand the session's pooled connection back once the guard has read.
+
+    The request keeps the same session (and the user object, since sessions
+    don't expire on commit) and checks a connection out again only if the
+    route queries. Without this every signed-in request held a connection for
+    its whole life while the route opened more, which ran the pool dry under a
+    burst of readers.
+    """
+
+    if db.in_transaction() and not (db.new or db.dirty or db.deleted):
+        db.commit()
+
+
+def _resolve_user(
     token: str | None,
     db: Session,
     *,
@@ -113,10 +127,14 @@ async def _resolve_user(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="Session has been revoked"
         )
 
+    release_connection(db)
     return user
 
 
-async def get_current_user(
+# The guards below that read the database are plain ``def``: FastAPI runs them
+# in its thread pool. As ``async def`` their queries ran on the event loop, so
+# one wait for a pooled connection froze every request in the worker.
+def get_current_user(
     request: Request,
     credentials: HTTPAuthorizationCredentials | None = Depends(_bearer_scheme),
     db: Session = Depends(get_db),
@@ -124,12 +142,12 @@ async def get_current_user(
     """Return the user from the bearer header or the auth cookie."""
 
     token = _extract_token(request, credentials)
-    user = await _resolve_user(token, db, allow_anonymous=False)
+    user = _resolve_user(token, db, allow_anonymous=False)
     assert user is not None  # Satisfy type-checkers; anonymous not allowed.
     return user
 
 
-async def get_optional_user(
+def get_optional_user(
     request: Request,
     credentials: HTTPAuthorizationCredentials | None = Depends(_bearer_scheme),
     db: Session = Depends(get_db),
@@ -137,7 +155,7 @@ async def get_optional_user(
     """Return the current user if authenticated; otherwise ``None``."""
 
     token = _extract_token(request, credentials)
-    return await _resolve_user(token, db, allow_anonymous=True)
+    return _resolve_user(token, db, allow_anonymous=True)
 
 
 async def require_processing_user(
@@ -241,7 +259,7 @@ def require_permission(permission: str):
     satisfied trivially — there is no stale cache to invalidate).
     """
 
-    async def _dependency(
+    def _dependency(
         request: Request,
         current_user: User = Depends(get_current_user),
         db: Session = Depends(get_db),
@@ -250,7 +268,9 @@ def require_permission(permission: str):
 
         enforce_admin_second_factor(request, current_user)
 
-        if not has_permission(db, current_user, permission):
+        allowed = has_permission(db, current_user, permission)
+        release_connection(db)
+        if not allowed:
             raise ApiError(
                 ErrorCode.FORBIDDEN,
                 "You do not have permission to perform this action.",

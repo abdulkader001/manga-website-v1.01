@@ -92,7 +92,7 @@ Routers are mounted three times: `/api/v1` (canonical, documented), `/` and `/ap
 | Sign-in required | `dependencies/site_access.py` (`require_site_access`) | **off by default**; when on, reading routes answer 401 to guests (auth, config, health and admin never do) |
 | Visitor IPs | `utils/audit_logger.py`, `services/admin_service.py`, Site Functions `ip_owner_only` / `record_ips` | only the owner sees IPs (unless the owner switches `ip_owner_only` off); never logged by the app |
 
-Guards used on routes (`dependencies/`): `get_current_user`, `get_optional_user`, `require_admin_user`, `require_main_admin_user`, `require_permission(key)` (staff holding a permission), `require_power(key)` (owner power; needs authenticator + fresh code), `require_vault_owner` / `require_vault_unlocked`, `require_processing_user` (OCR/translation), `require_site_access`, `require_function(key)`.
+Guards used on routes (`dependencies/`): `get_current_user`, `get_optional_user`, `require_admin_user`, `require_main_admin_user`, `require_permission(key)` (staff holding a permission), `require_power(key)` (owner power; needs authenticator + fresh code), `require_vault_owner` / `require_vault_unlocked`, `require_processing_user` (OCR/translation), `require_site_access`, `require_function(key)`. Guards that read the database are plain `def` (FastAPI runs them in its thread pool) and hand their connection back before the route runs; `tests/test_request_concurrency.py` fails if an `async` dependency touches the database.
 
 ---
 
@@ -174,7 +174,7 @@ Admin pages that need the authenticator are wrapped in `AdminSecondFactor`. The 
 | Branding | `useBranding` → `GET /branding` | name, logo, homepage title |
 | Reader settings | `useReaderSettings` → `GET/PUT /user/processing-settings` | translation overlay on/off, language, colours, text scale |
 | **Library** | `localStorage.mw_library_v1` via `utils/library.js` | bookmarks, read chapters (id → time), last chapter per series, plus queues (`pending`, `readPending`, `clearPending`). The **browser is the main copy**; for a signed-in reader `BookmarkSync` (series ids → `/bookmarks`) and `HistorySync` (chapter ids + times → `/history/sync\|read`) mirror it to the account so a new device sees it. Guests stay local |
-| Service worker | `public/sw.js` (registered in production) | cache-first for every image forever (`manga-reader-cache-v1`), network-first for the rest; no size limit or expiry |
+| Service worker | `public/sw.js` (registered in production) | v2: covers cache-first without re-download (at most 300, `manga-covers-v2`); chapter pages and other pictures left to the browser cache; network-first for the rest, offline navigations open the cached app shell; the v1 cache is deleted on activate |
 
 ### 4.4 File inventory
 

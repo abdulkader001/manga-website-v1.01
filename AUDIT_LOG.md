@@ -139,9 +139,36 @@ exceptions; for those, restore the database backup taken before the update.
 
 ## Change entries
 
+### 2026-10-03 — PR #NN: the site no longer freezes when several readers arrive at once; lighter pages
+
+Merge SHA: fill in when known (the next PR fills it in). Branch `claude/project-thread-v7ek3a`.
+
+The owner said the site feels clunky and its responses are slow, and asked to look into it after PR #48. A load test on a local copy (PostgreSQL 16, Redis, 1,000 series with 150,000 chapters) found that the API **froze**: one worker stopped answering at 50 concurrent requests with the full-size pool, and at 12 with the small-server pool (4 + 4). One homepage visit sends about 12 API calls at once. A stack dump showed the event loop waiting for a database connection. Findings in `/mnt/project-files/speed/findings.md` (project files).
+
+| Change | Why | Main files |
+| --- | --- | --- |
+| **The sign-in, "sign-in required", permission and site-function guards no longer block the API worker.** They are plain functions that FastAPI runs in its thread pool, and each gives its database connection back as soon as it has read (`release_connection`) | They were `async def` and queried the database on the event loop. Each request also held two to four connections at once, so a burst emptied the pool, the loop waited for a connection, and nothing could return one: the worker froze for up to a minute | `dependencies/auth.py`, `dependencies/site_access.py`, `dependencies/site_functions.py` |
+| **Maintenance mode's database reads run off the event loop** (pure ASGI middleware) | Every 10 s its flag read ran on the loop and froze the worker in the same way | `services/maintenance.py` |
+| **A full connection pool answers 503 "The server is busy" with `Retry-After: 2`**, logged without a traceback and written to the Error Report at most every 30 s. "Sign-in required" no longer turns a busy pool into "Sign in to read" | Under load guests were told to sign in, or got 500 errors | `bootstrap/exception_handlers.py`, `dependencies/site_access.py` |
+| **Previous/next chapter come from two indexed one-row lookups** | Each page turn loaded every chapter id of the series (plan P3-12) | `api/routers/manga.py` |
+| **Lighter per-request work**: the security-header, legacy-alias, forwarded-header and backpressure middlewares are pure ASGI (same behaviour, same order) | Ten `BaseHTTPMiddleware` layers cost about 4 ms per request; `/healthz` went from 4.0 to 2.4 ms | `bootstrap/middleware.py`, `bootstrap/backpressure.py` |
+| **One `/ad-slots` request per page** (shared and kept for a minute) | Each ad box fetched it: 6 calls on the homepage, 9 in the reader | new `src/utils/adSlots.js`, `AdPlacement.js`, `GlobalAds.js` |
+| **Service worker v2**: covers are served from its cache without a second download (at most 300 kept); chapter pages and other pictures are left to the browser's own cache; an offline navigation opens the app; the v1 cache (every picture ever opened, no limit) is deleted on activate | It downloaded every picture again even when it had it, and filled readers' devices (plan P2-6) | `public/sw.js` |
+| **The reader fetches the pages near the screen only**: a page holds a screen's height until it loads | Images had no height before loading, so `loading="lazy"` fetched all 40 pages at once (now 3 at first) | `src/components/ChapterViewer.js`, `ChapterViewer.css` |
+| Tests: no `async` dependency touches the database (scans the code); the guards are not coroutines; the user lookup leaves no open transaction; a full pool answers 503, not sign-in; previous/next with chapter 0 and duplicate numbers; backpressure through ASGI; the shared ad-slot load; the service worker's fetch and activate handlers. Docs: GUIDE §4.2, three troubleshooting rows and a checklist line; `map.md`, `plan.md` | Prove it and keep the docs true | `tests/test_request_concurrency.py`, `tests/test_backpressure.py`, `src/utils/adSlots.test.js`, `src/test/serviceWorker.test.js`, `GUIDE.md`, `map.md`, `plan.md` |
+
+Measured on the local copy with one API worker and the small-server pool (4 + 4). **Before:** froze at 12 concurrent requests (guests got 401 "Sign in to read" and 500 errors). **After:** 50 concurrent guests and 50 concurrent signed-in readers got 5,520 answers out of 5,520 with 200 (p50 about 0.8 s at 50 at once; one worker's CPU is the limit, about 60 requests per second). In the browser the reader starts with 3 page downloads instead of 40.
+
+- **Database:** none.
+- **Settings:** none new. `SQLALCHEMY_POOL_SIZE`, `SQLALCHEMY_MAX_OVERFLOW` and `SQLALCHEMY_POOL_TIMEOUT` are unchanged and now described in GUIDE §4.2. No setting moved between `.env`, the vault and Admin Settings.
+- **Check:** after `docker compose up -d --build`, open the homepage in three browsers at once: all load. In the browser's network tab the homepage makes one `ad-slots` request. `docker compose logs backend | grep database_pool_busy` stays empty in normal use. Locally: `pytest backend_fastapi/tests/test_request_concurrency.py backend_fastapi/tests/test_backpressure.py backend_fastapi/tests/test_middleware_order.py`, `npx vitest run src/utils/adSlots.test.js src/test/serviceWorker.test.js`.
+- **Undo:** `git revert -m 1 <merge>` and rebuild. Nothing is lost. Readers' devices keep the v2 service worker until they next visit, and then get the old one back.
+
+---
+
 ### 2026-10-03 — PR #51: the P1 bugs from `plan.md` (visitors never see sources, takedown removes pictures, Browse, genres, homepage lists, chapter 0, deployment, honest admin screens)
 
-Merge SHA: fill in when known (the next PR fills it in). Branch `claude/project-thread-ev89fm` (restarted from `main` after #48 merged).
+Merge `d3a1dc5` (filled in by the next PR). Branch `claude/project-thread-ev89fm` (restarted from `main` after #48 merged).
 
 The owner said "go ahead" with the P1 group, in one PR. Owner's questions answered with the plan's recommendations: Q-2 A (a takedown deletes the series' pictures and the picture routes check it), Q-3 (visitors never see sources; staff still do), Q-5 (genres matched whatever their capitals), Q-9 (Docker + Caddy only).
 
