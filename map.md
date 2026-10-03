@@ -62,7 +62,7 @@ Other ways the same code runs:
 | Hop | File | What it does to the request |
 | --- | --- | --- |
 | Caddy | (host; GUIDE.md §8) | TLS; sends `X-Forwarded-For`, `X-Forwarded-Proto: https` |
-| web nginx | `deployment/nginx/site.conf`, `nginx.conf` | CSP + security headers; `limit_conn conn_per_ip 20`; `limit_req` zones `login_per_ip` (10 r/min, sign-in paths) and `img_per_ip` (30 r/s, burst 200, pictures); hotlink map (`$hotlink_blocked`); `client_max_body_size 10m` (0 for backup/geolock uploads); static assets cached 1 year; **overwrites `X-Forwarded-For` with `$remote_addr` and `X-Forwarded-Proto` with `$scheme`** (this is the root of P0-1 and P0-2 in `plan.md`) |
+| web nginx | `deployment/nginx/site.conf`, `nginx.conf` | CSP + security headers; `limit_conn conn_per_ip 20`; `limit_req` zones `login_per_ip` (10 r/min, sign-in paths) and `img_per_ip` (30 r/s, burst 200, pictures); hotlink map (`$hotlink_blocked`); `client_max_body_size 10m` (0 for backup/geolock uploads); static assets cached 1 year; takes the visitor's address (`real_ip`, last `X-Forwarded-For` hop) and scheme (`$fwd_proto`) only from loopback/private proxies and passes them on; logs without visitor addresses (fixed P0-1 and P0-2 in `plan.md`) |
 | Node gateway | `server.ts` | dev/`npm start` only: appends the peer to `X-Forwarded-For`, sets `x-forwarded-proto` from its own socket, proxies, no limits |
 | gunicorn | `backend_fastapi/deployment/gunicorn.conf.py` | `uvicorn.workers.UvicornWorker`, `2×CPU+1` workers (or `GUNICORN_WORKERS`), timeout 180 s, recycles workers every ~2000 requests, access log to stdout |
 
@@ -285,7 +285,7 @@ Notes: genres are a JSON array of strings **as the source gave them** (usually T
 3. Browser opens `/magic-link/:token` → `MagicLinkConsume` → `GET /auth/magic-link/{token}` (atomic single use) → sets the cookies → `/complete-profile` (name, username, birth date; birth date can't be changed later) or `/`.
 
 ### 7.2 A reader signs in with Google / Microsoft
-`window.location` → `GET /auth/google` (`/auth/microsoft`) → provider → `GET /api/auth/google/callback` (`/api/v1/auth/microsoft/callback`) → account created or found → cookies → **302 to `MAGIC_LINK_REDIRECT_URL` (documented as `…/auth/magic-complete`, a path the SPA does not have) or `FRONTEND_URL`**.
+`window.location` → `GET /auth/google` (`/auth/microsoft`) → provider → `GET /api/auth/google/callback` (`/api/v1/auth/microsoft/callback`) → account created or found → cookies → 302 to `MAGIC_LINK_REDIRECT_URL` (default: the home page; the old `…/auth/magic-complete` value redirects to `/`) or `FRONTEND_URL`.
 
 ### 7.3 Browsing and reading
 `/` and `/browse` ask `GET /manga/` (Redis/in-process cached 60 s; cached payload shared between viewers, per-viewer fields added after). A series page asks detail + chapter list (+ titles). The reader asks the chapter (`pages` = our WebP URLs, or signed proxy / raw source URLs for chapters not mirrored yet), `record_chapter_view` counts the view (30-min de-dupe per signed-in reader only), then the browser loads `…/manga/pages/<manga>/<chapter>/<file>.webp` (nginx alias in Docker). `ChapterViewer` writes `recordRead()` to the library; for a signed-in reader `HistorySync` sends `POST /history/read`.
@@ -901,7 +901,7 @@ Totals: **151 UI · 12 browser · 143 nothing** (5 of those are legacy duplicate
 
 ## Appendix B — foreign keys and what a delete does (PostgreSQL, after `alembic upgrade head`)
 
-58 foreign keys: 28 `CASCADE`, 13 `SET NULL`, **17 `NO ACTION`**. `NO ACTION` means deleting the parent row fails while a child row exists. The ones that block deleting a series or its chapters are marked ⚠.
+58 foreign keys: 34 `CASCADE`, 15 `SET NULL`, **9 `NO ACTION`** (after migration `20261018_cascade_series_children`; before it 28 / 13 / 17). `NO ACTION` means deleting the parent row fails while a child row exists. The ones that block deleting a series or its chapters are marked ⚠.
 
 | Child table.column | Parent | On parent delete | |
 | --- | --- | --- | --- |
@@ -917,8 +917,8 @@ Totals: **151 UI · 12 browser · 143 nothing** (5 of those are legacy duplicate
 | `admin_successors.successor_id` | `users` | CASCADE |  |
 | `admin_task_results.requested_by` | `users` | SET NULL |  |
 | `announcements.created_by` | `users` | SET NULL |  |
-| `bookmarks.chapter_id` | `chapters` | NO ACTION | ⚠ blocks series/chapter delete |
-| `bookmarks.manga_id` | `manga` | NO ACTION | ⚠ blocks series/chapter delete |
+| `bookmarks.chapter_id` | `chapters` | CASCADE | (was NO ACTION; P0-3, migration `20261018`) |
+| `bookmarks.manga_id` | `manga` | CASCADE | (was NO ACTION; P0-3, migration `20261018`) |
 | `bookmarks.user_id` | `users` | NO ACTION |  |
 | `chapter_likes.chapter_id` | `chapters` | CASCADE |  |
 | `chapter_likes.user_id` | `users` | CASCADE |  |
@@ -944,21 +944,21 @@ Totals: **151 UI · 12 browser · 143 nothing** (5 of those are legacy duplicate
 | `manga_ratings.user_id` | `users` | CASCADE |  |
 | `meme_uploads.uploader_id` | `users` | CASCADE |  |
 | `notification_preferences.user_id` | `users` | NO ACTION |  |
-| `ocr_cache.chapter_id` | `chapters` | NO ACTION | ⚠ blocks series/chapter delete |
+| `ocr_cache.chapter_id` | `chapters` | CASCADE | (was NO ACTION; P0-3, migration `20261018`) |
 | `permission_overrides.user_id` | `users` | CASCADE |  |
 | `pills.chapter_id` | `chapters` | CASCADE |  |
 | `pills.user_id` | `users` | CASCADE |  |
-| `read_history.chapter_id` | `chapters` | NO ACTION | ⚠ blocks series/chapter delete |
-| `read_history.manga_id` | `manga` | NO ACTION | ⚠ blocks series/chapter delete |
+| `read_history.chapter_id` | `chapters` | CASCADE | (was NO ACTION; P0-3, migration `20261018`) |
+| `read_history.manga_id` | `manga` | CASCADE | (was NO ACTION; P0-3, migration `20261018`) |
 | `read_history.user_id` | `users` | NO ACTION |  |
 | `reputation_events.user_id` | `users` | CASCADE |  |
 | `revoked_tokens.user_id` | `users` | CASCADE |  |
-| `scraping_jobs.manga_id` | `manga` | NO ACTION | ⚠ blocks series/chapter delete |
+| `scraping_jobs.manga_id` | `manga` | SET NULL | (was NO ACTION; P0-3, migration `20261018`) |
 | `scraping_jobs.source_id` | `sources` | NO ACTION |  |
 | `series_glossary_terms.manga_id` | `manga` | CASCADE |  |
 | `system_provider_instances.created_by_user_id` | `users` | SET NULL |  |
-| `translation_cache.chapter_id` | `chapters` | NO ACTION | ⚠ blocks series/chapter delete |
-| `translation_cache.ocr_cache_id` | `ocr_cache` | NO ACTION |  |
+| `translation_cache.chapter_id` | `chapters` | CASCADE | (was NO ACTION; P0-3, migration `20261018`) |
+| `translation_cache.ocr_cache_id` | `ocr_cache` | SET NULL | (was NO ACTION; P0-3, migration `20261018`) |
 | `user_api_keys.user_id` | `users` | CASCADE |  |
 | `user_processing_settings.user_id` | `users` | CASCADE |  |
 | `users.appointed_by` | `users` | SET NULL |  |

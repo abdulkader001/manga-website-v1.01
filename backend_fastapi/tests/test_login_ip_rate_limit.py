@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+
 import pytest
 
 
@@ -12,9 +14,21 @@ def limiter_active(monkeypatch):
     monkeypatch.setenv("ALLOW_PLAINTEXT_SECRETS", "0")
     from backend_fastapi.app.utils.endpoint_limiter import async_endpoint_limiter
 
-    async_endpoint_limiter._buckets.clear()
+    def clear():
+        async_endpoint_limiter._buckets.clear()
+        # With REDIS_URL set (CI) the counts live in Redis, and each test
+        # must start with a full budget.
+        url = os.getenv("REDIS_URL")
+        if url:
+            import redis
+
+            client = redis.Redis.from_url(url)
+            for key in client.scan_iter("endpointlimit:login_source:*"):
+                client.delete(key)
+
+    clear()
     yield
-    async_endpoint_limiter._buckets.clear()
+    clear()
 
 
 def test_google_login_is_limited_per_ip(fastapi_client, limiter_active) -> None:

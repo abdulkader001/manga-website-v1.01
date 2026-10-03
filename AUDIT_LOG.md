@@ -93,7 +93,9 @@ back what the upgrade removed, so restore a backup instead.
 | `20261014_four_roles` | #35 | Adds role `CO_ADMIN` (Postgres enum value if native), `users.appointed_by` / `sub_admin_quota` / `admin_since`, `admin_successors`, `system_settings.sub_admin_blocked_permissions`; deletes site-owner overrides held by sub-admins (they can no longer hold them) | **Lossy**: Admins go back to sub-admins, and the new columns, succession lines and ceiling are dropped. The deleted overrides do not come back (re-promote in Role Management) |
 | `20261015_login_required_default_on` | #41 | `system_settings.login_required` column default becomes **on**, and the existing row is set to on | **Lossy**: only the default goes back to off. The value the owner had before the upgrade is not kept, so existing rows stay on (turn it off in Admin Settings) |
 | `20261016_site_functions_and_tab_access` | #41 | New table `site_functions` (owner's switches) and `users.visible_admin_tabs` / `users.powers_suspended` | **Lossy**: drops them. Every function goes back to its default and every Admin / sub-admin goes back to "follow my permissions", with no powers switched off |
-| `20261017_login_required_default_off` | this PR | `system_settings.login_required` column default becomes **off** again, and the existing row is switched off (guests can read until the owner switches it on) | **Lossy**: only the default goes back to on. The value the owner had before the upgrade is not kept, so existing rows stay off (switch it on in Admin → Site Functions) |
+| `20261017_login_required_default_off` | #42 | `system_settings.login_required` column default becomes **off** again, and the existing row is switched off (guests can read until the owner switches it on) | **Lossy**: only the default goes back to on. The value the owner had before the upgrade is not kept, so existing rows stay off (switch it on in Admin → Site Functions) |
+
+| `20261018_cascade_series_children` | #48 | PostgreSQL: reading history, bookmarks and the OCR/translation caches are deleted with their chapter or series (`ON DELETE CASCADE`); `scraping_jobs.manga_id` and `translation_cache.ocr_cache_id` become empty instead (`SET NULL`) | Lossless: the rules go back to `NO ACTION`; no row is touched (rows already removed by deletes stay removed) |
 
 Check where a server is: `docker compose exec backend alembic current`.
 
@@ -135,9 +137,36 @@ exceptions; for those, restore the database backup taken before the update.
 
 ## Change entries
 
+### 2026-10-03 — PR #48: the four P0 bugs from `plan.md` (live site behind Caddy, deleting series, sign-in landing)
+
+Merge SHA: fill in when known (the next PR fills it in). Branch `claude/project-thread-ev89fm`.
+
+The owner asked to work through `plan.md` from P0 down. These are the four "fix before go-live" bugs, plus the small items the plan groups with them (P2-2, P2-3, the nginx half of P3-9). Owner's questions answered with the plan's recommendations: Q-1 (Caddy → web nginx → backend stays; only local and Docker addresses are trusted as proxies) and Q-4 (deleting a series removes what points at it, in the database).
+
+| Change | Why | Main files |
+| --- | --- | --- |
+| **The API works behind Caddy (P0-1).** The web nginx now passes on Caddy's `X-Forwarded-Proto: https` instead of replacing it with its own `http`, but only when the request comes from this machine or the Docker network (`$fwd_proto`) | Every API call was answered `307 → https://…` and looped; pages loaded with nothing working | `deployment/nginx/nginx.conf`, `deployment/nginx/site.conf` |
+| **Each visitor is one visitor again (P0-2).** nginx takes the visitor's address from the last `X-Forwarded-For` hop, only from loopback/private proxies (`set_real_ip_from`, `real_ip_recursive off`), so per-visitor limits, the sign-in cap and Geolock see real addresses. Tested with real nginx: two visitors arrive as two addresses, a spoofed first hop is ignored, `https` is kept | Everyone shared the Docker gateway's address: one rate-limit bucket for the whole site, Geolock blocked nobody | same |
+| **No visitor address in any log line** (house rule, now that real addresses arrive): nginx's access log uses a format without the address and its error log keeps only critical lines (every error line prints `client: <address>`); Gunicorn's access log is off unless `GUNICORN_ACCESS_LOG` is set | Real addresses would otherwise be written to logs | `deployment/nginx/nginx.conf`, `backend_fastapi/deployment/gunicorn.conf.py`, `.env.example` |
+| **The backend believes scheme, host and port only from its proxy (P2-2)**, like the client address (`TRUSTED_PROXY_CIDRS`). The Node gateway (`server.ts`) also takes the visitor's address and scheme from a private proxy only | A client reaching the backend port could claim `https` or another host | `bootstrap/middleware.py`, `server.ts` |
+| **Microsoft sign-in has a per-address limit (P2-3)**: the same 30 per 10 minutes as Google, and nginx's sign-in rate limit now covers `/auth/microsoft` | It had none | `routers/account.py`, `site.conf` |
+| **Deleting series works (P0-3).** Deleting a series, bulk delete, "Delete all manga" and "Purge all images" no longer fail with 500 once a reader opened a chapter or a page was translated. The database removes reading history, chapter bookmarks and OCR/translation caches with their chapter or series; one `delete_series` service also removes them explicitly (for a database that missed the migration), commits per series and deletes picture folders; purge deletes translations before their OCR rows | Foreign keys with no delete rule refused the delete on PostgreSQL | migration `20261018_cascade_series_children`, `models/{manga,translation_cache,scraping}.py`, new `services/series_delete.py`, `routers/admin.py`, `routers/site_admin.py`, `tasks/scraper_tasks.py` |
+| **Google / Microsoft sign-in lands on the home page (P0-4).** The default `MAGIC_LINK_REDIRECT_URL` (`.env.example`, GUIDE, the vault's domain switch) is now the home page, and the old `/auth/magic-complete` address redirects there | Every provider sign-in, including the owner's first, ended on "Page Not Found" | `src/app.js`, `vault_keys.py`, `.env.example`, `GUIDE.md` |
+| nginx tidy-up (P3-9, nginx part): one `Cache-Control` header per file (the `expires` lines sent a second one); `sw.js`, `favicon.ico`, `logo*.png` and `manifest.json` are revalidated instead of cached a year | An old service worker stayed on devices for a year | `site.conf` |
+| Tests: forwarded headers from untrusted vs trusted peers; Microsoft limit; every delete path on PostgreSQL with and without the new rules (fail on the old code); sign-in landing (backend and frontend). Docs: GUIDE §8 step 7, five troubleshooting rows, checklist; `map.md` foreign-key table and flows; `plan.md` tick-list | Prove it and keep the docs true | `tests/test_series_delete_children.py`, `tests/test_middleware_order.py`, `tests/test_login_ip_rate_limit.py`, `tests/test_sign_in_landing.py`, `src/app.test.jsx`, `GUIDE.md`, `map.md`, `plan.md` |
+
+Not in this PR (later groups of the plan): delete-all and bulk delete as background jobs with progress and cover files (P2-1), the `nginx -t` / harness CI job (P2-10).
+
+- **Database:** `20261018_cascade_series_children` (PostgreSQL only; lossless downgrade, see §2).
+- **Settings:** `MAGIC_LINK_REDIRECT_URL` default is now `https://<domain>/` (old values keep working). `GUNICORN_ACCESS_LOG` is off when blank (it was `-`). No setting moved between `.env`, the vault and Admin Settings.
+- **Check:** after `docker compose build && docker compose up -d`: `curl -sI https://<domain>/api/v1/config/site-access` answers `200`, not `307`; `docker compose logs web` shows no visitor addresses; sign in with Google and land on the home page; delete a series someone has read (Admin → Series). Locally: `pytest backend_fastapi/tests/test_series_delete_children.py backend_fastapi/tests/test_middleware_order.py backend_fastapi/tests/test_login_ip_rate_limit.py backend_fastapi/tests/test_sign_in_landing.py` on PostgreSQL; `npx vitest run src/app.test.jsx`.
+- **Undo:** `docker compose run --rm manga-stack-migrate alembic downgrade 20261017_login_required_default_off`, then `git revert -m 1 <merge>` and rebuild. Nothing is lost; the redirect loop and the 500s come back.
+
+---
+
 ### 2026-10-03 — Whole-site map and fix plan (documents only, nothing fixed)
 
-Merge SHA: fill in when known (the next PR fills it in). Branch `claude/site-map-and-fix-plan`.
+PR #47, merge `7040e4d`. Branch `claude/site-map-and-fix-plan`.
 
 The owner asked for the whole website to be mapped and every error, bug and path mismatch to be found, with a plan written **before** anything is fixed. This PR adds the two documents and changes no code, setting or database table. `plan.md` lists 41 findings (4 P0, 10 P1, 15 P2, 12 P3), eleven questions for the owner, and the order of work in nine pull requests; the owner decides what is fixed and when.
 
@@ -155,7 +184,7 @@ The owner asked for the whole website to be mapped and every error, bug and path
 
 ### 2026-10-03 — A reader's read chapters follow them to a new phone
 
-Merge SHA: fill in when known (the next PR fills it in). Branch `claude/relaxed-wozniak-bsnxv1`.
+PR #45, merge `c66dc92`. Branch `claude/relaxed-wozniak-bsnxv1`.
 
 The owner pointed out that a reader who signs in on a new phone gets their bookmarks but none of the dimmed (already read) chapters, because reading history lived only in the first browser. The owner's rule was changed for signed-in readers: the server now also keeps *which chapters they opened and when*. Nothing else about their reading is stored (no pages, scrolling or reading time). Guests are unchanged.
 
@@ -178,7 +207,7 @@ The owner pointed out that a reader who signs in on a new phone gets their bookm
 
 ### 2026-10-03 — Linux test install: one image build, Docker install mix-ups, errors from a real run
 
-Merge SHA: fill in when known (the next PR fills it in). Branch `claude/elegant-goldberg-1p4atv`.
+PR #44, merge `ca12873`. Branch `claude/elegant-goldberg-1p4atv`.
 
 The owner installed the site for testing on Ubuntu 26.04 in a VMware VM by following the guide and sent the two terminal logs. The site came up healthy in the end, but on the way: the first `docker compose up -d --build` failed, and the guide's Docker fallback broke the Docker install.
 

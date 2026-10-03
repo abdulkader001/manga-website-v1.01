@@ -1,6 +1,6 @@
 # plan.md — what is wrong with the website and the plan to fix it
 
-> **Nothing in this file has been fixed yet.** It is the result of a full read-through, the project's own checks,
+> **Progress is in the [tick-list](#8-tick-list-update-as-items-are-done) (§8).** When written, nothing had been fixed. It is the result of a full read-through, the project's own checks,
 > and live tests (real PostgreSQL 16, real nginx 1.24, the real backend, Chromium). It replaces any earlier plan:
 > there was **no earlier `plan.md`** in this repository (I looked at every branch and the whole history), so this is the first.
 >
@@ -272,15 +272,15 @@ Route/guard table (map Appendix A): walk `build_api_router().routes` recursively
 
 | ID | Status | PR | ID | Status | PR | ID | Status | PR |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| P0-1 | todo | | P1-9 | todo | | P2-12 | todo | |
-| P0-2 | todo | | P1-10 | todo | | P2-13 | todo | |
-| P0-3 | todo | | P2-1 | todo | | P2-14 | todo | |
-| P0-4 | todo | | P2-2 | todo | | P2-15 | todo | |
-| P1-1 | todo | | P2-3 | todo | | P3-1 | todo | |
+| P0-1 | done | #48 | P1-9 | todo | | P2-12 | todo | |
+| P0-2 | done | #48 | P1-10 | todo | | P2-13 | todo | |
+| P0-3 | done | #48 | P2-1 | todo | | P2-14 | todo | |
+| P0-4 | done | #48 | P2-2 | done | #48 | P2-15 | todo | |
+| P1-1 | todo | | P2-3 | done | #48 | P3-1 | todo | |
 | P1-2 | todo | | P2-4 | todo | | P3-2 | todo | |
 | P1-3 | todo | | P2-5 | todo | | P3-3 | todo | |
 | P1-4 | todo | | P2-6 | todo | | P3-4 | todo | |
 | P1-5 | todo | | P2-7 | todo | | P3-5 | todo | |
 | P1-6 | todo | | P2-8 | todo | | P3-6 | todo | |
-| P1-7 | todo | | P2-9 | todo | | P3-7 … P3-12 | todo | |
+| P1-7 | todo | | P2-9 | todo | | P3-7 … P3-12 | todo (P3-9 nginx part done) | #48 |
 | P1-8 | todo | | P2-10 / P2-11 | todo | | | | |

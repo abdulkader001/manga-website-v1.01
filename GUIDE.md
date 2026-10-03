@@ -1259,8 +1259,13 @@ curl -I http://localhost:8080        # must answer on the server itself
 
 The compose `web` container speaks plain HTTP on `127.0.0.1:8080`, so put a TLS
 reverse proxy in front. Simplest is Caddy on the host: it fetches and renews
-Let's Encrypt certificates by itself and sends `X-Forwarded-Proto`, which the
-backend uses to avoid redirect loops.
+Let's Encrypt certificates by itself and tells the `web` container the visitor's
+address (`X-Forwarded-For`) and that the visit was HTTPS (`X-Forwarded-Proto`).
+The `web` container believes these only from this machine or the Docker
+network (`deployment/nginx/nginx.conf`), and passes them on to the backend, which
+needs both: the address for the per-visitor limits and Geolock, the HTTPS mark to
+avoid redirect loops. Neither nginx nor the backend writes a visitor's address to
+its logs.
 
 ```bash
 sudo apt-get install -y caddy          # Ubuntu 24.04: from Ubuntu's own repository
@@ -1555,6 +1560,11 @@ command and the machine, not a broken site.
 | Ports 8000/8080 answer from the internet although `ufw` blocks them | Docker bypasses `ufw` for published ports. Add the server file from Section 8 step 5 (binds them to `127.0.0.1`) and `docker compose up -d --force-recreate`. |
 | `pip install` says `externally-managed-environment` (Ubuntu 24.04 and newer) | Python packages must go into a virtual environment (Section 5, Step 5). Don't use `--break-system-packages`. |
 | Developer mode: `magic: command not found`, or CORS errors after `source .env` | Don't `source` the settings file; use `dotenv -f .env.dev run -- <command>` (Section 5). |
+| Every page loads but nothing on it works; the browser says `ERR_TOO_MANY_REDIRECTS`, or `curl -sI https://your-domain/api/v1/config/site-access` answers `307` to the same address | The `web` image is older than PR #48, whose nginx replaced Caddy's "this was HTTPS" mark. Rebuild it: `docker compose build web && docker compose up -d web`. Still looping: Caddy must connect from this machine (`reverse_proxy 127.0.0.1:8080`); a proxy elsewhere needs its range added to the `set_real_ip_from` lines and the `geo` block in `deployment/nginx/nginx.conf`, and to `TRUSTED_PROXY_CIDRS` in `.env`. |
+| Everyone gets `429 Too Many Requests` at once, or Geolock blocks nobody | The site sees every visitor as the same address. Same cause and fix as the row above (rebuild `web`). A CDN such as Cloudflare in front of Caddy also needs Caddy's `trusted_proxies` set to the CDN's ranges, those ranges added to `set_real_ip_from` in `deployment/nginx/nginx.conf`, and `real_ip_recursive on;` there. |
+| Deleting a series, "Delete all manga" or "Purge all images" fails with an error | The database is missing migration `20261018_cascade_series_children`. Run `docker compose run --rm manga-stack-migrate` and check `docker compose exec backend alembic current` ends with `20261018_cascade_series_children`. |
+| After Google or Microsoft sign-in the page says "Page Not Found" | The `web` image is older than PR #48. Rebuild it as above. You can also set `MAGIC_LINK_REDIRECT_URL` to `https://your-domain/` in `.env` (or the Secret Vault). |
+| Need nginx's error messages for a moment | They are switched off because each one prints a visitor's address. In `deployment/nginx/nginx.conf` change `error_log … crit;` to `error`, run `docker compose build web && docker compose up -d web`, look with `docker compose logs web`, then change it back the same way. |
 | Caddy: no certificate / `ERR_SSL_PROTOCOL_ERROR` | DNS must point at this server and ports 80/443 must be open: `getent hosts manga.example.com`, `sudo ufw status`, `sudo journalctl -u caddy -n 50`. |
 | Custom Parser: "answered with a bot check" | The site shows Cloudflare/CAPTCHA to servers. It cannot be added; use another source for the series. |
 | Custom Parser: "No parser could read a title and a chapter list" | You pasted a homepage, list or chapter. Paste one series page with 2+ chapters (Section 7, *Add a new source website*). |
@@ -1618,7 +1628,7 @@ command and the machine, not a broken site.
 - [ ] `.env` made with `make_env.py` (`--local` for a trial), `chmod 600 .env`, copy stored safely; domain lines set for production (Section 3.3); `docker compose config` passes and the password check in Section 3.6 prints `1` and `3`
 - [ ] `docker compose up -d --build`; all services healthy; `curl http://localhost:8000/healthz` answers `{"ok":true}`
 - [ ] `docker compose exec backend tesseract --list-langs` lists `kor jpn chi_sim`
-- [ ] Production: `ufw` allows only 22/80/443; `docker-compose.override.yml` from Section 8 step 5 in place (production mode, ports on `127.0.0.1`); Caddy serves `https://your-domain`
+- [ ] Production: `ufw` allows only 22/80/443; `docker-compose.override.yml` from Section 8 step 5 in place (production mode, ports on `127.0.0.1`); Caddy serves `https://your-domain` and `curl -sI https://your-domain/api/v1/config/site-access` answers `200` (not `307`)
 - [ ] `make_admin_hash.py --write .env`, Google client in `.env`, `up -d --force-recreate`, `admin-status` says `Owner: not claimed yet`; first Google sign-in done, authenticator set up in **Admin**; `admin-status` now says `Owner: claimed`
 - [ ] OCR, e-mail and sign-in settings entered in **Admin → Secret Vault**
 - [ ] Sign-in required left off (default: guests read) or switched on once your Admins are set up (Admin → Site Functions, Section 6.2); the other Site Functions looked over (Section 6.4); donation links added if wanted
