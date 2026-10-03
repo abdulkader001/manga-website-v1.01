@@ -113,7 +113,7 @@ class ScrapingJob(Base):
     )
     id = Column(Integer, primary_key=True)
     source_id = Column(Integer, ForeignKey("sources.id"), nullable=True)
-    manga_id = Column(Integer, ForeignKey("manga.id"), nullable=True)
+    manga_id = Column(Integer, ForeignKey("manga.id", ondelete="SET NULL"), nullable=True)
     source_url = Column(String, nullable=True)
     status = Column(String(32), default="pending", nullable=False, index=True)
     error = Column(Text, nullable=True)
