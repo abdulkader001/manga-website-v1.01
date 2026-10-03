@@ -16,6 +16,7 @@ import NotificationsPage from "./pages/NotificationsPage";
 import NotFound from "./pages/NotFound";
 import Footer from "./components/Footer";
 import BookmarkSync from "./components/BookmarkSync";
+import HistorySync from "./components/HistorySync";
 
 import AuthGuard from "./components/AuthGuard";
 import RegionGate from "./components/RegionGate";
@@ -65,6 +66,7 @@ function AppShell({ children }) {
     <div className="min-h-screen flex flex-col bg-[var(--bg-primary)] text-[var(--text-primary)]">
       {showChrome && <Navbar />}
       <BookmarkSync />
+      <HistorySync />
 
       {showChrome && <AdSection sectionKey="global" className="global-ads--header" fallback={null} />}
 

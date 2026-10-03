@@ -940,12 +940,16 @@ Other server-side tools:
 ### 6.2 Sign-in required: off at the start, you switch it on when ready
 
 **The site starts open.** Guests can browse, read and keep bookmarks without an
-account. Bookmarks and reading history are saved by series ID in the visitor's
-own browser, so they work for guests too; **Bookmarks → Export / Import** moves
-them to another device. When a reader signs in, their bookmarked series (only
-the series ids, never the reading history) are also kept on their account: they
-follow the reader to other devices, and the reader gets an alert in the bell
-when a bookmarked series has a new chapter. A brand-new site
+account. Bookmarks and reading history are saved in the visitor's own browser,
+so they work for guests too; **Library → Export / Import** moves them to another
+device by hand. When a reader signs in, their bookmarked series and the chapters
+they have read (chapter ids and the time they were opened, nothing else) are
+also kept on their account: both follow the reader to a new phone or computer
+(the read chapters are dimmed there from the first page load after signing in),
+and the reader gets an alert in the bell when a bookmarked series has a new
+chapter. Reading history is kept for as long as the account exists (the old
+90-day clean-up is gone); it is deleted with the account and included in the
+reader's data download. A brand-new site
 and an updated one both start with the switch **off** (migration
 `20261017_login_required_default_off`, Section 12).
 
@@ -1582,6 +1586,7 @@ command and the machine, not a broken site.
 | A visitor sees a pencil next to the logo, or their own logo | Old version: anyone could "edit" the logo and see it in their own browser. Update (Section 12): the pencil now shows only to you (and an Admin holding the branding power), saves on the server for everyone, and old browser copies are cleared. The homepage heading works the same way. |
 | Readers have to sign in again every hour | Old version: the page didn't renew the one-hour sign-in on opening the site. Update (Section 12); the sign-in then lasts as long as the refresh cookie (two weeks of not visiting). |
 | Readers don't get "new chapter" alerts | Alerts go to **signed-in** readers who bookmarked the series (guests' bookmarks stay in their browser only). Check that *Notifications* is on in **Admin → Site Functions**, and that the reader bookmarked while signed in or has signed in since (their bookmarks are then sent to their account). |
+| A reader signed in on a new phone and sees no dimmed (already read) chapters | Read chapters follow **signed-in** readers only. They appear once the first sign-in on that phone has finished (a few seconds; reload the series page). If the chapters were read **as a guest** in a different browser and the reader never signed in there, that history never left that browser: sign in there once (it is then sent to the account) or use **Library → Export / Import**. |
 | A feature says "… is switched off on this site" | You (the owner) switched that function off in **Admin → Site Functions** (Section 6.4). Switch it on again, or run `cli_bootstrap functions-reset` on the server. |
 | The Site Functions tab or Tab access is missing for an Admin | Intended: only the owner can open them, and nobody can be given them (Sections 6.4 and 6.5). |
 | An Admin or sub-admin says "your admin powers are switched off" | You used **Switch all powers off** in Role Management → Tab access (Section 6.5). Press *Switch powers back on*. |
@@ -1620,6 +1625,7 @@ command and the machine, not a broken site.
 - [ ] Site name, logo, homepage heading and footer links saved as the owner (the pencil next to the logo, Admin Settings); a private window shows them, and shows no pencil
 - [ ] Tab access set for each Admin and sub-admin (Role Management, Section 6.5); the server's real IP hidden behind a CDN or tunnel and the bare-IP test run (Section 8)
 - [ ] First series imported; new chapters arrive via beat
+- [ ] Reader history follows the account: read a chapter while signed in, sign in as the same reader in another browser or on a phone: that chapter is dimmed and the series shows where they stopped (Section 6.2)
 - [ ] Updating from before PR #33: provider keys that were saved in a **custom header** (e.g. Azure `api-key`) were publicly readable; rotate them at the provider and save the new key in Admin → API Management
 - [ ] Scraper AI key tested (Admin → Series → Scraper AI API) before adding new source sites with Custom Parser (main admin only)
 - [ ] Backups: nightly `~/manga-backup.sh` in cron and copied off the server; in **Admin → Storage & Backups** set a backup password (kept off the server), check the weekly schedule, and connect R2/B2 storage

@@ -2,19 +2,30 @@ import { useSyncExternalStore } from "react";
 
 // The reader's library -- bookmarks, which chapters they have read, and where
 // they stopped -- lives in THEIR browser. Reading history never leaves it.
-// Bookmarks of a signed-in reader are also kept on the server as series ids
-// (components/BookmarkSync.jsx), so new-chapter alerts reach them and their
-// bookmarks follow them to other devices. A guest's bookmarks stay here only.
-// Export/import (Library page) still moves everything between devices.
+// For a signed-in reader the server also keeps two things under their account
+// so they follow them to a new phone or computer: the bookmarked series ids
+// (components/BookmarkSync.jsx, which also feed new-chapter alerts) and which
+// chapters they have opened with when (components/HistorySync.jsx). This
+// browser stays the main copy and works offline. A guest's library stays here
+// only. Export/import (Library page) still moves everything by hand.
 //
 // Shape (localStorage "mw_library_v1"):
 //   bookmarks: { [mangaId]: addedAtIso }
 //   read:      { [mangaId]: { [chapterId]: readAtIso } }   // only chapters actually opened
 //   last:      { [mangaId]: { chapterId, number, at } }    // most recent chapter per series
 //   pending:   { [mangaId]: "add" | "remove" }             // bookmark changes made while signed out
+//   readPending:  { [chapterId]: readAtIso }               // chapters opened but not yet sent to the account
+//   clearPending: { all: boolean, manga: { [mangaId]: true } } // history cleared but not yet sent
 
 const KEY = "mw_library_v1";
-const EMPTY = { bookmarks: {}, read: {}, last: {}, pending: {} };
+const EMPTY = {
+  bookmarks: {},
+  read: {},
+  last: {},
+  pending: {},
+  readPending: {},
+  clearPending: { all: false, manga: {} },
+};
 let cache = null;
 const listeners = new Set();
 
@@ -128,6 +139,20 @@ export function setBookmarks(ids) {
   commit({ ...lib, bookmarks });
 }
 
+// Set by HistorySync while someone is signed in: it sends each change to the
+// account. With nobody signed in, changes wait in readPending / clearPending.
+// Events: {type:"read", chapterId, at} | {type:"clear", mangaId} |
+// {type:"clearAll"} | {type:"flush"} (pending changes are ready to send).
+let historySink = null;
+
+/** Register the function that sends a history change to the server. */
+export function onHistoryChange(fn) {
+  historySink = fn;
+  return () => {
+    if (historySink === fn) historySink = null;
+  };
+}
+
 /** Mark ONE chapter as read and remember it as the place the reader stopped. */
 export function recordRead(mangaId, chapterId, number) {
   if (!mangaId || !chapterId) return;
@@ -139,28 +164,135 @@ export function recordRead(mangaId, chapterId, number) {
     ...lib,
     read: { ...lib.read, [m]: { ...(lib.read[m] || {}), [c]: at } },
     last: { ...lib.last, [m]: { chapterId: Number(chapterId), number: number ?? null, at } },
+    readPending: historySink ? lib.readPending : { ...(lib.readPending || {}), [c]: at },
   });
+  if (historySink) historySink({ type: "read", chapterId: Number(chapterId), at });
 }
 
 export function readSet(lib, mangaId) {
   return new Set(Object.keys(lib.read[String(mangaId)] || {}).map(Number));
 }
 
+// Clears made while nobody is signed in wait here, so a chapter forgotten on
+// this device is not brought back by the account's list at the next sign-in.
+function withClear(lib, mangaId) {
+  const clear = lib.clearPending || { all: false, manga: {} };
+  if (mangaId == null) return { all: true, manga: {} };
+  if (clear.all) return clear;
+  return { all: false, manga: { ...clear.manga, [mangaId]: true } };
+}
+
 export function removeHistory(mangaId) {
   const lib = load();
+  const m = String(mangaId);
   const read = { ...lib.read };
   const last = { ...lib.last };
-  delete read[String(mangaId)];
-  delete last[String(mangaId)];
-  commit({ ...lib, read, last });
+  const readPending = { ...(lib.readPending || {}) };
+  for (const c of Object.keys(read[m] || {})) delete readPending[c];
+  delete read[m];
+  delete last[m];
+  commit({
+    ...lib,
+    read,
+    last,
+    readPending,
+    clearPending: historySink ? lib.clearPending : withClear(lib, m),
+  });
+  if (historySink) historySink({ type: "clear", mangaId: Number(mangaId) });
 }
 
 export function clearHistory() {
-  commit({ ...load(), read: {}, last: {} });
+  const lib = load();
+  commit({
+    ...lib,
+    read: {},
+    last: {},
+    readPending: {},
+    clearPending: historySink ? lib.clearPending : withClear(lib, null),
+  });
+  if (historySink) historySink({ type: "clearAll" });
+}
+
+/** Take the changes waiting to be sent (and empty the queue). */
+export function takePendingHistory() {
+  const lib = load();
+  const taken = {
+    reads: { ...(lib.readPending || {}) },
+    clear: {
+      all: Boolean(lib.clearPending?.all),
+      manga: { ...(lib.clearPending?.manga || {}) },
+    },
+  };
+  commit({ ...lib, readPending: {}, clearPending: { all: false, manga: {} } });
+  return taken;
+}
+
+/** Put changes back in the queue (they could not be sent). Newer reads win. */
+export function restorePendingHistory(taken) {
+  const lib = load();
+  const clear = lib.clearPending || { all: false, manga: {} };
+  commit({
+    ...lib,
+    readPending: { ...taken.reads, ...(lib.readPending || {}) },
+    clearPending: {
+      all: clear.all || taken.clear.all,
+      manga: { ...taken.clear.manga, ...clear.manga },
+    },
+  });
+}
+
+/** Queue every chapter read on this device (a browser's first sign-in). */
+export function queueAllReads() {
+  const lib = load();
+  const readPending = { ...(lib.readPending || {}) };
+  for (const chapters of Object.values(lib.read)) {
+    for (const [c, at] of Object.entries(chapters)) readPending[c] = readPending[c] || at;
+  }
+  commit({ ...lib, readPending });
+}
+
+/** Forget this device's reading (a different account signed in here). */
+export function resetHistory() {
+  commit({
+    ...load(),
+    read: {},
+    last: {},
+    readPending: {},
+    clearPending: { all: false, manga: {} },
+  });
+}
+
+/**
+ * Make this device's read chapters exactly the account's list ({manga_id,
+ * chapter_id, chapter_number, read_at}, newest first). Chapters opened here
+ * since `keepSince` are kept: the account may not have heard about them yet.
+ */
+export function setReadFromAccount(entries, keepSince) {
+  const lib = load();
+  const read = {};
+  const last = {};
+  const put = (m, c, at, number) => {
+    read[m] = { ...(read[m] || {}), [c]: at };
+    if (!last[m] || at > last[m].at) last[m] = { chapterId: Number(c), number: number ?? null, at };
+  };
+  for (const e of entries) {
+    put(String(e.manga_id), String(e.chapter_id), e.read_at || now(), e.chapter_number);
+  }
+  for (const [m, chapters] of Object.entries(lib.read)) {
+    for (const [c, at] of Object.entries(chapters)) {
+      if (at >= keepSince) put(m, c, at, lib.last[m]?.chapterId === Number(c) ? lib.last[m].number : null);
+    }
+  }
+  commit({ ...lib, read, last });
 }
 
 export function exportLibrary() {
-  const { pending: _pending, ...library } = load(); // eslint-disable-line no-unused-vars
+  const {
+    pending: _pending, // eslint-disable-line no-unused-vars
+    readPending: _readPending, // eslint-disable-line no-unused-vars
+    clearPending: _clearPending, // eslint-disable-line no-unused-vars
+    ...library
+  } = load();
   return JSON.stringify({ version: 1, exportedAt: now(), ...library }, null, 2);
 }
 
@@ -172,8 +304,17 @@ export function importLibrary(text) {
   for (const id of Object.keys(data.bookmarks || {})) {
     if (!lib.bookmarks[id]) pending = withChange({ pending }, id, true);
   }
+  // Chapters this device had not seen are sent to the account too.
+  const readPending = { ...(lib.readPending || {}) };
+  for (const [m, chapters] of Object.entries(data.read || {})) {
+    for (const [c, at] of Object.entries(chapters || {})) {
+      if (!lib.read[m]?.[c]) readPending[c] = at;
+    }
+  }
   commit({
+    ...lib,
     pending,
+    readPending,
     bookmarks: { ...lib.bookmarks, ...(data.bookmarks || {}) },
     read: Object.keys(data.read || {}).reduce(
       (acc, k) => ({ ...acc, [k]: { ...(lib.read[k] || {}), ...data.read[k] } }),
@@ -181,6 +322,7 @@ export function importLibrary(text) {
     ),
     last: { ...lib.last, ...(data.last || {}) },
   });
+  if (historySink) historySink({ type: "flush" });
 }
 
 /** One-time move of the old per-series keys written by earlier versions. */

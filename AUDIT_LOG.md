@@ -53,7 +53,7 @@ Contents
 
 ### Data that is deliberately *not* on the server
 
-- Reading history and "where I stopped" live in the reader's browser (`localStorage` key `mw_library_v1`, `src/utils/library.js`), never on the server; readers move them between devices with export/import. (The old `read_history` table is unused; its routes were removed.)
+- Reading history and "where I stopped" live in the reader's browser (`localStorage` key `mw_library_v1`, `src/utils/library.js`), which stays the main copy and works for guests. For a **signed-in** reader the server also keeps which chapters they opened and when (`read_history` table: user, series, chapter, time; `src/components/HistorySync.jsx`, `api/routers/history.py`) so the dimmed chapters and "where I stopped" follow them to a new device. Nothing else about their reading is stored. Guests (and export/import) are unchanged.
 - Bookmarks live in the browser too, keyed by series ID. For a **signed-in** reader the server also keeps the bookmarked series ids (`bookmarks` table, `src/components/BookmarkSync.jsx`) so new-chapter alerts reach them (`services/series_alerts.py`) and the list follows them to other devices. Guests' bookmarks stay in their browser only.
 
 ### Server-side tools (run with `docker compose exec backend python -m backend_fastapi.scripts.<name>`)
@@ -134,6 +134,29 @@ exceptions; for those, restore the database backup taken before the update.
 ---
 
 ## Change entries
+
+### 2026-10-03 — A reader's read chapters follow them to a new phone
+
+Merge SHA: fill in when known (the next PR fills it in). Branch `claude/relaxed-wozniak-bsnxv1`.
+
+The owner pointed out that a reader who signs in on a new phone gets their bookmarks but none of the dimmed (already read) chapters, because reading history lived only in the first browser. The owner's rule was changed for signed-in readers: the server now also keeps *which chapters they opened and when*. Nothing else about their reading is stored (no pages, scrolling or reading time). Guests are unchanged.
+
+| Change | Why | Main files |
+| --- | --- | --- |
+| **Read chapters are kept on the account of a signed-in reader.** The browser stays the main copy (offline, guests). While signed in, each opened chapter is sent as it happens (`POST /history/read`); changes made while signed out or offline wait and go at the next sign-in. A browser that was never signed in sends everything it has once (a guest becoming a reader). After sending, the browser shows exactly the account's list, so the dimmed chapters and "where I stopped" appear on a new device. Chapters opened while that first sync ran are kept. A different account signing in on the same browser starts from its own list (the previous reader's history is not sent to it). Big libraries are sent in pieces of 2,000 | Owner's request | `src/components/HistorySync.jsx`, `src/utils/library.js`, `src/services/api.js`, `src/app.js` |
+| **Clearing history reaches the account.** "Clear" and removing a series from History are sent to the account (waiting if signed out), so the cleared chapters do not come back. The Clear prompt says "on this device and your account" when signed in. A clear on one device reaches another device the next time it signs in or loads | Otherwise cleared chapters would return from the server | `src/components/BookmarkHistoryTab.jsx`, `src/utils/library.js` |
+| **New endpoints** `POST /history/read` (one chapter) and `POST /history/sync` (changes in, the account's whole list out; up to 2,000 chapters per request). Sign-in required for readers' routes applies; guests get 401. Unknown chapters are ignored; a client time is never later than now and an older time never replaces a newer one. They use the existing `read_history` table and the existing account export and delete (history was already included) | The server side of the above | `api/routers/history.py`, `schemas/history.py`, `services/history_service.py`, `bootstrap/routers.py` |
+| **The 90-day history clean-up is removed** (daily task `prune_history_task` and its beat entry): it would have deleted older read marks and re-lit chapters the reader had already read | The list must last as long as the account | `tasks/scraper_tasks.py`, `core/celery_app.py` |
+| Side effects: the "active readers" counts in Admin (`site_admin.py`) and the 30-minute view de-duplication for signed-in readers (`catalogue_service.record_chapter_view`) read `read_history` and work for signed-in readers again, because rows are written again | They were reading a table nothing filled | none changed |
+| Tests: upload and return, a new device gets the list, no duplicate rows, unknown chapters, older/future times, single chapter, clear one series / all, clear before the chapters sent with it, readers isolated, guests refused, size limit; in the page: guest sends nothing, first sign-in, new phone, live send and retry, clearing, upload failure keeps the list, different account, pieces, chapter opened mid-sync | Prove it | `tests/test_history_sync.py`, `src/components/HistorySync.test.jsx`, `tests/test_route_audit.py` |
+| Wording: *My Library*, `CLAUDE.md` house rule, `GUIDE.md` §6.2 / troubleshooting / checklist, §1 and §5 of this file, roadmap item 41 | Keep the docs true | `CLAUDE.md`, `GUIDE.md`, `AUDIT_LOG.md`, `audit/ROADMAP.md` |
+
+- **Database:** none. (Uses the existing `read_history` table. No unique constraint was added: two devices sending the same chapter at the same instant can leave two rows; reads treat them as one.)
+- **Settings:** none. House rule in `CLAUDE.md` changed: signed-in readers' read chapters (ids and times) are kept on the server; guests' history stays in their browser.
+- **Check:** sign in as a reader, open a chapter, then sign in as the same reader in a private window (or on a phone): that chapter is dimmed on the series page and *My Library → History* lists the series. `pytest backend_fastapi/tests/test_history_sync.py backend_fastapi/tests/test_route_audit.py`; `npx vitest run`.
+- **Undo:** `git revert -m 1 <merge>`. Rows already in `read_history` stay (harmless; `DELETE FROM read_history` forgets them, or a reader's account deletion removes theirs). Without the clean-up task, old rows are no longer deleted after 90 days.
+
+---
 
 ### 2026-10-03 — Linux test install: one image build, Docker install mix-ups, errors from a real run
 
@@ -593,7 +616,7 @@ PRs #1–#22 predate this log. Their summaries are in the merge commits
 - **Win + right-click**: Windows often swallows the Windows key. Shift + right-click is the reliable way to get a new window.
 - **Crypto addresses** are checked for format, not ownership. Send yourself a small test amount after every change.
 - **Comment and cultivation systems**: postponed by the owner ("fix our issues first").
-- **Unused server code** (found 2026-10-03): the `/history` routes are removed; the `read_history` table and `suggestion_service` remain (dropping the table needs a lossy migration). Many functions in `src/services/api.js` belong to features with no page yet (below) and are kept for them.
+- **Unused server code** (found 2026-10-03): `suggestion_service` remains. (The `read_history` table is in use again: see the 2026-10-03 history-sync entry.) Many functions in `src/services/api.js` belong to features with no page yet (below) and are kept for them.
 - **Built on the server but without a page** (found 2026-10-03): Community (emojis, realms, memes, ranks, pills; it has a Site Functions switch), comment edit / vote / react / report / moderation, and notification preferences.
 - **SQLite development database:** several migrations are PostgreSQL-only, so an SQLite database made with `alembic upgrade head` lacks `settings`, `footer_settings`, `login_tokens`, `complaints` and some columns. Production (PostgreSQL) is complete. Use PostgreSQL for local testing too (the install guides do, through Docker).
 - **`braces` advisory ignored in CI** (GHSA-vfj7-8cjw-p6xm, build-time only via tailwindcss 3): remove it from `.github/scripts/npm-audit-gate.mjs` when `braces` ships a fix or the site moves to Tailwind 4.

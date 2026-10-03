@@ -383,10 +383,6 @@ celery_app.conf.beat_schedule = {
         "task": "backend_fastapi.app.tasks.scraper_tasks.cleanup_stuck_jobs",
         "schedule": 60.0 * 15.0,  # Run every 15 minutes
     },
-    "history-prune-daily": {
-        "task": "backend_fastapi.app.tasks.scraper_tasks.prune_history_task",
-        "schedule": 60.0 * 60.0 * 24.0,  # Run every 24 hours
-    },
     # Drain queued scraping jobs. Single canonical entry (was scheduled-scrape +
     # fast-scrape + scraper-sync-hourly, all running the same task).
     "scheduled-scrape": {
