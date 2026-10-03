@@ -10,8 +10,11 @@ notifications) and the admin account.
 > PostgreSQL 16 (up to `20261014_four_roles`), the API, a worker on all nine
 > queues, the scheduler, the web gateway, the `apt` package names, the Caddyfile
 > (`caddy validate`) and both Compose files (`docker compose config`, Compose
-> v5). **Not run:** the Docker image builds, and anything that needs the
-> internet from your server (Docker's installer, NodeSource, Let's Encrypt).
+> v5). On **Ubuntu 26.04 in a VMware VM** (Docker 29.8 from Docker's
+> installer, Compose v5.6) Sections 1–4 were run end to end: the image builds,
+> `docker compose up -d --build` with all 13 services `healthy`, the
+> migrations, Tesseract's languages and the Section 4.1 update. **Not run:**
+> NodeSource and Let's Encrypt.
 > Treat the first run as a test and use [Troubleshooting](#10-troubleshooting)
 > if something differs.
 >
@@ -189,19 +192,52 @@ docker run --rm hello-world
 You should see two version lines and, from the last command, `Hello from
 Docker!`.
 
-*"permission denied … docker.sock"* means you have not logged out and in yet.
-*"docker: 'compose' is not a docker command"* means the Compose plugin is
-missing; Ubuntu's own `docker.io` package does not include it. If Docker's
-installer fails on a brand-new Ubuntu release (it says the release is not
-supported), install both from Ubuntu's own repository instead (package names
-checked on 24.04):
+*"permission denied … docker.sock"* does **not** mean the install failed: the
+two version lines prove Docker is installed. It means this terminal was opened
+before you joined the `docker` group. Check with `groups`: if `docker` is not in
+the list, reboot (`sudo reboot`; in a VMware/VirtualBox VM this is the surest
+way) or log out and in, then run the three checks again. **Don't reinstall
+Docker** because of this message.
+
+> ⚠ **Install Docker from one source only.** Docker's installer puts in
+> `docker-ce` and `docker-compose-plugin` (from Docker). Ubuntu's own
+> `docker.io` and `docker-compose-v2` are a *second* copy of the same thing.
+> Installing them on top removes `docker-ce`, then stops half-way with
+> `trying to overwrite '/usr/libexec/docker/cli-plugins/docker-compose', which
+> is also in package docker-compose-plugin` and leaves packages *"not fully
+> installed"*. If that already happened, repair it with the block below.
+
+Only if Docker's installer itself **failed** (it said your Ubuntu release is
+not supported, and `docker --version` says `command not found`), install
+Ubuntu's own packages instead:
 
 ```bash
 sudo apt-get install -y docker.io docker-compose-v2
 sudo usermod -aG docker "$USER"
 ```
 
-then log out and in again and repeat the three checks above.
+then reboot (or log out and in) and repeat the three checks above.
+*"docker: 'compose' is not a docker command"* means the Compose plugin is
+missing (`docker.io` alone does not include it).
+
+**Repair a mixed install** (you ran both the installer and the `docker.io`
+packages, or `apt` says *"N not fully installed or removed"*). This puts back
+Docker's official packages and removes Ubuntu's copy; it does not touch
+images, volumes or your site's data:
+
+```bash
+sudo apt-get remove --purge -y docker.io docker-compose-v2 containerd runc
+sudo dpkg --configure -a
+sudo apt-get install -f -y
+sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+sudo systemctl enable --now docker
+sudo usermod -aG docker "$USER"
+sudo reboot
+```
+
+After the reboot, `groups` must list `docker`, and the three checks above must
+pass. `dpkg -l | grep -E 'docker|containerd'` should then show `docker-ce`
+and no `docker.io`.
 
 ### Optional but recommended on a server
 
@@ -1486,6 +1522,12 @@ command and the machine, not a broken site.
 | `Command 'nvm' not found`, `Command 'pip' not found`, `E: Unable to locate package python3.11` | Not needed for the Docker path, and Ubuntu doesn't offer them (26.04 has Python 3.14 only). Install them only for developer mode, with the installers in Section 5. Don't `apt install python3-pip` for this. |
 | `password authentication failed` or Redis `NOAUTH` right after you edited `.env` by hand | The URL lines still contain the old example password. Run the check at the end of Section 3.6 (it must print `1` and `3`); the clean fix is Section 12.5. |
 | `docker compose ps` doesn't list `manga-stack-migrate` | Normal: it ran once and stopped. `docker compose ps -a` shows it as `Exited (0)`. |
+| `docker compose ps` shows `(health: starting)` | Normal for the first minute after `up`: the health check hasn't run yet. Wait a minute and run `docker compose ps` again; every line should then say `(healthy)`. |
+| `no such service: docker` | Two commands were pasted onto one line (`docker compose ps docker compose ps -a`), so the second `docker` was read as a service name. Run each command on its own line. |
+| `failed to solve: image "docker.io/library/manga-backend:latest": already exists` (at *exporting to image*) | Your copy of `docker-compose.yml` is older than this fix: it built the same image once per worker, all at the same time, and they collided while saving. The build itself worked. `git pull --ff-only`, then `docker compose up -d --build` again. Can't update yet? `docker compose build backend web`, then `docker compose up -d` (no `--build`). |
+| `trying to overwrite '/usr/libexec/docker/cli-plugins/docker-compose', which is also in package docker-compose-plugin` | You installed Ubuntu's `docker.io` / `docker-compose-v2` on top of Docker's own packages. Two copies of Docker can't be installed together: use *Repair a mixed install* in Section 1. |
+| `apt` says `N not fully installed or removed` | An earlier `apt` command stopped half-way. `sudo dpkg --configure -a && sudo apt-get install -f -y`; if it was a Docker mix-up, *Repair a mixed install* (Section 1). |
+| `git pull` asks `Username for 'https://github.com'` | GitHub answered as if the repository were private: it is private, the address in `git remote -v` is wrong, or GitHub had a hiccup (try once more). Press **Ctrl+C**: pressing Enter skips the pull and the next commands run on the old code. GitHub doesn't take your account password here; use a *personal access token* as the password, or make the repository public. |
 | The site still opens in Firefox after everything was removed | It is the browser's cache or service worker, not a server. Section 12.5 has the three clicks. |
 | The terminal prompt lost its colour | `~/.bashrc` was deleted by a clean-up: `cp /etc/skel/.bashrc ~/.bashrc && source ~/.bashrc`. |
 
@@ -1493,7 +1535,7 @@ command and the machine, not a broken site.
 
 | Symptom | Cause / fix |
 | --- | --- |
-| `permission denied … /var/run/docker.sock` | You are not in the `docker` group yet: log out and back in after `usermod` (Section 1), or run `newgrp docker`, or prefix commands with `sudo`. |
+| `permission denied … /var/run/docker.sock` | Docker is installed; you are just not in the `docker` group in this terminal yet. `groups` doesn't list `docker`: reboot, or log out and back in after `usermod` (Section 1). `newgrp docker` fixes only the current terminal. Don't reinstall Docker. |
 | `docker: 'compose' is not a docker command` | The Compose plugin is missing (Ubuntu's `docker.io` lacks it). Use Docker's installer, or Ubuntu's own `docker.io` + `docker-compose-v2` packages if the installer rejects your Ubuntu release (Section 1). |
 | `unknown tag !override` / `yaml: unknown tag` | Docker Compose older than v2.24. Update Docker (Section 1) and check `docker compose version`. |
 | `Set EMAIL_ENCRYPTION_KEY to a Fernet key` | There is no `.env`, or you are in the wrong folder (`cd ~/manga-website-v1.01`), or the variable is empty. Section 3.1. |
@@ -1565,7 +1607,7 @@ command and the machine, not a broken site.
 
 ## 11. Quick checklist
 
-- [ ] Ubuntu 22.04/24.04/26.04; Docker installed, `docker compose version` is v2.24+ and `docker run --rm hello-world` works without `sudo`
+- [ ] Ubuntu 22.04/24.04/26.04; Docker installed from one source only (`dpkg -l | grep -E 'docker|containerd'` doesn't show both `docker-ce` and `docker.io`), `docker compose version` is v2.24+, `groups` lists `docker` and `docker run --rm hello-world` works without `sudo`
 - [ ] You run the site one way only (Docker); developer mode (Section 5) is either not used or fully stopped with `docker compose down` first
 - [ ] On a 1-2 GB server: swap file added, and `COMPOSE_FILE=docker-compose.yml:docker-compose.small.yml` in `.env` (Sections 1 and 4.2)
 - [ ] `.env` made with `make_env.py` (`--local` for a trial), `chmod 600 .env`, copy stored safely; domain lines set for production (Section 3.3); `docker compose config` passes and the password check in Section 3.6 prints `1` and `3`
