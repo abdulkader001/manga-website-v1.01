@@ -2,7 +2,9 @@
 
 From an empty Linux machine to a running site with you signed in as the
 admin. Works on a home PC, a laptop or a cloud server (Google Cloud, AWS,
-Hetzner, DigitalOcean…) running **Ubuntu 22.04/24.04 or Debian 12**.
+Hetzner, DigitalOcean…) or a virtual machine (VMware, VirtualBox) running
+**Ubuntu 22.04/24.04/26.04 or Debian 12**. Checked end to end on Ubuntu 26.04 in
+a VMware VM.
 
 Time: about 30 minutes, most of it waiting for the first build.
 You need: 2 CPU cores, 4 GB RAM, 40 GB free disk, internet, and a phone with an
@@ -38,19 +40,32 @@ curl -fsSL https://get.docker.com | sudo sh
 sudo usermod -aG docker $USER
 ```
 
-**Now log out and log back in** (on a server: close the SSH window and connect
-again). This makes the last command take effect.
+**Now restart the computer** (`sudo reboot`; on a server: close the SSH
+window and connect again). This makes the last command take effect. Logging
+out and in also works, but a reboot is the surest way, especially in a VM.
 
 Check that everything works:
 
 ```bash
+groups
 docker --version
 docker compose version
 docker run --rm hello-world
 ```
 
-You should see version numbers and a "Hello from Docker!" message.
-*"permission denied … docker.sock"* means you did not log out and back in yet.
+You should see `docker` in the first line, two version numbers and a
+"Hello from Docker!" message.
+
+*"permission denied … docker.sock"* means `docker` is not in the `groups` line
+yet: Docker **is** installed, you just haven't rebooted since `usermod`.
+Reboot and check again.
+
+> ⚠ **Don't install anything else for Docker.** Never run
+> `apt-get install docker.io docker-compose-v2` after the installer above: it is
+> a second copy of Docker that removes the first one and stops half-way with
+> `trying to overwrite '/usr/libexec/docker/cli-plugins/docker-compose'`.
+> Already did? Fix it with *Repair a mixed install* in
+> [`GUIDE.md` §1](../GUIDE.md#1-install-the-prerequisites-ubuntu), then reboot.
 
 ---
 
@@ -115,9 +130,18 @@ Watch until everything is up:
 docker compose ps
 ```
 
-Wait until the services say `running` or `healthy`. `manga-stack-migrate`
-appears as *exited (0)*: that is correct, it runs once and stops. Run
-`docker compose ps` again every minute or so until nothing says `starting`.
+You should see 13 lines: `manga-stack-backend`, `-db`, `-redis`, `-web`,
+`-celery-beat`, `-celery-worker` and seven `manga-stack-celery_worker_…-1`.
+Right after the start they
+say `(health: starting)`: that is normal. Run `docker compose ps` again every
+minute or so until every line says `(healthy)`.
+
+`manga-stack-migrate` (the database setup) is not in that list because it ran
+once and stopped. `docker compose ps -a` shows it as `Exited (0)`, which is
+correct.
+
+> Paste **one command per line**. `docker compose ps docker compose ps -a` on one
+> line fails with *"no such service: docker"*.
 
 If something says `restarting` or `exited (1)`, look at its log:
 
@@ -139,6 +163,9 @@ curl http://localhost:8000/healthz
 should print `{"ok":true}`. Then open the site in a browser:
 
 - **On this computer:** <http://localhost:8080>
+- **In a VM (VMware, VirtualBox), from your main computer:** run `hostname -I`
+  inside the VM and open `http://THAT-ADDRESS:8080` on your main computer.
+  Fine for testing at home; never do this on a public server.
 - **On a server without a domain yet:** don't open port 8080 to the internet.
   From your own PC, open a private tunnel and browse to it as if it were
   local:
@@ -267,7 +294,8 @@ your authenticator app.
 | Start it again | `docker compose up -d` |
 | Apply a change you made in `.env` | `docker compose up -d --force-recreate` |
 | Watch the API log | `docker compose logs -f backend` (Ctrl+C to stop) |
-| Update to a new version | see [`GUIDE.md` §12](../GUIDE.md#12-updating-safely-and-rolling-back) (backup first) |
+| Update a test copy to the newest code | `git pull --ff-only`, then `docker compose up -d --build` |
+| Update a live site | see [`GUIDE.md` §12](../GUIDE.md#12-updating-safely-and-rolling-back) (backup first) |
 
 The site starts by itself after a reboot (Docker restarts the containers).
 
@@ -299,7 +327,12 @@ from Step 8.
 | Authenticator code refused | The phone's clock is off. Turn on *automatic date & time* on the phone, then type a fresh code (each lasts 30 seconds). |
 | Closed the browser at the setup-key step | No harm. Open **Admin** again: it shows a new setup key. Delete the half-made entry in the app. |
 | Admin pages say **"Set up your authenticator app"** | Expected on the owner's first visit: open **Admin**, add the setup key to your authenticator app and type the code (Step 7). |
-| `permission denied … /var/run/docker.sock` | Log out and in again after `usermod` (Step 1), or prefix commands with `sudo`. |
+| `permission denied … /var/run/docker.sock` | Docker is installed; your terminal isn't in the `docker` group yet (`groups` doesn't list it). Reboot after `usermod` (Step 1). Don't reinstall Docker. |
+| `trying to overwrite '/usr/libexec/docker/cli-plugins/docker-compose'` or `N not fully installed or removed` | A second copy of Docker (`docker.io`, `docker-compose-v2`) was installed on top of the first. Run *Repair a mixed install* in [`GUIDE.md` §1](../GUIDE.md#1-install-the-prerequisites-ubuntu). |
+| `failed to solve: image "docker.io/library/manga-backend:latest": already exists` | Old copy of the code (it built the same image once per worker at the same time). `git pull --ff-only`, then Step 4 again. Or, without updating: `docker compose build backend web` and then `docker compose up -d`. |
+| `(health: starting)` in `docker compose ps` | Normal for the first minute. Wait, then run `docker compose ps` again. |
+| `no such service: docker` | Two commands were pasted on one line. Paste one per line. |
+| `git pull` asks for a GitHub username | Press **Ctrl+C** (Enter would skip the pull and run the next commands on the old code). See the matching row in [`GUIDE.md` §10](../GUIDE.md#10-troubleshooting). |
 | `Set EMAIL_ENCRYPTION_KEY to a Fernet key` | There is no `.env`, or you're in the wrong folder. `cd ~/manga-website-v1.01`, then Step 3. |
 | `password authentication failed` (database) | The database was created with other passwords than the ones now in `.env` (e.g. `.env` was remade). If the site has no content yet: [Start again from zero](#start-again-from-zero). |
 | Site loads but sign-in keeps looping | On `http://localhost`, `FORCE_HTTPS_REDIRECTS` must be `false` (`make_env.py --local` does this). Fix the line, then `docker compose up -d --force-recreate`. |

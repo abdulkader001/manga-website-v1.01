@@ -135,9 +135,29 @@ exceptions; for those, restore the database backup taken before the update.
 
 ## Change entries
 
+### 2026-10-03 — Linux test install: one image build, Docker install mix-ups, errors from a real run
+
+Merge SHA: fill in when known (the next PR fills it in). Branch `claude/elegant-goldberg-1p4atv`.
+
+The owner installed the site for testing on Ubuntu 26.04 in a VMware VM by following the guide and sent the two terminal logs. The site came up healthy in the end, but on the way: the first `docker compose up -d --build` failed, and the guide's Docker fallback broke the Docker install.
+
+| Change | Why | Main files |
+| --- | --- | --- |
+| **The backend image is built once.** Only `backend` keeps `build:`; the migration job, the eight workers and beat run `manga-backend:latest` with `pull_policy: never` (a local image, never looked for on Docker Hub). Compose builds before it creates any container, so a plain `up -d` on a new machine still builds it first. The scale overlay's workers no longer build it either | Ten services built the same image in parallel; on Docker 29 (containerd image store) the exports collided: `failed to solve: image "docker.io/library/manga-backend:latest": already exists`. It happened on one fresh build and not the next | `docker-compose.yml`, `backend_fastapi/deployment/docker-compose.scale.yml` |
+| **Docker install:** `permission denied … docker.sock` right after the installer is explained as "not in the group yet, reboot", not as a failed install; the `docker.io` + `docker-compose-v2` fallback is only for an installer that failed, with a warning that the two copies can't be mixed and a *Repair a mixed install* block (the commands that fixed the owner's VM) | The owner followed the fallback after the installer had worked; it removed `docker-ce` and stopped half-way on `trying to overwrite '/usr/libexec/docker/cli-plugins/docker-compose'` | `GUIDE.md` §1, `guide/INSTALL-LINUX.md` Step 1 |
+| Troubleshooting rows for every message in the logs: the `already exists` build error (with the workaround for an old checkout), the `dpkg` overwrite, *"N not fully installed or removed"*, *"no such service: docker"* (two commands on one line), `(health: starting)` right after `up`, and `git pull` asking for a GitHub username. The Linux guide now says to reboot after `usermod`, checks `groups`, lists the 13 lines `docker compose ps` should show, and how to open the site in a VM from the main computer | Each one stopped or confused the owner | `GUIDE.md` §10 and §11, `guide/INSTALL-LINUX.md` |
+| "How these commands were checked" now records the owner's real run (Ubuntu 26.04, Docker 29.8, Compose v5.6: build, all services healthy, migrations, Tesseract, the §4.1 update) | The image builds were marked "not run" | `GUIDE.md` |
+
+- **Database:** none.
+- **Settings:** none.
+- **Check:** `docker compose config --format json` lists `build` only for `backend` and `web` (also with `-f docker-compose.small.yml` and with the scale overlay). On a machine without the image: `docker compose up -d --build` prints one `Image manga-backend:latest Built` and every service becomes `healthy`.
+- **Undo:** `git revert -m 1 <merge>`. Nothing to migrate; the next `up -d --build` builds the image the old way.
+
+---
+
 ### 2026-10-03 — New-chapter alerts for bookmarked series; logo and homepage heading owner-only; clean-up
 
-Merge SHA: fill in when known (the next PR fills it in). Branch `claude/funny-gauss-k12tkr` (restarted from `main` after #42 merged).
+PR #43, merge `485a1e5`. Branch `claude/funny-gauss-k12tkr` (restarted from `main` after #42 merged).
 
 The owner asked that a new chapter reaches every reader who bookmarked the series, that the logo a visitor could "change" from the navbar be fixed, and for the follow-ups recommended after the bug test.
 

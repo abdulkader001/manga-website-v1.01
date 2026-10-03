@@ -29,11 +29,10 @@
 # ============================================================================
 
 x-scale-worker: &scale-worker
+  # Built once by the base file's `backend` service; building it here again in
+  # every worker makes the parallel exports collide ("image ... already exists").
   image: manga-backend:latest
-  build:
-    context: .
-    dockerfile: backend_fastapi/Dockerfile
-  pull_policy: build
+  pull_policy: never
   restart: unless-stopped
   env_file:
     - .env

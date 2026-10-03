@@ -30,10 +30,16 @@ x-backend-build: &backend-build
 
 x-backend-image: &backend-image manga-backend:latest
 
+# Only `backend` builds manga-backend:latest; the migration job, the workers and
+# beat run that same image. When each of them carried its own `build:`, Compose
+# built the one image ten times at once, and on Docker 29 (containerd image
+# store) the parallel exports collided: "failed to solve: image
+# docker.io/library/manga-backend:latest: already exists". `pull_policy: never`
+# stops Compose from looking for this local-only image on Docker Hub; Compose
+# builds before it creates any container, so the image is always there.
 x-backend-service: &backend-service
   image: *backend-image
-  build: *backend-build
-  pull_policy: build
+  pull_policy: never
 
 # F-30: one Celery worker PER routed queue, mirroring backend_fastapi/deployment/docker-compose.scale.yml's
 # per-queue worker pattern (just single-replica / low-concurrency here, since the
@@ -221,6 +227,9 @@ services:
   # ======================
   backend:
     <<: *backend-service
+    # The one service that builds the shared image (see x-backend-service).
+    build: *backend-build
+    pull_policy: build
     container_name: manga-stack-backend
     restart: unless-stopped
     working_dir: /app
