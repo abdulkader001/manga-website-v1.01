@@ -546,6 +546,8 @@ const api = {
       mirrorImages: (id) => api.post(`/admin/series/${id}/mirror-images`),
       updateLayout: (id, layout) => api.post(`/admin/series/${id}/layout`, layout),
       batchSchedule: (mangaIds, schedule) => api.post("/admin/series/batch-schedule", { manga_ids: mangaIds, ...schedule }),
+      // status: none | requested | taken_down. taken_down deletes the stored pictures.
+      takedown: (id, { status, reason }) => api.post(`/admin/series/${id}/takedown`, { status, reason }),
     },
     rescrapeChapter: (chapterId, { delete_previous = false } = {}) =>
       api.post(`/admin/chapters/${chapterId}/rescrape`, { delete_previous }),

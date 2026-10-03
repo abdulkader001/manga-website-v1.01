@@ -38,6 +38,11 @@ def mirror_chapter_by_id(db: Session, chapter_id: int) -> Dict[str, Any]:
         return {"status": "skipped", "reason": "chapter_not_found"}
     if not page_image_service.mirroring_enabled():
         return {"status": "skipped", "reason": "disabled"}
+    from .takedown import is_taken_down
+
+    if is_taken_down(chapter.manga):
+        # plan.md P1-2: a taken-down series keeps no pictures on this server.
+        return {"status": "skipped", "reason": "taken_down"}
     sources = _source_urls(chapter)
     if not sources or not needs_mirroring(chapter):
         return {"status": "skipped", "reason": "nothing_to_mirror"}

@@ -425,12 +425,31 @@ async def import_bookmarks(
 # ---------------------------------------------------------------------------
 
 
+def _visible_to(db: Session, user: Optional[User], mangas) -> bool:
+    """Whether a picture of these series may be served (plan.md P1-2): staff
+    always, everyone else only while one of them may be hosted."""
+
+    from ...dependencies.auth import is_secondary_or_higher
+    from ...services.content_rights import hostable_manga_ids
+
+    if user is not None and is_secondary_or_higher(user):
+        return True
+    return bool(hostable_manga_ids(db, mangas))
+
+
 @router.get("/manga/covers/{filename}")
-def serve_cover(filename: str) -> Response:
+def serve_cover(
+    filename: str,
+    db: Session = Depends(get_db),
+    user: Optional[User] = Depends(get_optional_user),
+) -> Response:
     from ...services import cover_service
 
     target = cover_service.path_for(filename)
     if target is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="not_found")
+    owners = db.query(Manga).filter(Manga.cover_image == cover_service.public_url(filename)).all()
+    if owners and not _visible_to(db, user, owners):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="not_found")
     return FileResponse(
         target,
@@ -443,7 +462,13 @@ def serve_cover(filename: str) -> Response:
 
 
 @router.get("/manga/pages/{manga_id}/{chapter_id}/{filename}")
-def serve_page_image(manga_id: int, chapter_id: int, filename: str) -> Response:
+def serve_page_image(
+    manga_id: int,
+    chapter_id: int,
+    filename: str,
+    db: Session = Depends(get_db),
+    user: Optional[User] = Depends(get_optional_user),
+) -> Response:
     """A stored chapter page (WebP, or the source's own JPEG/PNG/WebP when it
     needed no change). Names are content-addressed,
     so browsers and CDNs may cache them forever."""
@@ -452,6 +477,9 @@ def serve_page_image(manga_id: int, chapter_id: int, filename: str) -> Response:
 
     target = page_image_service.path_for(manga_id, chapter_id, filename)
     if target is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="not_found")
+    manga = db.get(Manga, manga_id)
+    if manga is None or not _visible_to(db, user, [manga]):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="not_found")
     return FileResponse(
         target,

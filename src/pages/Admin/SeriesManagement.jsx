@@ -5,6 +5,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import api, { apiFetch } from "../../services/api";
 import { auditUrlSecurity } from "../../utils/urlValidator";
 import useStaffPermissions from "../../hooks/useStaffPermissions";
+import TakedownPanel from "./TakedownPanel";
 
 const FREQUENCY_PRESETS = [
   { key: "hourly_6", label: "Every 6 Hours (Fast Hot Release)", freq: "hourly", val: 6, unit: "hours" },
@@ -52,6 +53,8 @@ export default function SeriesManagement() {
   const { can } = useStaffPermissions();
   const canAi = can("configure_scraper_ai");
   const canParser = can("trigger_scraper_ai");
+  const canTakedown = can("set_takedown");
+  const [takedownManga, setTakedownManga] = useState(null);
 
   // Search and Filter Tab state
   const [search, setSearch] = useState("");
@@ -998,6 +1001,18 @@ export default function SeriesManagement() {
                           >
                             <i className="fas fa-clock text-xs"></i>
                           </button>
+                          {canTakedown && (
+                            <button
+                              type="button"
+                              onClick={() => setTakedownManga(m)}
+                              className={`p-2 rounded-xl bg-[#101216] hover:bg-amber-500 hover:text-white border border-[#262a33] transition ${
+                                m.takedown_status === "taken_down" ? "text-red-400" : m.takedown_status === "requested" ? "text-amber-400" : "text-gray-300"
+                              }`}
+                              title={`Takedown (${m.takedown_status || "none"})`}
+                            >
+                              <i className="fas fa-ban text-xs"></i>
+                            </button>
+                          )}
                           <button
                             type="button"
                             onClick={() => handleDelete(m.id, m.title)}
@@ -1392,6 +1407,17 @@ export default function SeriesManagement() {
       )}
 
       {/* Picture Layout Modal */}
+      {takedownManga && (
+        <TakedownPanel
+          manga={takedownManga}
+          onClose={() => setTakedownManga(null)}
+          onSaved={(_res, status) => {
+            setNotice({ type: "success", message: `Takedown status of "${takedownManga.title}" is now ${status}.` });
+            setTakedownManga(null);
+            queryClient.invalidateQueries({ queryKey: ["mangaCatalogAdmin"] });
+          }}
+        />
+      )}
       {layoutManga && (
         <div className="fixed inset-0 z-50 flex [align-items:safe_center] justify-center overflow-y-auto bg-black/80 backdrop-blur-sm p-4 animate-in fade-in">
           <form
