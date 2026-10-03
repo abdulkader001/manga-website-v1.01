@@ -49,6 +49,10 @@ describe("HistorySync", () => {
 
   it("on a browser's first sign-in sends what it has, then shows the account's list", async () => {
     recordRead(5, 11, 1); // read as a guest
+    // The sync keeps chapters opened *since it started*; on a fast machine the
+    // guest read and the start can fall in the same millisecond, so let the
+    // clock move on and the read is clearly from before.
+    await new Promise((resolve) => setTimeout(resolve, 5));
     api.history.sync.mockResolvedValue({
       entries: [entry(5, 12, 2, "2026-02-01T10:00:00Z"), entry(5, 11, 1)],
     });

@@ -47,7 +47,7 @@ sign in with Google using the e-mail whose hash is in `.env`:
 python backend_fastapi/scripts/make_admin_hash.py --write .env
 ```
 
-(Docker: the `docker run ...` line in [`GUIDE.md` Section 6](GUIDE.md#6-become-the-owner-sign-in-with-google).)
+(Docker: the `docker run ...` line in [`TEST_COMPUTER.md` Section 6.2](TEST_COMPUTER.md#62-write-the-owner-line); for a live server, [`GUIDE.md` Section 6](GUIDE.md#6-google-sign-in-and-the-owner-e-mail).)
 Type the Gmail you will sign in with. After Step 4, **Continue with Google**
 with that Gmail makes your account the owner (Google must say the address is
 verified, and the site must not have an owner yet). Open **Admin** next: it asks

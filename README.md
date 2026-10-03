@@ -4,10 +4,11 @@ React UI (`src/`) on a FastAPI + Postgres + Redis + Celery backend
 (`backend_fastapi/`). Read `backend_fastapi/README.md` for how imports, parsers,
 picture compression and layouts work.
 
-**Installing or running the site? Start at [`guide/README.md`](guide/README.md):**
-A. a local test on your computer (no domain), or B. the live server people visit
-([`guide/LIVE-SERVER.md`](guide/LIVE-SERVER.md)). The commands below are the
-developer setup only.
+**Installing or running the site?**
+- Trying it on your own computer, no domain: [`TEST_COMPUTER.md`](TEST_COMPUTER.md)
+- The live server people visit (Linux, domain, HTTPS, backups): [`GUIDE.md`](GUIDE.md)
+
+The commands below are the developer setup only.
 
 ```bash
 cp .env.example .env                 # fill in the secrets

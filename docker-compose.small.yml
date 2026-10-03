@@ -2,7 +2,7 @@
 #
 #   docker compose -f docker-compose.yml -f docker-compose.small.yml up -d --build
 #
-# What it changes (see GUIDE.md "Small server"):
+# What it changes (see GUIDE.md, "Small server (1 GB RAM)"):
 #   * two Celery workers instead of eight, each a single process (solo pool):
 #       - celery_worker        reader-facing work: translation, OCR, e-mail,
 #                              notifications, default

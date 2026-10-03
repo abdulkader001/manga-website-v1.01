@@ -252,7 +252,7 @@ function DomainCard({ unlocked, onLocked, onSwitched }) {
         <p className="text-[#8b93a3] mt-1">
           If the domain is taken down: point a new domain at this server, check it here, then switch. The
           site address, allowed origins and the Google, Microsoft and magic-link return addresses all
-          follow. Step-by-step: GUIDE.md, &quot;If your domain is taken down&quot;.
+          follow. Step-by-step: GUIDE.md, &quot;Move to a new domain if yours is taken down&quot;.
         </p>
       </div>
 
